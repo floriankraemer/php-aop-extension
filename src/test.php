@@ -1,3 +1,11 @@
 <?php
+$pointcut = new Pointcut();
+$advice = new Advice(function ()
+{
+    echo "Advice executed!";
+});
 
-echo confirm_aop_compiled();
+$aspect = new Aspect();
+$aspect->addAdvice($pointcut, $advice);
+
+var_dump($aspect);
