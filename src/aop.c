@@ -15,7 +15,7 @@ ZEND_END_ARG_INFO()
 // Arginfo for Aspect::addAdvice
 ZEND_BEGIN_ARG_INFO_EX(arginfo_aspect_add_advice, 0, 0, 2)
     ZEND_ARG_OBJ_INFO(0, pointcut, Pointcut, 0) // Pointcut object
-    ZEND_ARG_OBJ_INFO(0, advice, Advice, 0)    // Advice object
+    ZEND_ARG_OBJ_INFO(0, advice, Advice, 0)     // Advice object
 ZEND_END_ARG_INFO()
 
 // Arginfo for Pointcut::__construct
@@ -183,6 +183,7 @@ PHP_MSHUTDOWN_FUNCTION(aop)
 {
     // Restore the original execute_ex
     zend_execute_ex = original_execute_ex;
+
     return SUCCESS;
 }
 
