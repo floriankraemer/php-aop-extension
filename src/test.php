@@ -1,11 +1,11 @@
 <?php
-$pointcut = new Pointcut();
-$advice = new Advice(function ()
+class TestClass
 {
-    echo "Advice executed!";
-});
+    public function myMethod()
+    {
+        echo "Original method execution.\n";
+    }
+}
 
-$aspect = new Aspect();
-$aspect->addAdvice($pointcut, $advice);
-
-var_dump($aspect);
+$obj = new TestClass();
+$obj->myMethod();

@@ -1,5 +1,8 @@
 #include "php.h"
 
+// Global to hold the original execute_ex
+static void (*original_execute_ex)(zend_execute_data *execute_data);
+
 // Define Class Entries
 zend_class_entry *pointcut_ce;
 zend_class_entry *advice_ce;
@@ -119,6 +122,34 @@ const zend_function_entry advice_methods[] = {
     PHP_FE_END
 };
 
+// Function to intercept method calls
+void aop_execute_ex(zend_execute_data *execute_data)
+{
+    zend_function *func = execute_data->func;
+    if (func && func->common.function_name) {
+        const char *method_name = ZSTR_VAL(func->common.function_name);
+
+        // Check for a match with Pointcut (dummy check for demonstration)
+        php_printf("[AOP] Intercepting method: %s\n", method_name);
+
+        // Example: call advice before execution
+        php_printf("[AOP] Executing advice before method call.\n");
+
+        // Call the original method
+        if (original_execute_ex) {
+            original_execute_ex(execute_data);
+        }
+
+        // Example: call advice after execution
+        php_printf("[AOP] Executing advice after method call.\n");
+    } else {
+        // No method name, fallback to original
+        if (original_execute_ex) {
+            original_execute_ex(execute_data);
+        }
+    }
+}
+
 // Module init to register classes
 PHP_MINIT_FUNCTION(aop)
 {
@@ -138,6 +169,20 @@ PHP_MINIT_FUNCTION(aop)
     aspect_ce = zend_register_internal_class(&ce);
     zend_declare_property_null(aspect_ce, "adviceMap", sizeof("adviceMap") - 1, ZEND_ACC_PRIVATE);
 
+    // Save the original execute_ex
+    original_execute_ex = zend_execute_ex;
+
+    // Override execute_ex
+    zend_execute_ex = aop_execute_ex;
+
+    return SUCCESS;
+}
+
+// Module shutdown to restore the original execute_ex
+PHP_MSHUTDOWN_FUNCTION(aop)
+{
+    // Restore the original execute_ex
+    zend_execute_ex = original_execute_ex;
     return SUCCESS;
 }
 
@@ -147,7 +192,7 @@ zend_module_entry aop_module_entry = {
     "aop",
     NULL,
     PHP_MINIT(aop),
-    NULL,
+    PHP_MSHUTDOWN(aop),
     NULL,
     NULL,
     NULL,
