@@ -1,0 +1,10 @@
+services:
+  php:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: php-extension-dev
+    volumes:
+      - ./src:/usr/src/php-extension
+    working_dir: /usr/src/php-extension
+    tty: true
