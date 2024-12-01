@@ -1,8 +1,9 @@
 # Use the official PHP 8.3 image
 FROM php:8.3-cli
 
-# Install required dependencies
+# Install required dependencies including sudo
 RUN apt-get update && apt-get install -y \
+    sudo \
     git \
     build-essential \
     autoconf \
@@ -14,11 +15,11 @@ RUN apt-get update && apt-get install -y \
     vim \
     && apt-get clean
 
-# Ensure phpize and PHP source are available
-RUN docker-php-source extract
-
 # Add a non-root user for development
 RUN useradd -ms /bin/bash developer
+
+# Add developer user to sudoers (grant sudo privileges)
+RUN echo "developer ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/developer
 
 # Fix permissions for the PHP extensions directory
 RUN chown -R developer:developer /usr/local/lib/php/extensions
