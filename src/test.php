@@ -1,11 +1,9 @@
 <?php
-class TestClass
-{
-    public function myMethod()
-    {
-        echo "Original method execution.\n";
-    }
-}
+$pointcut = new Pointcut();
+$pointcut->setExpression("execution(*->methodName)");
 
-$obj = new TestClass();
-$obj->myMethod();
+$result = $pointcut->matches("methodName");
+var_dump($result); // Expect: true
+
+$result = $pointcut->matches("otherMethod");
+var_dump($result); // Expect: false

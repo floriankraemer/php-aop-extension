@@ -3,23 +3,40 @@
 // Global to hold the original execute_ex
 static void (*original_execute_ex)(zend_execute_data *execute_data);
 
+// Function to intercept method calls
+void aop_execute_ex(zend_execute_data *execute_data)
+{
+    zend_function *func = execute_data->func;
+    if (func && func->common.function_name) {
+        const char *method_name = ZSTR_VAL(func->common.function_name);
+
+        php_printf("[AOP] Intercepting method: %s\n", method_name);
+        php_printf("[AOP] Executing advice before method call.\n");
+
+        if (original_execute_ex) {
+            original_execute_ex(execute_data);
+        }
+
+        php_printf("[AOP] Executing advice after method call.\n");
+    } else {
+        if (original_execute_ex) {
+            original_execute_ex(execute_data);
+        }
+    }
+}
+
 // Define Class Entries
 zend_class_entry *pointcut_ce;
 zend_class_entry *advice_ce;
 zend_class_entry *aspect_ce;
 
-// Arginfo for Aspect::__construct
-ZEND_BEGIN_ARG_INFO_EX(arginfo_aspect_construct, 0, 0, 0)
-ZEND_END_ARG_INFO()
-
-// Arginfo for Aspect::addAdvice
-ZEND_BEGIN_ARG_INFO_EX(arginfo_aspect_add_advice, 0, 0, 2)
-    ZEND_ARG_OBJ_INFO(0, pointcut, Pointcut, 0) // Pointcut object
-    ZEND_ARG_OBJ_INFO(0, advice, Advice, 0)     // Advice object
-ZEND_END_ARG_INFO()
-
 // Arginfo for Pointcut::__construct
 ZEND_BEGIN_ARG_INFO_EX(arginfo_pointcut_construct, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+// Arginfo for Pointcut::setExpression
+ZEND_BEGIN_ARG_INFO_EX(arginfo_pointcut_set_expression, 0, 0, 1)
+    ZEND_ARG_TYPE_INFO(0, expression, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
 // Arginfo for Pointcut::matches
@@ -27,10 +44,62 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_pointcut_matches, 0, 0, 1)
     ZEND_ARG_TYPE_INFO(0, method_name, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
+// Arginfo for Aspect::__construct
+ZEND_BEGIN_ARG_INFO_EX(arginfo_aspect_construct, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+// Arginfo for Aspect::addAdvice
+ZEND_BEGIN_ARG_INFO_EX(arginfo_aspect_add_advice, 0, 0, 2)
+    ZEND_ARG_OBJ_INFO(0, pointcut, Pointcut, 0)
+    ZEND_ARG_OBJ_INFO(0, advice, Advice, 0)
+ZEND_END_ARG_INFO()
+
 // Arginfo for Advice::__construct
 ZEND_BEGIN_ARG_INFO_EX(arginfo_advice_construct, 0, 0, 1)
-    ZEND_ARG_CALLABLE_INFO(0, callback, 0) // Expect a callable
+    ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 ZEND_END_ARG_INFO()
+
+// Method: Pointcut::__construct
+PHP_METHOD(Pointcut, __construct)
+{
+    zend_update_property_null(pointcut_ce, Z_OBJ_P(getThis()), "expression", sizeof("expression") - 1);
+}
+
+// Method: Pointcut::setExpression
+PHP_METHOD(Pointcut, setExpression)
+{
+    zend_string *expression;
+
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_STR(expression)
+    ZEND_PARSE_PARAMETERS_END();
+
+    zend_update_property_str(pointcut_ce, Z_OBJ_P(getThis()), "expression", sizeof("expression") - 1, expression);
+}
+
+// Method: Pointcut::matches
+PHP_METHOD(Pointcut, matches)
+{
+    zend_string *method_name;
+    zval *expression_property;
+
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_STR(method_name)
+    ZEND_PARSE_PARAMETERS_END();
+
+    expression_property = zend_read_property(pointcut_ce, Z_OBJ_P(getThis()), "expression", sizeof("expression") - 1, 0, NULL);
+
+    if (Z_TYPE_P(expression_property) == IS_STRING) {
+        const char *expression = ZSTR_VAL(Z_STR_P(expression_property));
+        const char *method = ZSTR_VAL(method_name);
+
+        if (strstr(expression, "*->") && strstr(expression, method)) {
+            RETURN_TRUE;
+        }
+    }
+
+    RETURN_FALSE;
+}
 
 // Method: Aspect::__construct
 PHP_METHOD(Aspect, __construct)
@@ -48,40 +117,18 @@ PHP_METHOD(Aspect, addAdvice)
         Z_PARAM_OBJECT_OF_CLASS(advice, advice_ce)
     ZEND_PARSE_PARAMETERS_END();
 
-    // Fetch adviceMap property
     adviceMap = zend_read_property(aspect_ce, Z_OBJ_P(getThis()), "adviceMap", sizeof("adviceMap") - 1, 0, NULL);
 
-    // Initialize adviceMap if null
     if (Z_TYPE_P(adviceMap) != IS_ARRAY) {
         zval newMap;
         array_init(&newMap);
         zend_update_property(aspect_ce, Z_OBJ_P(getThis()), "adviceMap", sizeof("adviceMap") - 1, &newMap);
-        zval_ptr_dtor(&newMap); // Decrement reference to prevent memory leaks
+        zval_ptr_dtor(&newMap);
         adviceMap = zend_read_property(aspect_ce, Z_OBJ_P(getThis()), "adviceMap", sizeof("adviceMap") - 1, 0, NULL);
     }
 
-    // Add advice to adviceMap
     add_next_index_zval(adviceMap, advice);
-    Z_TRY_ADDREF_P(advice); // Ensure proper reference counting
-}
-
-// Method: Pointcut::__construct
-PHP_METHOD(Pointcut, __construct)
-{
-    RETURN_TRUE;
-}
-
-// Method: Pointcut::matches
-PHP_METHOD(Pointcut, matches)
-{
-    zend_string *method_name;
-
-    ZEND_PARSE_PARAMETERS_START(1, 1)
-        Z_PARAM_STR(method_name)
-    ZEND_PARSE_PARAMETERS_END();
-
-    php_printf("Matching method: %s\n", ZSTR_VAL(method_name));
-    RETURN_TRUE;
+    Z_TRY_ADDREF_P(advice);
 }
 
 // Method: Advice::__construct
@@ -102,88 +149,52 @@ PHP_METHOD(Advice, __construct)
     RETURN_TRUE;
 }
 
-// Method registration for Aspect class
+// Method registration arrays
+const zend_function_entry pointcut_methods[] = {
+    PHP_ME(Pointcut, __construct, arginfo_pointcut_construct, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
+    PHP_ME(Pointcut, setExpression, arginfo_pointcut_set_expression, ZEND_ACC_PUBLIC)
+    PHP_ME(Pointcut, matches, arginfo_pointcut_matches, ZEND_ACC_PUBLIC)
+    PHP_FE_END
+};
+
+const zend_function_entry advice_methods[] = {
+    PHP_ME(Advice, __construct, arginfo_advice_construct, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
+    PHP_FE_END
+};
+
 const zend_function_entry aspect_methods[] = {
     PHP_ME(Aspect, __construct, arginfo_aspect_construct, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
     PHP_ME(Aspect, addAdvice, arginfo_aspect_add_advice, ZEND_ACC_PUBLIC)
     PHP_FE_END
 };
 
-// Method registration for Pointcut class
-const zend_function_entry pointcut_methods[] = {
-    PHP_ME(Pointcut, __construct, arginfo_pointcut_construct, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
-    PHP_ME(Pointcut, matches, arginfo_pointcut_matches, ZEND_ACC_PUBLIC)
-    PHP_FE_END
-};
-
-// Method registration for Advice class
-const zend_function_entry advice_methods[] = {
-    PHP_ME(Advice, __construct, arginfo_advice_construct, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
-    PHP_FE_END
-};
-
-// Function to intercept method calls
-void aop_execute_ex(zend_execute_data *execute_data)
-{
-    zend_function *func = execute_data->func;
-    if (func && func->common.function_name) {
-        const char *method_name = ZSTR_VAL(func->common.function_name);
-
-        // Check for a match with Pointcut (dummy check for demonstration)
-        php_printf("[AOP] Intercepting method: %s\n", method_name);
-
-        // Example: call advice before execution
-        php_printf("[AOP] Executing advice before method call.\n");
-
-        // Call the original method
-        if (original_execute_ex) {
-            original_execute_ex(execute_data);
-        }
-
-        // Example: call advice after execution
-        php_printf("[AOP] Executing advice after method call.\n");
-    } else {
-        // No method name, fallback to original
-        if (original_execute_ex) {
-            original_execute_ex(execute_data);
-        }
-    }
-}
-
-// Module init to register classes
+// Module init
 PHP_MINIT_FUNCTION(aop)
 {
     zend_class_entry ce;
 
-    // Register Pointcut class
     INIT_CLASS_ENTRY(ce, "Pointcut", pointcut_methods);
     pointcut_ce = zend_register_internal_class(&ce);
+    zend_declare_property_null(pointcut_ce, "expression", sizeof("expression") - 1, ZEND_ACC_PRIVATE);
 
-    // Register Advice class
     INIT_CLASS_ENTRY(ce, "Advice", advice_methods);
     advice_ce = zend_register_internal_class(&ce);
     zend_declare_property_null(advice_ce, "callback", sizeof("callback") - 1, ZEND_ACC_PRIVATE);
 
-    // Register Aspect class
     INIT_CLASS_ENTRY(ce, "Aspect", aspect_methods);
     aspect_ce = zend_register_internal_class(&ce);
     zend_declare_property_null(aspect_ce, "adviceMap", sizeof("adviceMap") - 1, ZEND_ACC_PRIVATE);
 
-    // Save the original execute_ex
     original_execute_ex = zend_execute_ex;
-
-    // Override execute_ex
     zend_execute_ex = aop_execute_ex;
 
     return SUCCESS;
 }
 
-// Module shutdown to restore the original execute_ex
+// Module shutdown
 PHP_MSHUTDOWN_FUNCTION(aop)
 {
-    // Restore the original execute_ex
     zend_execute_ex = original_execute_ex;
-
     return SUCCESS;
 }
 
