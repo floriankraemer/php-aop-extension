@@ -50,7 +50,6 @@ void aop_execute_ex(zend_execute_data *execute_data)
     }
 }
 
-
 // Define Class Entries
 zend_class_entry *pointcut_ce;
 zend_class_entry *advice_ce;

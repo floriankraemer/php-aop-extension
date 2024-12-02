@@ -1,0 +1,1 @@
+php -d extension=aop.so test.php

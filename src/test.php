@@ -27,7 +27,7 @@ $adviceCallback = function ($joinPoint)
 };
 
 // Create the necessary objects
-$pointcut = new Pointcut();
+$pointcut = new PointCut();
 $pointcut->setExpression("execution(*->myMethod)");
 
 $advice = new Advice($adviceCallback);
