@@ -10,25 +10,60 @@ void aop_execute_ex(zend_execute_data *execute_data)
     if (func && func->common.function_name) {
         const char *method_name = ZSTR_VAL(func->common.function_name);
 
+        // Log method interception
         php_printf("[AOP] Intercepting method: %s\n", method_name);
-        php_printf("[AOP] Executing advice before method call.\n");
 
+        // Handle input arguments
+        php_printf("[AOP] Input arguments:\n");
+        uint32_t num_args = ZEND_CALL_NUM_ARGS(execute_data);
+        for (uint32_t i = 0; i < num_args; i++) {
+            zval *arg = ZEND_CALL_ARG(execute_data, i + 1);
+            php_printf("  Arg %u: ", i + 1);
+            if (arg) {
+                zend_print_zval(arg, 0);
+            } else {
+                php_printf("(null)");
+            }
+            php_printf("\n");
+        }
+
+        // Call the original method
         if (original_execute_ex) {
             original_execute_ex(execute_data);
         }
 
-        php_printf("[AOP] Executing advice after method call.\n");
+        // Safely handle output
+        php_printf("[AOP] Output: ");
+        if (execute_data->return_value) {
+            zend_print_zval(execute_data->return_value, 0);
+        } else {
+            php_printf("(null)");
+        }
+        php_printf("\n");
+
+        php_printf("[AOP] Method call completed: %s\n", method_name);
     } else {
+        // Fallback to the original execution if no valid function
         if (original_execute_ex) {
             original_execute_ex(execute_data);
         }
     }
 }
 
+
 // Define Class Entries
 zend_class_entry *pointcut_ce;
 zend_class_entry *advice_ce;
 zend_class_entry *aspect_ce;
+zend_class_entry *joinpoint_ce;
+
+// Arginfo for JoinPoint::__construct
+ZEND_BEGIN_ARG_INFO_EX(arginfo_joinpoint_construct, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+// Arginfo for JoinPoint::getMethodName
+ZEND_BEGIN_ARG_INFO_EX(arginfo_joinpoint_get_method_name, 0, 0, 0)
+ZEND_END_ARG_INFO()
 
 // Arginfo for Pointcut::__construct
 ZEND_BEGIN_ARG_INFO_EX(arginfo_pointcut_construct, 0, 0, 0)
@@ -58,6 +93,40 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(arginfo_advice_construct, 0, 0, 1)
     ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 ZEND_END_ARG_INFO()
+
+// Method: JoinPoint::__construct
+PHP_METHOD(JoinPoint, __construct)
+{
+    // No initialization needed yet
+}
+
+// Method: JoinPoint::getMethodName
+PHP_METHOD(JoinPoint, getMethodName)
+{
+    if (EG(current_execute_data) && EG(current_execute_data)->prev_execute_data && EG(current_execute_data)->prev_execute_data->func) {
+        zend_function *prev_func = EG(current_execute_data)->prev_execute_data->func;
+        if (prev_func->common.function_name) {
+            RETURN_STR_COPY(prev_func->common.function_name);
+        }
+    }
+
+    RETURN_STRING("unknown");
+}
+
+// Register JoinPoint methods
+const zend_function_entry joinpoint_methods[] = {
+    PHP_ME(JoinPoint, __construct, arginfo_joinpoint_construct, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
+    PHP_ME(JoinPoint, getMethodName, arginfo_joinpoint_get_method_name, ZEND_ACC_PUBLIC)
+    PHP_FE_END
+};
+
+// Initialize JoinPoint class
+void joinpoint_init()
+{
+    zend_class_entry ce;
+    INIT_CLASS_ENTRY(ce, "JoinPoint", joinpoint_methods);
+    joinpoint_ce = zend_register_internal_class(&ce);
+}
 
 // Method: Pointcut::__construct
 PHP_METHOD(Pointcut, __construct)
@@ -184,6 +253,8 @@ PHP_MINIT_FUNCTION(aop)
     INIT_CLASS_ENTRY(ce, "Aspect", aspect_methods);
     aspect_ce = zend_register_internal_class(&ce);
     zend_declare_property_null(aspect_ce, "adviceMap", sizeof("adviceMap") - 1, ZEND_ACC_PRIVATE);
+
+    joinpoint_init();
 
     original_execute_ex = zend_execute_ex;
     zend_execute_ex = aop_execute_ex;
