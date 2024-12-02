@@ -112,21 +112,6 @@ PHP_METHOD(JoinPoint, getMethodName)
     RETURN_STRING("unknown");
 }
 
-// Register JoinPoint methods
-const zend_function_entry joinpoint_methods[] = {
-    PHP_ME(JoinPoint, __construct, arginfo_joinpoint_construct, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
-    PHP_ME(JoinPoint, getMethodName, arginfo_joinpoint_get_method_name, ZEND_ACC_PUBLIC)
-    PHP_FE_END
-};
-
-// Initialize JoinPoint class
-void joinpoint_init()
-{
-    zend_class_entry ce;
-    INIT_CLASS_ENTRY(ce, "JoinPoint", joinpoint_methods);
-    joinpoint_ce = zend_register_internal_class(&ce);
-}
-
 // Method: Pointcut::__construct
 PHP_METHOD(Pointcut, __construct)
 {
@@ -217,6 +202,13 @@ PHP_METHOD(Advice, __construct)
     RETURN_TRUE;
 }
 
+// Register JoinPoint methods
+const zend_function_entry joinpoint_methods[] = {
+    PHP_ME(JoinPoint, __construct, arginfo_joinpoint_construct, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
+    PHP_ME(JoinPoint, getMethodName, arginfo_joinpoint_get_method_name, ZEND_ACC_PUBLIC)
+    PHP_FE_END
+};
+
 // Method registration arrays
 const zend_function_entry pointcut_methods[] = {
     PHP_ME(Pointcut, __construct, arginfo_pointcut_construct, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
@@ -253,7 +245,8 @@ PHP_MINIT_FUNCTION(aop)
     aspect_ce = zend_register_internal_class(&ce);
     zend_declare_property_null(aspect_ce, "adviceMap", sizeof("adviceMap") - 1, ZEND_ACC_PRIVATE);
 
-    joinpoint_init();
+    INIT_CLASS_ENTRY(ce, "JoinPoint", joinpoint_methods);
+    joinpoint_ce = zend_register_internal_class(&ce);
 
     original_execute_ex = zend_execute_ex;
     zend_execute_ex = aop_execute_ex;
