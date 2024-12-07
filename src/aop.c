@@ -34,22 +34,22 @@ static void aspect_free_object(zend_object *obj)
 }
 
 // Create object handler for Aspect
-static zend_object *aspect_create_object(zend_class_entry *ce)
+static zend_object *aspect_create_object(zend_class_entry *classEntry)
 {
-    aspect_object *intern = zend_object_alloc(sizeof(aspect_object), ce);
-    zend_object *ret = &intern->std;
-    zend_object_std_init(ret, ce);
-    object_properties_init(ret, ce);
-    ret->handlers = &aspect_object_handlers;
+    aspect_object *intern = zend_object_alloc(sizeof(aspect_object), classEntry);
+    zend_object *object  = &intern->std;
+    zend_object_std_init(object , classEntry);
+    object_properties_init(object , classEntry);
+    object->handlers = &aspect_object_handlers;
 
     // Add to the aspect registry
     zval tmp;
-    ZVAL_OBJ(&tmp, ret);
+    ZVAL_OBJ(&tmp, object );
     Z_ADDREF(tmp);
-    zend_ulong key = (zend_ulong)(uintptr_t)ret;
+    zend_ulong key = (zend_ulong)(uintptr_t)object ;
     zend_hash_index_update(&aspect_registry, key, &tmp);
 
-    return ret;
+    return object ;
 }
 
 // Arginfo for JoinPoint::__construct
@@ -412,6 +412,5 @@ zend_module_entry aop_module_entry = {
     NO_VERSION_YET,             // Module version string; currently not set
     STANDARD_MODULE_PROPERTIES  // Standard module properties macro; sets default values for fields
 };
-
 
 ZEND_GET_MODULE(aop)
