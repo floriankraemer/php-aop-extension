@@ -16,6 +16,9 @@ class MyClass
     }
 }
 
+
+
+
 // Define an advice function to intercept input and output
 $adviceCallback = function ($joinPoint)
 {
@@ -41,6 +44,8 @@ $advice = new Advice($adviceCallback);
 
 $aspect = new Aspect();
 $aspect->addAdvice($pointcut, $advice);
+
+
 
 // Execute a test
 $myObject = new MyClass();

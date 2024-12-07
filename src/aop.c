@@ -57,11 +57,6 @@ zend_class_entry *advice_ce;
 zend_class_entry *aspect_ce;
 zend_class_entry *joinpoint_ce;
 
-// Update the arginfo for Pointcut::__construct to accept one string parameter
-ZEND_BEGIN_ARG_INFO_EX(arginfo_pointcut_construct, 0, 0, 1)
-    ZEND_ARG_TYPE_INFO(0, expression, IS_STRING, 0)
-ZEND_END_ARG_INFO()
-
 // Arginfo for JoinPoint::__construct
 ZEND_BEGIN_ARG_INFO_EX(arginfo_joinpoint_construct, 0, 0, 0)
 ZEND_END_ARG_INFO()
@@ -70,27 +65,40 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(arginfo_joinpoint_get_method_name, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
-// Arginfo for Pointcut::setExpression (unchanged, optional)
+// Arginfo for JoinPoint::getClassName
+ZEND_BEGIN_ARG_INFO_EX(arginfo_joinpoint_get_class_name, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+// Arginfo for JoinPoint::getObject
+ZEND_BEGIN_ARG_INFO_EX(arginfo_joinpoint_get_object, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+// Arginfo for Pointcut::__construct
+ZEND_BEGIN_ARG_INFO_EX(arginfo_pointcut_construct, 0, 0, 1)
+    ZEND_ARG_TYPE_INFO(0, expression, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+// Arginfo for Pointcut::setExpression
 ZEND_BEGIN_ARG_INFO_EX(arginfo_pointcut_set_expression, 0, 0, 1)
     ZEND_ARG_TYPE_INFO(0, expression, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
-// Arginfo for Pointcut::matches (unchanged)
+// Arginfo for Pointcut::matches
 ZEND_BEGIN_ARG_INFO_EX(arginfo_pointcut_matches, 0, 0, 1)
     ZEND_ARG_TYPE_INFO(0, method_name, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
-// Arginfo for Aspect::__construct (unchanged)
+// Arginfo for Aspect::__construct
 ZEND_BEGIN_ARG_INFO_EX(arginfo_aspect_construct, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
-// Arginfo for Aspect::addAdvice (unchanged)
+// Arginfo for Aspect::addAdvice
 ZEND_BEGIN_ARG_INFO_EX(arginfo_aspect_add_advice, 0, 0, 2)
     ZEND_ARG_OBJ_INFO(0, pointcut, Pointcut, 0)
     ZEND_ARG_OBJ_INFO(0, advice, Advice, 0)
 ZEND_END_ARG_INFO()
 
-// Arginfo for Advice::__construct (unchanged)
+// Arginfo for Advice::__construct
 ZEND_BEGIN_ARG_INFO_EX(arginfo_advice_construct, 0, 0, 1)
     ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 ZEND_END_ARG_INFO()
@@ -114,7 +122,30 @@ PHP_METHOD(JoinPoint, getMethodName)
     RETURN_STRING("unknown");
 }
 
-// Method: Pointcut::__construct (now takes an expression argument)
+// Method: JoinPoint::getClassName
+PHP_METHOD(JoinPoint, getClassName)
+{
+    zend_execute_data *call = EG(current_execute_data)->prev_execute_data;
+    if (call && call->func && call->func->common.scope) {
+        RETURN_STR_COPY(call->func->common.scope->name);
+    }
+
+    RETURN_STRING("global");
+}
+
+// Method: JoinPoint::getObject
+PHP_METHOD(JoinPoint, getObject)
+{
+    zend_execute_data *call = EG(current_execute_data)->prev_execute_data;
+    if (call && Z_TYPE(call->This) == IS_OBJECT) {
+        // Return the object
+        RETURN_ZVAL(&call->This, 1, 0);
+    }
+
+    RETURN_NULL();
+}
+
+// Method: Pointcut::__construct
 PHP_METHOD(Pointcut, __construct)
 {
     zend_string *expression;
@@ -123,11 +154,10 @@ PHP_METHOD(Pointcut, __construct)
         Z_PARAM_STR(expression)
     ZEND_PARSE_PARAMETERS_END();
 
-    // Store the provided expression in the "expression" property
     zend_update_property_str(pointcut_ce, Z_OBJ_P(getThis()), "expression", sizeof("expression") - 1, expression);
 }
 
-// Method: Pointcut::setExpression (unchanged)
+// Method: Pointcut::setExpression
 PHP_METHOD(Pointcut, setExpression)
 {
     zend_string *expression;
@@ -139,7 +169,7 @@ PHP_METHOD(Pointcut, setExpression)
     zend_update_property_str(pointcut_ce, Z_OBJ_P(getThis()), "expression", sizeof("expression") - 1, expression);
 }
 
-// Method: Pointcut::matches (unchanged)
+// Method: Pointcut::matches
 PHP_METHOD(Pointcut, matches)
 {
     php_printf("[AOP] Entering Pointcut Matches\n");
@@ -166,13 +196,13 @@ PHP_METHOD(Pointcut, matches)
     RETURN_FALSE;
 }
 
-// Method: Aspect::__construct (unchanged)
+// Method: Aspect::__construct
 PHP_METHOD(Aspect, __construct)
 {
     zend_update_property_null(aspect_ce, Z_OBJ_P(getThis()), "adviceMap", sizeof("adviceMap") - 1);
 }
 
-// Method: Aspect::addAdvice (unchanged)
+// Method: Aspect::addAdvice
 PHP_METHOD(Aspect, addAdvice)
 {
     zval *pointcut, *advice, *adviceMap;
@@ -196,7 +226,7 @@ PHP_METHOD(Aspect, addAdvice)
     Z_TRY_ADDREF_P(advice);
 }
 
-// Method: Advice::__construct (unchanged)
+// Method: Advice::__construct
 PHP_METHOD(Advice, __construct)
 {
     zval *callback;
@@ -218,10 +248,12 @@ PHP_METHOD(Advice, __construct)
 const zend_function_entry joinpoint_methods[] = {
     PHP_ME(JoinPoint, __construct, arginfo_joinpoint_construct, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
     PHP_ME(JoinPoint, getMethodName, arginfo_joinpoint_get_method_name, ZEND_ACC_PUBLIC)
+    PHP_ME(JoinPoint, getClassName, arginfo_joinpoint_get_class_name, ZEND_ACC_PUBLIC)
+    PHP_ME(JoinPoint, getObject, arginfo_joinpoint_get_object, ZEND_ACC_PUBLIC)
     PHP_FE_END
 };
 
-// Update pointcut_methods arginfo to reflect the new constructor signature
+// Register Pointcut, Advice, Aspect methods as before
 const zend_function_entry pointcut_methods[] = {
     PHP_ME(Pointcut, __construct, arginfo_pointcut_construct, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
     PHP_ME(Pointcut, setExpression, arginfo_pointcut_set_expression, ZEND_ACC_PUBLIC)
