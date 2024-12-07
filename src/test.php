@@ -45,8 +45,6 @@ $advice = new Advice($adviceCallback);
 $aspect = new Aspect();
 $aspect->addAdvice($pointcut, $advice);
 
-
-
 // Execute a test
 $myObject = new MyClass();
 $output = $myObject->myMethod("World");

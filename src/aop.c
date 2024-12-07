@@ -10,9 +10,16 @@ void aop_execute_ex(zend_execute_data *execute_data)
     if (func && func->common.function_name) {
         const char *method_name = ZSTR_VAL(func->common.function_name);
 
-        php_printf("[AOP] Intercepting method: %s\n", method_name);
+        // Retrieve class name if available
+        const char *class_name = "(none)";
+        if (func->common.scope) {
+            class_name = ZSTR_VAL(func->common.scope->name);
+        }
+
+        php_printf("[AOP] Intercepting method: %s::%s\n", class_name, method_name);
         php_printf("[AOP] Input arguments:\n");
 
+        // Get the Arguments
         uint32_t num_args = ZEND_CALL_NUM_ARGS(execute_data);
         for (uint32_t i = 0; i < num_args; i++) {
             zval *arg = ZEND_CALL_ARG(execute_data, i + 1);
@@ -25,31 +32,33 @@ void aop_execute_ex(zend_execute_data *execute_data)
             php_printf("\n");
         }
 
-        php_printf("[AOP] Calling BEFORE aspects for method: %s\n", method_name);
+        php_printf("[AOP] Calling BEFORE aspects for method: %s::%s\n", class_name, method_name);
         // Todo: Implement aspect calling
 
         if (original_execute_ex) {
             original_execute_ex(execute_data);
         }
 
+        // Execute the method and get the return value
         php_printf("[AOP] Output: ");
         if (execute_data->return_value) {
             zend_print_zval(execute_data->return_value, 0);
+            php_printf("\n");
         } else {
-            php_printf("(null)");
+            php_printf("(null)\n");
         }
-        php_printf("\n");
 
-        php_printf("[AOP] Calling AFTER aspects for method: %s\n", method_name);
+        php_printf("[AOP] Calling AFTER aspects for method: %s::%s\n", class_name, method_name);
         // Todo: Implement aspect calling
 
-        php_printf("[AOP] Method call completed: %s\n", method_name);
+        php_printf("[AOP] Method call completed: %s::%s\n", class_name, method_name);
     } else {
         if (original_execute_ex) {
             original_execute_ex(execute_data);
         }
     }
 }
+
 
 // Define Class Entries
 zend_class_entry *pointcut_ce;
