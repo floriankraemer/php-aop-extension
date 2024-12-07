@@ -267,7 +267,8 @@ static zval create_joinpoint(zend_execute_data *execute_data)
 void aop_execute_ex(zend_execute_data *execute_data)
 {
     zend_function *func = execute_data->func;
-    if (func && func->common.function_name) {
+
+    if (func && func->common.function_name && Z_TYPE(execute_data->This) == IS_OBJECT) {
         const char *method_name = ZSTR_VAL(func->common.function_name);
         zval joinpoint_obj = create_joinpoint(execute_data);
 
