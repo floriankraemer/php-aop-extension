@@ -9,6 +9,49 @@ zend_class_entry *advice_ce;
 zend_class_entry *aspect_ce;
 zend_class_entry *joinpoint_ce;
 
+// Aspect registry: stores all currently alive Aspect instances
+static HashTable aspect_registry;
+
+// Custom object structure for Aspect
+typedef struct _aspect_object {
+    zend_object std;
+    // Add other fields if necessary
+} aspect_object;
+
+static zend_object_handlers aspect_object_handlers;
+
+// Free object handler for Aspect
+static void aspect_free_object(zend_object *obj)
+{
+    // Use the object pointer as a key
+    zend_ulong key = (zend_ulong)(uintptr_t)obj;
+
+    if (zend_hash_index_exists(&aspect_registry, key)) {
+        zend_hash_index_del(&aspect_registry, key);
+    }
+
+    zend_object_std_dtor(obj);
+}
+
+// Create object handler for Aspect
+static zend_object *aspect_create_object(zend_class_entry *ce)
+{
+    aspect_object *intern = zend_object_alloc(sizeof(aspect_object), ce);
+    zend_object *ret = &intern->std;
+    zend_object_std_init(ret, ce);
+    object_properties_init(ret, ce);
+    ret->handlers = &aspect_object_handlers;
+
+    // Add to the aspect registry
+    zval tmp;
+    ZVAL_OBJ(&tmp, ret);
+    Z_ADDREF(tmp);
+    zend_ulong key = (zend_ulong)(uintptr_t)ret;
+    zend_hash_index_update(&aspect_registry, key, &tmp);
+
+    return ret;
+}
+
 // Arginfo for JoinPoint::__construct
 ZEND_BEGIN_ARG_INFO_EX(arginfo_joinpoint_construct, 0, 0, 0)
 ZEND_END_ARG_INFO()
@@ -90,7 +133,6 @@ PHP_METHOD(JoinPoint, getObject)
 {
     zend_execute_data *call = EG(current_execute_data)->prev_execute_data;
     if (call && Z_TYPE(call->This) == IS_OBJECT) {
-        // Return the object
         RETURN_ZVAL(&call->This, 1, 0);
     }
 
@@ -205,7 +247,7 @@ const zend_function_entry joinpoint_methods[] = {
     PHP_FE_END
 };
 
-// Register Pointcut, Advice, Aspect methods as before
+// Register Pointcut, Advice, Aspect methods
 const zend_function_entry pointcut_methods[] = {
     PHP_ME(Pointcut, __construct, arginfo_pointcut_construct, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
     PHP_ME(Pointcut, setExpression, arginfo_pointcut_set_expression, ZEND_ACC_PUBLIC)
@@ -232,19 +274,16 @@ static zval create_joinpoint(zend_execute_data *execute_data)
 
     object_init_ex(&joinpoint_obj, joinpoint_ce);
 
-    // Retrieve method name
     const char *method_name = "(unknown)";
     if (func && func->common.function_name) {
         method_name = ZSTR_VAL(func->common.function_name);
     }
 
-    // Retrieve class name if available
     const char *class_name = "(none)";
     if (func && func->common.scope) {
         class_name = ZSTR_VAL(func->common.scope->name);
     }
 
-    // Collect arguments into an array
     uint32_t num_args = ZEND_CALL_NUM_ARGS(execute_data);
     array_init(&args_array);
     for (uint32_t i = 0; i < num_args; i++) {
@@ -253,9 +292,8 @@ static zval create_joinpoint(zend_execute_data *execute_data)
         add_next_index_zval(&args_array, arg);
     }
 
-    // Set properties on the JoinPoint object
-	zend_update_property_string(joinpoint_ce, Z_OBJ(joinpoint_obj), ZEND_STRL("methodName"), method_name);
-	zend_update_property_string(joinpoint_ce, Z_OBJ(joinpoint_obj), ZEND_STRL("className"), class_name);
+    zend_update_property_string(joinpoint_ce, Z_OBJ(joinpoint_obj), ZEND_STRL("methodName"), method_name);
+    zend_update_property_string(joinpoint_ce, Z_OBJ(joinpoint_obj), ZEND_STRL("className"), class_name);
     zend_update_property(joinpoint_ce, Z_OBJ(joinpoint_obj), ZEND_STRL("arguments"), &args_array);
 
     zval_ptr_dtor(&args_array); // Ownership transferred to the joinpoint object
@@ -263,7 +301,6 @@ static zval create_joinpoint(zend_execute_data *execute_data)
     return joinpoint_obj;
 }
 
-// Function to intercept method calls
 void aop_execute_ex(zend_execute_data *execute_data)
 {
     zend_function *func = execute_data->func;
@@ -272,7 +309,6 @@ void aop_execute_ex(zend_execute_data *execute_data)
         const char *method_name = ZSTR_VAL(func->common.function_name);
         zval joinpoint_obj = create_joinpoint(execute_data);
 
-        // Retrieve class name if available
         const char *class_name = "(none)";
         if (func->common.scope) {
             class_name = ZSTR_VAL(func->common.scope->name);
@@ -281,7 +317,6 @@ void aop_execute_ex(zend_execute_data *execute_data)
         php_printf("[AOP] Intercepting method: %s::%s\n", class_name, method_name);
         php_printf("[AOP] Input arguments:\n");
 
-        // Get the Arguments
         uint32_t num_args = ZEND_CALL_NUM_ARGS(execute_data);
         for (uint32_t i = 0; i < num_args; i++) {
             zval *arg = ZEND_CALL_ARG(execute_data, i + 1);
@@ -301,7 +336,6 @@ void aop_execute_ex(zend_execute_data *execute_data)
             original_execute_ex(execute_data);
         }
 
-        // Execute the method and get the return value
         php_printf("[AOP] Output: ");
         if (execute_data->return_value) {
             zend_print_zval(execute_data->return_value, 0);
@@ -326,6 +360,8 @@ PHP_MINIT_FUNCTION(aop)
 {
     zend_class_entry ce;
 
+    zend_hash_init(&aspect_registry, 0, NULL, ZVAL_PTR_DTOR, 1);
+
     INIT_CLASS_ENTRY(ce, "Pointcut", pointcut_methods);
     pointcut_ce = zend_register_internal_class(&ce);
     zend_declare_property_null(pointcut_ce, "expression", sizeof("expression") - 1, ZEND_ACC_PRIVATE);
@@ -337,12 +373,17 @@ PHP_MINIT_FUNCTION(aop)
     INIT_CLASS_ENTRY(ce, "Aspect", aspect_methods);
     aspect_ce = zend_register_internal_class(&ce);
     zend_declare_property_null(aspect_ce, "adviceMap", sizeof("adviceMap") - 1, ZEND_ACC_PRIVATE);
+    aspect_ce->create_object = aspect_create_object;
+
+    memcpy(&aspect_object_handlers, zend_get_std_object_handlers(), sizeof(zend_object_handlers));
+    aspect_object_handlers.clone_obj = NULL;
+    aspect_object_handlers.free_obj = aspect_free_object;
 
     INIT_CLASS_ENTRY(ce, "JoinPoint", joinpoint_methods);
     joinpoint_ce = zend_register_internal_class(&ce);
- 	zend_declare_property_null(joinpoint_ce, "methodName", sizeof("methodName") - 1, ZEND_ACC_PRIVATE);
-	zend_declare_property_null(joinpoint_ce, "className", sizeof("className") - 1, ZEND_ACC_PRIVATE);
-	zend_declare_property_null(joinpoint_ce, "arguments", sizeof("arguments") - 1, ZEND_ACC_PRIVATE);
+    zend_declare_property_null(joinpoint_ce, "methodName", sizeof("methodName") - 1, ZEND_ACC_PRIVATE);
+    zend_declare_property_null(joinpoint_ce, "className", sizeof("className") - 1, ZEND_ACC_PRIVATE);
+    zend_declare_property_null(joinpoint_ce, "arguments", sizeof("arguments") - 1, ZEND_ACC_PRIVATE);
 
     original_execute_ex = zend_execute_ex;
     zend_execute_ex = aop_execute_ex;
@@ -353,6 +394,7 @@ PHP_MINIT_FUNCTION(aop)
 // Module shutdown
 PHP_MSHUTDOWN_FUNCTION(aop)
 {
+    zend_hash_destroy(&aspect_registry);
     zend_execute_ex = original_execute_ex;
     return SUCCESS;
 }
