@@ -224,12 +224,52 @@ const zend_function_entry aspect_methods[] = {
     PHP_FE_END
 };
 
+static zval create_joinpoint(zend_execute_data *execute_data)
+{
+    zval joinpoint_obj;
+    zval args_array;
+    zend_function *func = execute_data->func;
+
+    object_init_ex(&joinpoint_obj, joinpoint_ce);
+
+    // Retrieve method name
+    const char *method_name = "(unknown)";
+    if (func && func->common.function_name) {
+        method_name = ZSTR_VAL(func->common.function_name);
+    }
+
+    // Retrieve class name if available
+    const char *class_name = "(none)";
+    if (func && func->common.scope) {
+        class_name = ZSTR_VAL(func->common.scope->name);
+    }
+
+    // Collect arguments into an array
+    uint32_t num_args = ZEND_CALL_NUM_ARGS(execute_data);
+    array_init(&args_array);
+    for (uint32_t i = 0; i < num_args; i++) {
+        zval *arg = ZEND_CALL_ARG(execute_data, i + 1);
+        Z_TRY_ADDREF_P(arg);
+        add_next_index_zval(&args_array, arg);
+    }
+
+    // Set properties on the JoinPoint object
+	zend_update_property_string(joinpoint_ce, Z_OBJ(joinpoint_obj), ZEND_STRL("methodName"), method_name);
+	zend_update_property_string(joinpoint_ce, Z_OBJ(joinpoint_obj), ZEND_STRL("className"), class_name);
+    zend_update_property(joinpoint_ce, Z_OBJ(joinpoint_obj), ZEND_STRL("arguments"), &args_array);
+
+    zval_ptr_dtor(&args_array); // Ownership transferred to the joinpoint object
+
+    return joinpoint_obj;
+}
+
 // Function to intercept method calls
 void aop_execute_ex(zend_execute_data *execute_data)
 {
     zend_function *func = execute_data->func;
     if (func && func->common.function_name) {
         const char *method_name = ZSTR_VAL(func->common.function_name);
+        zval joinpoint_obj = create_joinpoint(execute_data);
 
         // Retrieve class name if available
         const char *class_name = "(none)";
@@ -299,6 +339,9 @@ PHP_MINIT_FUNCTION(aop)
 
     INIT_CLASS_ENTRY(ce, "JoinPoint", joinpoint_methods);
     joinpoint_ce = zend_register_internal_class(&ce);
+ 	zend_declare_property_null(joinpoint_ce, "methodName", sizeof("methodName") - 1, ZEND_ACC_PRIVATE);
+	zend_declare_property_null(joinpoint_ce, "className", sizeof("className") - 1, ZEND_ACC_PRIVATE);
+	zend_declare_property_null(joinpoint_ce, "arguments", sizeof("arguments") - 1, ZEND_ACC_PRIVATE);
 
     original_execute_ex = zend_execute_ex;
     zend_execute_ex = aop_execute_ex;
