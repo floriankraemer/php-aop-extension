@@ -10,13 +10,10 @@ void aop_execute_ex(zend_execute_data *execute_data)
     if (func && func->common.function_name) {
         const char *method_name = ZSTR_VAL(func->common.function_name);
 
-        // Log method interception
         php_printf("[AOP] Intercepting method: %s\n", method_name);
-
-        // Handle input arguments
         php_printf("[AOP] Input arguments:\n");
-        uint32_t num_args = ZEND_CALL_NUM_ARGS(execute_data);
 
+        uint32_t num_args = ZEND_CALL_NUM_ARGS(execute_data);
         for (uint32_t i = 0; i < num_args; i++) {
             zval *arg = ZEND_CALL_ARG(execute_data, i + 1);
             php_printf("  Arg %u: ", i + 1);
@@ -28,16 +25,13 @@ void aop_execute_ex(zend_execute_data *execute_data)
             php_printf("\n");
         }
 
-        // Call the before aspects
         php_printf("[AOP] Calling BEFORE aspects for method: %s\n", method_name);
         // Todo: Implement aspect calling
 
-        // Call the original method
         if (original_execute_ex) {
             original_execute_ex(execute_data);
         }
 
-        // Safely handle output
         php_printf("[AOP] Output: ");
         if (execute_data->return_value) {
             zend_print_zval(execute_data->return_value, 0);
@@ -46,13 +40,11 @@ void aop_execute_ex(zend_execute_data *execute_data)
         }
         php_printf("\n");
 
-        // Call the after aspects
         php_printf("[AOP] Calling AFTER aspects for method: %s\n", method_name);
         // Todo: Implement aspect calling
 
         php_printf("[AOP] Method call completed: %s\n", method_name);
     } else {
-        // Fallback to the original execution if no valid function
         if (original_execute_ex) {
             original_execute_ex(execute_data);
         }
@@ -65,6 +57,11 @@ zend_class_entry *advice_ce;
 zend_class_entry *aspect_ce;
 zend_class_entry *joinpoint_ce;
 
+// Update the arginfo for Pointcut::__construct to accept one string parameter
+ZEND_BEGIN_ARG_INFO_EX(arginfo_pointcut_construct, 0, 0, 1)
+    ZEND_ARG_TYPE_INFO(0, expression, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
 // Arginfo for JoinPoint::__construct
 ZEND_BEGIN_ARG_INFO_EX(arginfo_joinpoint_construct, 0, 0, 0)
 ZEND_END_ARG_INFO()
@@ -73,31 +70,27 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(arginfo_joinpoint_get_method_name, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
-// Arginfo for Pointcut::__construct
-ZEND_BEGIN_ARG_INFO_EX(arginfo_pointcut_construct, 0, 0, 0)
-ZEND_END_ARG_INFO()
-
-// Arginfo for Pointcut::setExpression
+// Arginfo for Pointcut::setExpression (unchanged, optional)
 ZEND_BEGIN_ARG_INFO_EX(arginfo_pointcut_set_expression, 0, 0, 1)
     ZEND_ARG_TYPE_INFO(0, expression, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
-// Arginfo for Pointcut::matches
+// Arginfo for Pointcut::matches (unchanged)
 ZEND_BEGIN_ARG_INFO_EX(arginfo_pointcut_matches, 0, 0, 1)
     ZEND_ARG_TYPE_INFO(0, method_name, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
-// Arginfo for Aspect::__construct
+// Arginfo for Aspect::__construct (unchanged)
 ZEND_BEGIN_ARG_INFO_EX(arginfo_aspect_construct, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
-// Arginfo for Aspect::addAdvice
+// Arginfo for Aspect::addAdvice (unchanged)
 ZEND_BEGIN_ARG_INFO_EX(arginfo_aspect_add_advice, 0, 0, 2)
     ZEND_ARG_OBJ_INFO(0, pointcut, Pointcut, 0)
     ZEND_ARG_OBJ_INFO(0, advice, Advice, 0)
 ZEND_END_ARG_INFO()
 
-// Arginfo for Advice::__construct
+// Arginfo for Advice::__construct (unchanged)
 ZEND_BEGIN_ARG_INFO_EX(arginfo_advice_construct, 0, 0, 1)
     ZEND_ARG_CALLABLE_INFO(0, callback, 0)
 ZEND_END_ARG_INFO()
@@ -121,13 +114,20 @@ PHP_METHOD(JoinPoint, getMethodName)
     RETURN_STRING("unknown");
 }
 
-// Method: Pointcut::__construct
+// Method: Pointcut::__construct (now takes an expression argument)
 PHP_METHOD(Pointcut, __construct)
 {
-    zend_update_property_null(pointcut_ce, Z_OBJ_P(getThis()), "expression", sizeof("expression") - 1);
+    zend_string *expression;
+
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_STR(expression)
+    ZEND_PARSE_PARAMETERS_END();
+
+    // Store the provided expression in the "expression" property
+    zend_update_property_str(pointcut_ce, Z_OBJ_P(getThis()), "expression", sizeof("expression") - 1, expression);
 }
 
-// Method: Pointcut::setExpression
+// Method: Pointcut::setExpression (unchanged)
 PHP_METHOD(Pointcut, setExpression)
 {
     zend_string *expression;
@@ -139,10 +139,10 @@ PHP_METHOD(Pointcut, setExpression)
     zend_update_property_str(pointcut_ce, Z_OBJ_P(getThis()), "expression", sizeof("expression") - 1, expression);
 }
 
-// Method: Pointcut::matches
+// Method: Pointcut::matches (unchanged)
 PHP_METHOD(Pointcut, matches)
 {
-    php_printf("[AOP] Enterin Pointcut Matches");
+    php_printf("[AOP] Entering Pointcut Matches\n");
     zend_string *method_name;
     zval *expression_property;
 
@@ -157,22 +157,22 @@ PHP_METHOD(Pointcut, matches)
         const char *method = ZSTR_VAL(method_name);
 
         if (strstr(expression, "*->") && strstr(expression, method)) {
-            php_printf("[AOP] Matched: %s\n", method_name);
+            php_printf("[AOP] Matched: %s\n", ZSTR_VAL(method_name));
             RETURN_TRUE;
         }
     }
 
-    php_printf("[AOP] NOT Matched: %s\n", method_name);
+    php_printf("[AOP] NOT Matched: %s\n", ZSTR_VAL(method_name));
     RETURN_FALSE;
 }
 
-// Method: Aspect::__construct
+// Method: Aspect::__construct (unchanged)
 PHP_METHOD(Aspect, __construct)
 {
     zend_update_property_null(aspect_ce, Z_OBJ_P(getThis()), "adviceMap", sizeof("adviceMap") - 1);
 }
 
-// Method: Aspect::addAdvice
+// Method: Aspect::addAdvice (unchanged)
 PHP_METHOD(Aspect, addAdvice)
 {
     zval *pointcut, *advice, *adviceMap;
@@ -196,7 +196,7 @@ PHP_METHOD(Aspect, addAdvice)
     Z_TRY_ADDREF_P(advice);
 }
 
-// Method: Advice::__construct
+// Method: Advice::__construct (unchanged)
 PHP_METHOD(Advice, __construct)
 {
     zval *callback;
@@ -221,7 +221,7 @@ const zend_function_entry joinpoint_methods[] = {
     PHP_FE_END
 };
 
-// Method registration arrays
+// Update pointcut_methods arginfo to reflect the new constructor signature
 const zend_function_entry pointcut_methods[] = {
     PHP_ME(Pointcut, __construct, arginfo_pointcut_construct, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
     PHP_ME(Pointcut, setExpression, arginfo_pointcut_set_expression, ZEND_ACC_PUBLIC)

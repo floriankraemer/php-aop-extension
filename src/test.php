@@ -1,11 +1,16 @@
 <?php
+/*
+$joinPoint = new JoinPoint();
+var_dump($joinPoint);
 
-new JoinPoint();
+$pointcut = new PointCut('execution(*->myMethod)');
+var_dump($pointcut);
+*/
 
 // Define a sample class with a method to intercept
 class MyClass
 {
-    public function myMethod($input)
+    public function myMethod(string $input)
     {
         return "Hello, " . $input;
     }
@@ -29,7 +34,7 @@ $adviceCallback = function ($joinPoint)
 };
 
 // Create the necessary objects
-$pointcut = new PointCut();
+$pointcut = new PointCut("execution(*->myMethod)");
 $pointcut->setExpression("execution(*->myMethod)");
 
 $advice = new Advice($adviceCallback);
