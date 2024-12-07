@@ -1,5 +1,7 @@
 <?php
 
+new JoinPoint();
+
 // Define a sample class with a method to intercept
 class MyClass
 {

@@ -16,6 +16,7 @@ void aop_execute_ex(zend_execute_data *execute_data)
         // Handle input arguments
         php_printf("[AOP] Input arguments:\n");
         uint32_t num_args = ZEND_CALL_NUM_ARGS(execute_data);
+
         for (uint32_t i = 0; i < num_args; i++) {
             zval *arg = ZEND_CALL_ARG(execute_data, i + 1);
             php_printf("  Arg %u: ", i + 1);
@@ -133,6 +134,7 @@ PHP_METHOD(Pointcut, setExpression)
 // Method: Pointcut::matches
 PHP_METHOD(Pointcut, matches)
 {
+    php_printf("[AOP] Enterin Pointcut Matches");
     zend_string *method_name;
     zval *expression_property;
 
@@ -147,10 +149,12 @@ PHP_METHOD(Pointcut, matches)
         const char *method = ZSTR_VAL(method_name);
 
         if (strstr(expression, "*->") && strstr(expression, method)) {
+            php_printf("[AOP] Matched: %s\n", method_name);
             RETURN_TRUE;
         }
     }
 
+    php_printf("[AOP] NOT Matched: %s\n", method_name);
     RETURN_FALSE;
 }
 
