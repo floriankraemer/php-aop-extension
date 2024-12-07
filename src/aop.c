@@ -401,16 +401,17 @@ PHP_MSHUTDOWN_FUNCTION(aop)
 
 // Module entry definition
 zend_module_entry aop_module_entry = {
-    STANDARD_MODULE_HEADER,
-    "aop",
-    NULL,
-    PHP_MINIT(aop),
-    PHP_MSHUTDOWN(aop),
-    NULL,
-    NULL,
-    NULL,
-    NO_VERSION_YET,
-    STANDARD_MODULE_PROPERTIES
+    STANDARD_MODULE_HEADER,     // Standard module header macro; initializes common fields
+    "aop",                      // The name of the extension/module
+    NULL,                       // Functions provided by the module (none in this case)
+    PHP_MINIT(aop),             // The module initialization function (executed when the module is loaded)
+    PHP_MSHUTDOWN(aop),         // The module shutdown function (executed when the module is unloaded)
+    NULL,                       // The request initialization function (not used here)
+    NULL,                       // The request shutdown function (not used here)
+    NULL,                       // The module info function (used by phpinfo(); NULL means no extra info)
+    NO_VERSION_YET,             // Module version string; currently not set
+    STANDARD_MODULE_PROPERTIES  // Standard module properties macro; sets default values for fields
 };
+
 
 ZEND_GET_MODULE(aop)
