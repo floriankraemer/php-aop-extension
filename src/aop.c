@@ -28,6 +28,10 @@ void aop_execute_ex(zend_execute_data *execute_data)
             php_printf("\n");
         }
 
+        // Call the before aspects
+        php_printf("[AOP] Calling BEFORE aspects for method: %s\n", method_name);
+        // Todo: Implement aspect calling
+
         // Call the original method
         if (original_execute_ex) {
             original_execute_ex(execute_data);
@@ -41,6 +45,10 @@ void aop_execute_ex(zend_execute_data *execute_data)
             php_printf("(null)");
         }
         php_printf("\n");
+
+        // Call the after aspects
+        php_printf("[AOP] Calling AFTER aspects for method: %s\n", method_name);
+        // Todo: Implement aspect calling
 
         php_printf("[AOP] Method call completed: %s\n", method_name);
     } else {

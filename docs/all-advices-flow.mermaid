@@ -1,0 +1,47 @@
+flowchart TD
+
+    A[Method Call Occurs] --> B[Check All Aspects' Pointcuts]
+
+    B -->|No Match| R[No AOP Interception; Execute Method Normally] --> S[Return Result to Caller]
+B -->|Match Found| C[Create JoinPoint captures current call context]
+
+%% If a match is found, we evaluate which advice is applicable
+
+C --> D{Around Advice Present?}
+
+%% Around Advice wraps the method call
+D -->|Yes| E[Execute 'around' Advice Method Call Inside]
+D -->|No| F[No 'around' Advice]
+
+%% If no around advice, we can have 'before' advice
+F --> G{Before Advice Present?}
+G -->|Yes| H[Execute 'before' Advice]
+G -->|No| I[Skip 'before' Advice]
+
+%% After before advice or if none is present, call original method
+E --> J[Call Original Method Inside 'around' Advice]
+I --> K[Call Original Method Directly]
+
+%% After calling the method, two paths: success or exception
+%% For simplicity, we show them as separate flows
+
+%% If called from around advice:
+J -->|Method Returns Normally| L[Execute 'after returning' Advice if any]
+J -->|Method Throws Exception| M[Execute 'after throwing' Advice if an]
+
+%% If called without around advice:
+K -->|Method Returns Normally| N[Execute 'after returning' Advice if any]
+K -->|Method Throws Exception| O[Execute 'after throwing' Advice if any]
+
+%% After returning or throwing advice, 'after' advice always runs (if present)
+L --> P[Execute 'after' Advice if any] --> Q[Return Final Result]
+M --> P[Execute 'after' Advice if any] --> Q[Exception Propagates or Handled]
+N --> P[Execute 'after' Advice if any] --> Q[Return Final Result]
+O --> P[Execute 'after' Advice if any] --> Q[Exception Propagates or Handled]
+
+%% If using around advice, after completing method execution inside it,
+%% control returns to around advice which then returns final result
+E -->|After Inner Method and advices| Q
+
+%% Final step
+Q[Final Output to Caller]

@@ -1,0 +1,22 @@
+flowchart TD
+
+    A[Method Call Occurs] --> B[Check All Aspects' Pointcuts]
+
+%% Decision: does any pointcut match this method call?
+    B -->|Match Found| C[Create JoinPoint represents the current method execution context]
+    B -->|No Match| I[No AOP Interception; Proceed Normally]
+
+%% If a match is found, we proceed with advice execution
+C[JoinPoint Created] --> D[Execute 'before' Advice from the Matching Aspects]
+D --> E[Invoke Original Method via JoinPoint]
+E --> F[Execute 'after' Advice from Matching Aspects]
+F --> G[Return Final Result to Caller]
+
+%% If no match is found, we just execute the method as usual
+I[No AOP Interception] --> G[Return Result]
+
+%% Descriptions
+%% Aspect: Defines Pointcuts and the associated Advice (before, after)
+%% Pointcut: Expression that determines whether a JoinPoint (method call) is intercepted
+%% Advice: Code that runs before, after, or around the JoinPoint execution
+%% JoinPoint: Represents a specific execution instance of a method (including context like args, target object)
