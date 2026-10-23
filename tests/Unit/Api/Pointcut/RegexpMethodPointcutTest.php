@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace AOP\Tests\Unit\Api\Pointcut;
 
-use AOP\Exception\PointcutSyntaxException;
 use AOP\Pointcut\Api\Pointcuts;
 use AOP\Pointcut\Api\RegexpMethodPointcut;
 use AOP\Tests\Fixtures\Api\Account;
@@ -86,10 +85,90 @@ final class RegexpMethodPointcutTest extends TestCase
     #[Test]
     public function rejectsAnInvalidExpression(): void
     {
-        $this->expectException(PointcutSyntaxException::class);
+        $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid regular expression "(unclosed"');
 
         new RegexpMethodPointcut('(unclosed');
+    }
+
+    /**
+     * @return iterable<string, array{string, string, string, bool}>
+     */
+    public static function delimited(): iterable
+    {
+        yield 'slash delimited, not anchored' => ['/Account::deposit/', Account::class, 'deposit', true];
+        yield 'slash delimited, no match' => ['/Account::deposit/', Account::class, 'getBalance', false];
+        yield 'case-insensitive flag' => ['/account::DEPOSIT/i', Account::class, 'deposit', true];
+        yield 'without the flag it is case-sensitive' => ['/account::DEPOSIT/', Account::class, 'deposit', false];
+        yield 'anchored by the user' => ['/^AOP.*Account::get/', Account::class, 'getBalance', true];
+        yield 'anchored, no match' => ['/^Account::get/', Account::class, 'getBalance', false];
+        yield 'hash delimiter' => ['#Fixtures\\\\Api\\\\Account::set#', Account::class, 'setBalance', true];
+        yield 'brace delimiter with flags' => ['{ACCOUNT::SET}i', Account::class, 'setBalance', true];
+        yield 'parentheses are delimiters, too' => ['(Account::(get|set)Balance)', Account::class, 'getBalance', true];
+        yield 'several flags' => ["/account::\n?deposit/is", Account::class, 'deposit', true];
+        yield 'a bare pattern starting with a dot is still bare' => ['.*::dep.*', Account::class, 'deposit', true];
+        yield 'a bare alternation in parentheses that ends in a group stays bare' => ['(Account::(deposit))', Account::class, 'deposit', true];
+        yield 'a bare character class start' => ['[A-Z].*::deposi[a-z]', Account::class, 'deposit', true];
+        yield 'a bare pattern is still anchored' => ['Account::deposit', Account::class, 'deposit', false];
+    }
+
+    /**
+     * @param class-string $class
+     */
+    #[Test]
+    #[DataProvider('delimited')]
+    public function acceptsFullyDelimitedPatterns(string $pattern, string $class, string $method, bool $expected): void
+    {
+        self::assertSame($expected, Pointcuts::matches(new RegexpMethodPointcut($pattern), new \ReflectionMethod($class, $method)));
+        self::assertSame([$pattern], (new RegexpMethodPointcut($pattern))->getPatterns());
+    }
+
+    #[Test]
+    public function delimitedPatternsWorkAsExcludedPatternsToo(): void
+    {
+        $pointcut = new RegexpMethodPointcut('/Account::/', '/::(set|deposit)/i');
+
+        self::assertTrue(Pointcuts::matches($pointcut, new \ReflectionMethod(Account::class, 'getBalance')));
+        self::assertFalse(Pointcuts::matches($pointcut, new \ReflectionMethod(Account::class, 'setBalance')));
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function invalid(): iterable
+    {
+        yield 'bare, unclosed group' => ['Account::(get'];
+        yield 'bare, bad quantifier' => ['*Account'];
+        yield 'delimited, unclosed group' => ['/Account::(get/'];
+        yield 'delimited, bad quantifier' => ['/+Account/i'];
+        yield 'delimited, bad class' => ['#[z-a]#'];
+    }
+
+    #[Test]
+    #[DataProvider('invalid')]
+    public function aPatternThatDoesNotCompileThrowsAndNamesThePattern(string $pattern): void
+    {
+        try {
+            new RegexpMethodPointcut($pattern);
+            self::fail('Expected InvalidArgumentException');
+        } catch (\InvalidArgumentException $e) {
+            self::assertStringContainsString('"'.$pattern.'"', $e->getMessage());
+        }
+    }
+
+    #[Test]
+    public function settersAndExcludedPatternsValidateToo(): void
+    {
+        $pointcut = new RegexpMethodPointcut();
+
+        foreach ([static fn () => $pointcut->setPattern('/(/'), static fn () => $pointcut->setPatterns(['ok', '(']), static fn () => $pointcut->setExcludedPattern('[a-'), static fn () => new RegexpMethodPointcut('.*', '(')] as $call) {
+            try {
+                $call();
+                self::fail('Expected InvalidArgumentException');
+            } catch (\InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
     }
 
     #[Test]

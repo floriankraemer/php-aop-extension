@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AOP\Tests\Unit\Pointcut\Expression;
 
+use AOP\Exception\BindingException;
 use AOP\Exception\PointcutSyntaxException;
 use AOP\Exception\UnsupportedPointcutDesignatorException;
 use AOP\JoinPoint\JoinPointKind;
@@ -208,7 +209,7 @@ final class PointcutExpressionCompilerTest extends TestCase
     #[Test]
     public function orBranchesBindingDifferentNamesAreRejected(): void
     {
-        $this->expectException(\AOP\Exception\BindingException::class);
+        $this->expectException(BindingException::class);
         $this->expectExceptionMessage('id');
 
         $this->compile('execution(* '.UserRepository::class.'::find(..)) || args(id)', ['id' => 'int']);
@@ -225,7 +226,7 @@ final class PointcutExpressionCompilerTest extends TestCase
     #[Test]
     public function bindingInsideNotIsRejected(): void
     {
-        $this->expectException(\AOP\Exception\BindingException::class);
+        $this->expectException(BindingException::class);
 
         $this->compile('!target(b)', ['b']);
     }
@@ -394,5 +395,42 @@ final class PointcutExpressionCompilerTest extends TestCase
         self::assertTrue($this->compile('execution(* *(..)) || this(App\\Foo)')->isCallerSensitive());
         self::assertTrue($this->compile('!@within(App\\Foo)')->isCallerSensitive());
         self::assertFalse($this->compile('!execution(* *(..)) && service(a.*)')->isCallerSensitive());
+    }
+
+    #[Test]
+    public function orBranchesBindingDifferentNamesFailAtCompileTimeNamingTheExpressionAndTheNames(): void
+    {
+        $expression = 'args(a) || execution(* App\X::m(..))';
+
+        try {
+            $this->compile($expression, ['a']);
+            self::fail('Expected BindingException');
+        } catch (BindingException $e) {
+            self::assertStringContainsString($expression, $e->getMessage());
+            self::assertStringContainsString('[a]', $e->getMessage());
+            self::assertStringContainsString('[]', $e->getMessage());
+            self::assertStringContainsString('"||"', $e->getMessage());
+        }
+    }
+
+    #[Test]
+    public function orBranchesBindingDifferentNamesFailThroughNamedPointcutsAndNesting(): void
+    {
+        $resolver = $this->resolver(['A::byArgs' => 'args(a)', 'A::plain' => 'within(X)']);
+
+        foreach (['A::byArgs() || A::plain()', '(args(a) && within(X)) || (args(b) && within(Y))', 'within(X) || (within(Y) || args(a))'] as $expression) {
+            try {
+                $this->compile($expression, ['a', 'b'], 'A', $resolver);
+                self::fail('Expected BindingException for '.$expression);
+            } catch (BindingException $e) {
+                self::assertStringContainsString($expression, $e->getMessage());
+            }
+        }
+    }
+
+    #[Test]
+    public function orBranchesBindingTheSameNamesCompile(): void
+    {
+        self::assertSame(['a'], array_keys($this->compile('args(a) || (args(a, ..) && within(X))', ['a'])->bindings()));
     }
 }

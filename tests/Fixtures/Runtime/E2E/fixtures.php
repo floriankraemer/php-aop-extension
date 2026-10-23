@@ -382,3 +382,49 @@ final class ConfigAspect
         Journal::$entries[] = 'config:'.$jp->getSignature()->getName();
     }
 }
+
+class CtorBase
+{
+    public function __construct()
+    {
+    }
+}
+
+final class CtorChild extends CtorBase
+{
+    public function __construct()
+    {
+        parent::__construct();
+    }
+}
+
+final class CtorHeir extends CtorBase
+{
+}
+
+#[Aspect]
+final class CtorBaseAspect
+{
+    #[Before('execution(* AopE2E\CtorBase::__construct(..))')]
+    public function base(JoinPointInterface $jp): void
+    {
+        Journal::$entries[] = 'base:'.get_debug_type($jp->getThis());
+    }
+
+    #[Before('execution(AopE2E\CtorBase+::__construct(..))')]
+    public function baseAndSubtypes(JoinPointInterface $jp): void
+    {
+        Journal::$entries[] = 'plus:'.get_debug_type($jp->getThis());
+    }
+}
+
+final class Factory
+{
+    /**
+     * @param class-string $class
+     */
+    public static function make(string $class): object
+    {
+        return new $class();
+    }
+}

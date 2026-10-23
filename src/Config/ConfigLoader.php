@@ -31,7 +31,7 @@ use AOP\Pointcut\Expression\PointcutExpressionCompiler;
  *     'aspects' => [                                     // <aop:aspect>
  *         [
  *             'id' => 'audit',                           // optional, used in messages
- *             'class' => App\AuditAspect::class,         // or 'ref' => 'bean id' (needs $aspectFactory) or 'instance' => $object
+ *             'class' => App\AuditAspect::class,         // or 'ref' => 'service id' (needs $aspectFactory) or 'instance' => $object
  *             'order' => 10,                             // default PHP_INT_MAX; lower runs first
  *             'scope' => 'singleton',                    // singleton | pertarget | perthis
  *             'pointcuts' => ['writes' => 'execution(* **::save*(..))'],   // aspect-local, may override shared ones

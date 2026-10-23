@@ -7,7 +7,7 @@ namespace AOP\Pointcut\Pattern;
 /**
  * `[modifiers] [type] Declaring\Type[+]::$name`: the property pattern of get() and set().
  *
- * Modifiers (`public`, `protected`, `private`, `static`, `readonly`) must all hold. The type pattern is checked against
+ * Modifiers (`public`, `protected`, `private`, `static`, `readonly`, each optionally negated with `!`) must all hold. The type pattern is checked against
  * the declared type like a return type (`*`/absent matches everything, also untyped properties). The declaring type
  * matches the runtime class or a class in its hierarchy that declares the property, like execution() does for methods.
  */
@@ -16,7 +16,7 @@ final class FieldPattern
     public const MODIFIERS = ['public', 'protected', 'private', 'static', 'readonly'];
 
     /**
-     * @param list<string>     $modifiers
+     * @param list<string>     $modifiers     `public`, `!static`, ...
      * @param TypePattern|null $type          null = any
      * @param TypePattern|null $declaringType null = any
      */
@@ -26,6 +26,11 @@ final class FieldPattern
         private readonly ?TypePattern $declaringType,
         private readonly NamePattern $name,
     ) {
+        foreach ($modifiers as $modifier) {
+            if (!in_array(ltrim($modifier, '!'), self::MODIFIERS, true)) {
+                throw new \InvalidArgumentException(sprintf('Unknown modifier "%s": expected %s, each optionally negated with "!".', ltrim($modifier, '!'), implode(', ', self::MODIFIERS)));
+            }
+        }
     }
 
     /**
@@ -62,7 +67,8 @@ final class FieldPattern
     private function modifiersMatch(\ReflectionProperty $property): bool
     {
         foreach ($this->modifiers as $modifier) {
-            $holds = match ($modifier) {
+            $negated = str_starts_with($modifier, '!');
+            $holds = match ($negated ? substr($modifier, 1) : $modifier) {
                 'public' => $property->isPublic(),
                 'protected' => $property->isProtected(),
                 'private' => $property->isPrivate(),
@@ -70,7 +76,7 @@ final class FieldPattern
                 'readonly' => $property->isReadOnly(),
                 default => false,
             };
-            if (!$holds) {
+            if ($holds === $negated) {
                 return false;
             }
         }

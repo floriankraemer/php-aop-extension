@@ -53,30 +53,30 @@ final class NewDesignatorsParserTest extends TestCase
      */
     public static function valid(): iterable
     {
-        $find = new ExecutionNode(null, null, self::t('App\Foo'), 'find', new ParamListNode([self::t('int')]));
+        $find = new ExecutionNode([], null, self::t('App\Foo'), 'find', new ParamListNode([self::t('int')]));
 
-        yield 'call' => ['call(* App\Foo::find(int))', new CallNode(new ExecutionNode(null, null, self::t('App\Foo'), 'find', new ParamListNode([self::t('int')])))];
+        yield 'call' => ['call(* App\Foo::find(int))', new CallNode(new ExecutionNode([], null, self::t('App\Foo'), 'find', new ParamListNode([self::t('int')])))];
         yield 'call with modifier, return and wildcards' => [
             'call(public ?string App\**+::get*(..))',
-            new CallNode(new ExecutionNode('public', self::t('string', true), self::t('App\**', false, true), 'get*', self::anyParams())),
+            new CallNode(new ExecutionNode(['public'], self::t('string', true), self::t('App\**', false, true), 'get*', self::anyParams())),
         ];
-        yield 'call function' => ['call(* App\Util\fmt*(..))', new CallNode(new ExecutionNode(null, null, null, 'App\Util\fmt*', self::anyParams()))];
+        yield 'call function' => ['call(* App\Util\fmt*(..))', new CallNode(new ExecutionNode([], null, null, 'App\Util\fmt*', self::anyParams()))];
         yield 'call constructor without return type' => [
             'call(App\Foo::__construct(int, ..))',
-            new CallNode(new ExecutionNode(null, null, self::t('App\Foo'), '__construct', new ParamListNode([self::t('int')], true))),
+            new CallNode(new ExecutionNode([], null, self::t('App\Foo'), '__construct', new ParamListNode([self::t('int')], true))),
         ];
         yield 'call constructor with plus' => [
             'call(App\Foo+::__construct())',
-            new CallNode(new ExecutionNode(null, null, self::t('App\Foo', false, true), '__construct', new ParamListNode([]))),
+            new CallNode(new ExecutionNode([], null, self::t('App\Foo', false, true), '__construct', new ParamListNode([]))),
         ];
         yield 'execution constructor without return type' => [
             'execution(public App\Foo::__construct(..))',
-            new ExecutionNode('public', null, self::t('App\Foo'), '__construct', self::anyParams()),
+            new ExecutionNode(['public'], null, self::t('App\Foo'), '__construct', self::anyParams()),
         ];
         yield 'withincode' => ['withincode(* App\Foo::find(int))', new WithincodeNode($find)];
         yield 'withincode constructor' => [
             'withincode(App\Foo::__construct(..))',
-            new WithincodeNode(new ExecutionNode(null, null, self::t('App\Foo'), '__construct', self::anyParams())),
+            new WithincodeNode(new ExecutionNode([], null, self::t('App\Foo'), '__construct', self::anyParams())),
         ];
         yield '@withincode type' => ['@withincode(App\Attr)', new AtWithincodeNode(self::t('App\Attr'))];
         yield '@withincode binding' => ['@withincode(tag)', new AtWithincodeNode(new BindingCandidateNode('tag'))];
@@ -105,19 +105,19 @@ final class NewDesignatorsParserTest extends TestCase
         yield 'if combined' => ['within(A) && if(check())', new AndNode(new WithinNode(self::t('A')), new IfNode(null, 'check'))];
         yield 'initialization' => [
             'initialization(App\Foo::__construct(..))',
-            new InitializationNode(null, self::t('App\Foo'), self::anyParams()),
+            new InitializationNode([], self::t('App\Foo'), self::anyParams()),
         ];
         yield 'initialization with parameters' => [
             'initialization(App\Foo::__construct(int, string))',
-            new InitializationNode(null, self::t('App\Foo'), new ParamListNode([self::t('int'), self::t('string')])),
+            new InitializationNode([], self::t('App\Foo'), new ParamListNode([self::t('int'), self::t('string')])),
         ];
         yield 'initialization with modifier and wildcard parameter' => [
             'initialization(protected App\Foo::__construct(*, ..))',
-            new InitializationNode('protected', self::t('App\Foo'), new ParamListNode([new WildcardParamNode()], true)),
+            new InitializationNode(['protected'], self::t('App\Foo'), new ParamListNode([new WildcardParamNode()], true)),
         ];
-        yield 'initialization shorthand' => ['initialization(App\Foo+)', new InitializationNode(null, self::t('App\Foo', false, true), self::anyParams())];
-        yield 'initialization shorthand without plus' => ['initialization(App\Foo)', new InitializationNode(null, self::t('App\Foo'), self::anyParams())];
-        yield 'initialization shorthand wildcard' => ['initialization(App\**+)', new InitializationNode(null, self::t('App\**', false, true), self::anyParams())];
+        yield 'initialization shorthand' => ['initialization(App\Foo+)', new InitializationNode([], self::t('App\Foo', false, true), self::anyParams())];
+        yield 'initialization shorthand without plus' => ['initialization(App\Foo)', new InitializationNode([], self::t('App\Foo'), self::anyParams())];
+        yield 'initialization shorthand wildcard' => ['initialization(App\**+)', new InitializationNode([], self::t('App\**', false, true), self::anyParams())];
         yield 'adviceexecution' => ['adviceexecution()', new AdviceExecutionNode()];
         yield 'adviceexecution within' => ['adviceexecution() && within(App\Aspect)', new AndNode(new AdviceExecutionNode(), new WithinNode(self::t('App\Aspect')))];
         yield 'handler' => ['handler(RuntimeException)', new HandlerNode(self::t('RuntimeException'))];
@@ -146,15 +146,15 @@ final class NewDesignatorsParserTest extends TestCase
         yield 'designator names stay usable as method names' => [
             'execution(* App\Foo::get(..)) && execution(* App\Foo::set(..))',
             new AndNode(
-                new ExecutionNode(null, null, self::t('App\Foo'), 'get', self::anyParams()),
-                new ExecutionNode(null, null, self::t('App\Foo'), 'set', self::anyParams()),
+                new ExecutionNode([], null, self::t('App\Foo'), 'get', self::anyParams()),
+                new ExecutionNode([], null, self::t('App\Foo'), 'set', self::anyParams()),
             ),
         ];
         yield 'designator names stay usable as function names' => [
             'call(* if(..)) || call(* handler(..))',
             new OrNode(
-                new CallNode(new ExecutionNode(null, null, null, 'if', self::anyParams())),
-                new CallNode(new ExecutionNode(null, null, null, 'handler', self::anyParams())),
+                new CallNode(new ExecutionNode([], null, null, 'if', self::anyParams())),
+                new CallNode(new ExecutionNode([], null, null, 'handler', self::anyParams())),
             ),
         ];
     }

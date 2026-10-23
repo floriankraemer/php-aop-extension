@@ -42,15 +42,20 @@ designator      = "execution" "(" methodPattern ")"
                 | "preinitialization" "(" ... ")"                       (* raises an error *)
                 | "staticinitialization" "(" ... ")" ;                  (* raises an error *)
 
-methodPattern   = [ "public" | "protected" ] [ returnType ] [ typePattern [ "+" ] "::" ] namePattern "(" paramList ")"
-                | [ "public" | "protected" ] typePattern [ "+" ] "::__construct" "(" paramList ")" ;
-ctorPattern     = [ "public" | "protected" ] typePattern [ "+" ] "::__construct" "(" paramList ")" ;
+methodPattern   = { methodModifier } [ returnType ] [ typePattern [ "+" ] "::" ] namePattern "(" paramList ")"
+                | { methodModifier } typePattern [ "+" ] "::__construct" "(" paramList ")" ;
+ctorPattern     = { methodModifier } typePattern [ "+" ] "::__construct" "(" paramList ")" ;
+methodModifier  = [ "!" ] ( "public" | "protected" | "private" | "static" | "final" | "abstract" ) ;
+fieldPattern    = { fieldModifier } [ [ "?" ] typePattern [ "+" ] ] typePattern [ "+" ] "::" "$" namePattern ;
+fieldModifier   = [ "!" ] ( "public" | "protected" | "private" | "static" | "readonly" ) ;
 ```
 
 Points that the grammar does not show:
 
 - Operators: `&&` binds tighter than `||`, and `!` applies to one primary.
   Use parentheses to group.
+- Every branch of `||` must bind the same names, because whichever branch matches, each bound advice parameter needs a value.
+  `args(a) || execution(* App\X::m(..))` with `a` as an advice parameter throws a `BindingException` that names the expression and the differing names.
 - Keywords are recognised only when followed by `(`.
   A class or function named `args` or `this` can still appear as a name.
 - `call`, `withincode` and the `@`-designators are documented in their own sections below.
@@ -77,12 +82,12 @@ Verified: `Demo\Sem\Svc\*` matches a class in `Demo\Sem\Svc`, and does not match
 The pattern for `execution()` and `call()` has the form:
 
 ```text
-execution( [modifier] [returnType] [declaringType[+]::]name(params) )
+execution( [modifiers] [returnType] [declaringType[+]::]name(params) )
 ```
 
 | Part | Accepted | Notes |
 |---|---|---|
-| Modifier | `public`, `protected`, or none | `private`, `static` and `final` are not accepted as modifiers (see below). |
+| Modifiers | any of `public`, `protected`, `private`, `static`, `final`, `abstract`, each optionally negated with `!`; none = any | All listed modifiers must hold. An unknown word raises a `PointcutSyntaxException` that names it. |
 | Return type | `*`, `void`, `int`, `?string`, … | `*` matches any return type, including none. |
 | Declaring type | a type pattern, optionally `+` | Omitted for functions. |
 | Name | a name pattern with `*` | `__construct` names a constructor. |
@@ -94,14 +99,24 @@ execution(protected ?string App\Base::format(..))  // protected methods returnin
 execution(* App\Service\**::save*(..))             // save, save_all, ... in any App\Service sub-namespace
 ```
 
-To select private, static or final methods, leave the modifier out and select by name or type.
-`execution(* App\Repo::*(..))` advises every method of the class, whatever its visibility.
+```text
+execution(private static * App\Repo\**::*(..))     // private static methods
+execution(!static * *(..))                         // every non-static method and every function
+execution(public !final * App\Service\*::*(..))    // public methods that are not final
+```
+
+`execution(* App\Repo::*(..))` without modifiers advises every method of the class, whatever its visibility.
+A modifier word is only a modifier when the rest of the pattern follows it; a method named `final` is still written `execution(* final(..))`.
+The modifiers also work in `call()`, `withincode()` and `initialization()`, and `!` works in field patterns (`get(!static * App\Cfg::$*)`).
+
+A plain function counts as public, non-static, non-final and non-abstract: `execution(public * App\Util\fmt(..))` and `execution(!static * *(..))` match it, `execution(static * *(..))` does not.
 
 Method patterns and the declaring type:
 
 - A type in a method pattern matches the runtime class of the object, and the classes in its hierarchy that declare the method.
-  For example, `execution(* App\Base::run(..))` also matches an override `run()` declared in `App\Child`.
-  This differs from AspectJ, see [limitations.md](limitations.md#known-issues).
+  For example, `execution(* App\Base::run(..))` also matches an override `run()` declared in `App\Child`, because the signature is declared by `App\Base`.
+  That is AspectJ's rule. Write `App\Child::run` to select the override only.
+- Constructors are the exception: they are not overridden, see below.
 
 ### Parameter lists
 
@@ -135,13 +150,20 @@ Constructors use the name `__construct`.
 The return type is omitted.
 
 ```text
-execution(* App\Connection::__construct(..))       // every constructor execution of App\Connection
+execution(* App\Connection::__construct(..))       // the constructor declared by App\Connection
 initialization(App\Connection+)                    // only the outermost constructor of a Connection
 ```
 
-`execution()` on a constructor also matches the constructors of subclasses, and it matches `parent::__construct()` calls.
+A constructor pattern matches the constructor declared by the named type, like in AspectJ, and not the constructors of its subclasses:
+
+- `execution(* App\Base::__construct(..))` matches the execution of the constructor declared by `App\Base`.
+  A subclass with its own constructor is not matched.
+  A subclass without one runs `Base::__construct`, so it is matched; so is the `parent::__construct()` call of a subclass constructor, once per call.
+- `execution(* App\Base+::__construct(..))` also matches the constructors the subclasses declare.
+- `call()`, `withincode()` and `initialization()` follow the same rule.
+
 Use `initialization()` when you want one advice call per `new`.
-[`examples/04-constructors.php`](../examples/04-constructors.php) shows the difference.
+[`examples/04-constructors.php`](../examples/04-constructors.php) shows both designators.
 
 ## Designators
 
@@ -342,7 +364,7 @@ The compiler rejects them with `UnsupportedPointcutDesignatorException`, and the
 |---|---|
 | `PointcutSyntaxException` | The expression does not parse, a name is unknown, or a regular expression is invalid. |
 | `UnsupportedPointcutDesignatorException` | `preinitialization()` or `staticinitialization()` is used. |
-| `BindingException` | A binding is used where it cannot bind, such as under `!`. |
+| `BindingException` | A binding is used where it cannot bind, such as under `!`, or the branches of `\|\|` do not bind the same names. |
 
 Errors are reported when the Weaver compiles the aspect, which happens when you add it.
 An invalid pointcut never reaches a running request.

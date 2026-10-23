@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace AOP\Pointcut\Expression;
 
+use AOP\Exception\BindingException;
 use AOP\Exception\PointcutSyntaxException;
+use AOP\Exception\UnsupportedPointcutDesignatorException;
 use AOP\Pointcut\AdviceExecutionPointcut;
 use AOP\Pointcut\AndPointcut;
 use AOP\Pointcut\AnnotationPointcut;
@@ -78,6 +80,11 @@ final class PointcutExpressionCompiler
      * @param array<int|string, string|null> $adviceParameterNames Names of the advice parameters, e.g. ['id', 'audit'].
      *                                                             Optionally name => class type, e.g. ['audit' => Audit::class],
      *                                                             which becomes the binding's type restriction.
+     *
+     * @throws PointcutSyntaxException
+     * @throws UnsupportedPointcutDesignatorException
+     * @throws BindingException                       when the branches of a `||` bind different names (whichever branch matches, every
+     *                                                bound advice parameter needs a value) or a binding sits under `!`
      */
     public function compile(
         string $expression,
@@ -94,7 +101,12 @@ final class PointcutExpressionCompiler
             }
         }
 
-        return $this->compileExpression($expression, $names, $declaringAspect, $resolver, []);
+        try {
+            return $this->compileExpression($expression, $names, $declaringAspect, $resolver, []);
+        } catch (BindingException $e) {
+            // `||` branches binding different names, or a binding under `!`: say which expression it was
+            throw new BindingException(sprintf('%s In pointcut "%s".', $e->getMessage(), $expression), 0, $e);
+        }
     }
 
     /**
@@ -171,7 +183,7 @@ final class PointcutExpressionCompiler
     private function execution(ExecutionNode $node): PointcutInterface
     {
         return new ExecutionPointcut(
-            new ModifierPattern($node->modifier),
+            new ModifierPattern($node->modifiers),
             null === $node->returnPattern ? null : TypePattern::fromNode($node->returnPattern),
             null === $node->declaringType ? null : TypePattern::fromNode($node->declaringType),
             new NamePattern($node->namePattern),
@@ -192,7 +204,7 @@ final class PointcutExpressionCompiler
     private function initialization(InitializationNode $node): PointcutInterface
     {
         return new InitializationPointcut(new MethodPattern(
-            new ModifierPattern($node->modifier),
+            new ModifierPattern($node->modifiers),
             null,
             TypePattern::fromNode($node->declaringType),
             new NamePattern('__construct'),

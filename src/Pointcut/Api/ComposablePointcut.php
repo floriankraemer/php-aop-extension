@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace AOP\Pointcut\Api;
 
 use AOP\Pointcut\AndPointcut;
+use AOP\Pointcut\ControlFlowAwareInterface;
+use AOP\Pointcut\ControlFlowPointcuts;
 use AOP\Pointcut\OrPointcut;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
@@ -22,7 +24,7 @@ use AOP\Pointcut\StaticMatchContext;
  *
  * The methods mutate and return `$this` so calls chain.
  */
-final class ComposablePointcut implements PointcutInterface
+final class ComposablePointcut implements PointcutInterface, ControlFlowAwareInterface
 {
     private PointcutInterface $root;
 
@@ -73,6 +75,11 @@ final class ComposablePointcut implements PointcutInterface
     public function isCallerSensitive(): bool
     {
         return $this->root->isCallerSensitive();
+    }
+
+    public function cflowPointcuts(): array
+    {
+        return ControlFlowPointcuts::of($this->root);
     }
 
     private static function pointcut(ClassFilterInterface|MethodMatcherInterface|PointcutInterface $operand): PointcutInterface
