@@ -51,7 +51,7 @@ final class ParserTest extends TestCase
     public static function valid(): iterable
     {
         yield 'execution glob' => ['execution(* App\Service\*::get*(..))', new ExecutionNode(
-            null,
+            [],
             null,
             self::t('App\Service\*'),
             'get*',
@@ -59,11 +59,11 @@ final class ParserTest extends TestCase
         )];
         yield 'execution modifier nullable return, ** and params' => [
             'execution(public ?string App\Service\**::*(int, ..))',
-            new ExecutionNode('public', self::t('string', true), self::t('App\Service\**'), '*', self::pl([self::t('int')], true)),
+            new ExecutionNode(['public'], self::t('string', true), self::t('App\Service\**'), '*', self::pl([self::t('int')], true)),
         ];
-        yield 'execution any any' => ['execution(* *(..))', new ExecutionNode(null, null, null, '*', self::pl([], true))];
+        yield 'execution any any' => ['execution(* *(..))', new ExecutionNode([], null, null, '*', self::pl([], true))];
         yield 'execution subtype return' => ['execution(App\Entity\User+ *(..))', new ExecutionNode(
-            null,
+            [],
             self::t('App\Entity\User', false, true),
             null,
             '*',
@@ -71,11 +71,11 @@ final class ParserTest extends TestCase
         )];
         yield 'execution protected, leading backslash, empty params' => [
             'execution(protected \App\Foo find())',
-            new ExecutionNode('protected', self::t('App\Foo'), null, 'find', self::pl()),
+            new ExecutionNode(['protected'], self::t('App\Foo'), null, 'find', self::pl()),
         ];
         yield 'execution subtype declaring type' => [
             'execution(* App\Contract\Repo+::*(*, ?int, string))',
-            new ExecutionNode(null, null, self::t('App\Contract\Repo', false, true), '*', self::pl([
+            new ExecutionNode([], null, self::t('App\Contract\Repo', false, true), '*', self::pl([
                 new WildcardParamNode(),
                 self::t('int', true),
                 self::t('string'),
@@ -83,28 +83,28 @@ final class ParserTest extends TestCase
         ];
         yield 'execution: namespaced function' => [
             'execution(* App\Util\fmt*(..))',
-            new ExecutionNode(null, null, null, 'App\Util\fmt*', self::pl([], true)),
+            new ExecutionNode([], null, null, 'App\Util\fmt*', self::pl([], true)),
         ];
         yield 'execution: leading backslash on function' => [
             'execution(string \App\Util\fmt(string))',
-            new ExecutionNode(null, self::t('string'), null, 'App\Util\fmt', self::pl([self::t('string')])),
+            new ExecutionNode([], self::t('string'), null, 'App\Util\fmt', self::pl([self::t('string')])),
         ];
-        yield 'execution: internal function glob' => ['execution(* str_*(..))', new ExecutionNode(null, null, null, 'str_*', self::pl([], true))];
+        yield 'execution: internal function glob' => ['execution(* str_*(..))', new ExecutionNode([], null, null, 'str_*', self::pl([], true))];
         yield 'execution: constructor' => [
             'execution(* App\Service\User::__construct(..))',
-            new ExecutionNode(null, null, self::t('App\Service\User'), '__construct', self::pl([], true)),
+            new ExecutionNode([], null, self::t('App\Service\User'), '__construct', self::pl([], true)),
         ];
         yield 'execution: method named like a modifier' => [
             'execution(* public(..))',
-            new ExecutionNode(null, null, null, 'public', self::pl([], true)),
+            new ExecutionNode([], null, null, 'public', self::pl([], true)),
         ];
         yield 'execution: method named like a designator' => [
             'execution(* target(..))',
-            new ExecutionNode(null, null, null, 'target', self::pl([], true)),
+            new ExecutionNode([], null, null, 'target', self::pl([], true)),
         ];
         yield 'execution: bare identifiers are types' => [
             'execution(* *(Foo))',
-            new ExecutionNode(null, null, null, '*', self::pl([self::t('Foo')])),
+            new ExecutionNode([], null, null, '*', self::pl([self::t('Foo')])),
         ];
         yield 'within and not annotation' => [
             'within(App\Service\**) && !@annotation(App\Attribute\NoLog)',

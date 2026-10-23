@@ -10,10 +10,10 @@ namespace AOP\Pointcut\Expression\Ast;
 final readonly class InitializationNode implements NodeInterface
 {
     /**
-     * @param 'public'|'protected'|null $modifier
+     * @param list<string> $modifiers `public`, `!static`, ... (see ModifierPattern)
      */
     public function __construct(
-        public ?string $modifier,
+        public array $modifiers,
         public TypePatternNode $declaringType,
         public ParamListNode $params,
     ) {

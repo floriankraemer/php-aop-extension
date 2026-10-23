@@ -461,14 +461,21 @@ designator      = ...existing...
                 | "get" "(" fieldPattern ")"
                 | "set" "(" fieldPattern ")"
                 | ( "preinitialization" | "staticinitialization" ) "(" ... ")"   (* UnsupportedPointcutDesignatorException *) ;
-methodPattern   = [ "public" | "protected" ] returnType [ typePattern [ "+" ] "::" ] namePattern "(" paramList ")"
-                | [ "public" | "protected" ] typePattern [ "+" ] "::__construct" "(" paramList ")" ;   (* constructor: no return type *)
-ctorPattern     = [ "public" | "protected" ] typePattern [ "+" ] "::__construct" "(" paramList ")" ;
+methodPattern   = { methodModifier } returnType [ typePattern [ "+" ] "::" ] namePattern "(" paramList ")"
+                | { methodModifier } typePattern [ "+" ] "::__construct" "(" paramList ")" ;   (* constructor: no return type *)
+ctorPattern     = { methodModifier } typePattern [ "+" ] "::__construct" "(" paramList ")" ;
+methodModifier  = [ "!" ] ( "public" | "protected" | "private" | "static" | "final" | "abstract" ) ;
 fieldPattern    = { fieldModifier } [ [ "?" ] typePattern [ "+" ] ] typePattern [ "+" ] "::" "$" namePattern ;
-fieldModifier   = "public" | "protected" | "private" | "static" | "readonly" ;
+fieldModifier   = [ "!" ] ( "public" | "protected" | "private" | "static" | "readonly" ) ;
 ```
 
 `methodPattern` is the existing `execution()` pattern; a constructor pattern may omit the return type (also in `execution()`).
+Modifiers are all required to hold (`Pattern\ModifierPattern`, `FieldPattern`); `!` negates one. A plain function counts as public, non-static,
+non-final and non-abstract. A bare word standing where a modifier belongs but not being one (`pubic * Foo::bar(..)`) raises a
+`PointcutSyntaxException` ("Unknown modifier ..."). `ExecutionNode`/`InitializationNode::$modifiers` and `FieldPatternNode::$modifiers` are `list<string>` such as `['public', '!static']`.
+**Constructors do not override** (AspectJ): in `Pattern\MethodPattern` the declaring type of a `__construct` pattern matches the class declaring the executing
+constructor (`Base+`: and its subtypes), or the runtime class when that class inherits the constructor. So `execution(* Base::__construct(..))` never matches a
+subclass' own constructor, but matches the inherited one and the `parent::__construct()` execution. Other methods keep matching through the type that declares the signature.
 `$name` is a new token (`TokenType::Variable`), `*` is allowed in the name. `Lexer::DESIGNATORS` lists all designators, including the two unsupported ones.
 AST: `CallNode`/`WithincodeNode` wrap an `ExecutionNode`; `AtThisNode`, `AtWithincodeNode`, `CflowNode(inner, below)`, `IfNode(?class, method)`,
 `InitializationNode(modifier, declaringType, params)` (the shorthand `Foo+` is the same node with `(..)`), `AdviceExecutionNode`, `HandlerNode`,
@@ -491,7 +498,7 @@ AST: `CallNode`/`WithincodeNode` wrap an `ExecutionNode`; `AtThisNode`, `AtWithi
 | `get(F)` / `set(F)` | `field-get` / `field-set` (class prefilter accepts both field kinds) | no | no | `set`: `args(v)` is the new value |
 | `service(n)` | any kind of a registered service | no | no | - |
 
-`!` refuses bindings (`BindingException`), `||` branches must bind the same names, `&&`/`||`/`!` are runtime when a child is and caller-sensitive when a child is.
+`!` refuses bindings (`BindingException`), `||` branches must bind the same names (`OrPointcut` throws `BindingException` at construction; `PointcutExpressionCompiler::compile()` adds the expression to the message), `&&`/`||`/`!` are runtime when a child is and caller-sensitive when a child is.
 
 ### API for the runtime (stream D)
 

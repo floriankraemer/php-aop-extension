@@ -35,7 +35,7 @@ final class InitializationPointcut implements PointcutInterface
                 && $this->pattern->matchesImplicitConstructor($ctx->targetClass, $ctx->introducedInterfaces);
         }
 
-        return $method instanceof \ReflectionMethod && $this->pattern->matches($method, $ctx->targetClass, $ctx->introducedInterfaces, true);
+        return $method instanceof \ReflectionMethod && $this->pattern->matches($method, $ctx->targetClass, $ctx->introducedInterfaces);
     }
 
     private static function appliesTo(JoinPointKind $kind): bool

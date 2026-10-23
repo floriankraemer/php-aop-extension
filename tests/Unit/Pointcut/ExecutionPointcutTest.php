@@ -36,10 +36,10 @@ final class ExecutionPointcutTest extends TestCase
     }
 
     /**
-     * @param 'public'|'protected'|null $modifier
+     * @param string|list<string>|null $modifier
      */
     private function pointcut(
-        ?string $modifier = null,
+        string|array|null $modifier = null,
         ?TypePattern $return = null,
         ?TypePattern $declaring = null,
         string $name = '*',
@@ -268,12 +268,16 @@ final class ExecutionPointcutTest extends TestCase
     }
 
     #[Test]
-    public function functionsHaveNoModifierAndNoDeclaringType(): void
+    public function functionsArePublicNonStaticNonFinalAndHaveNoDeclaringType(): void
     {
         $function = new \ReflectionFunction('AOP\Tests\Fixtures\Functions\fmt');
         $ctx = new StaticMatchContext(JoinPointKind::FUNCTION_EXECUTION, null, $function);
 
-        self::assertFalse($this->pointcut(modifier: 'public')->matchesMethod($function, $ctx));
+        self::assertTrue($this->pointcut(modifier: 'public')->matchesMethod($function, $ctx));
+        foreach (['protected', 'private', 'static', 'final', 'abstract'] as $modifier) {
+            self::assertFalse($this->pointcut(modifier: $modifier)->matchesMethod($function, $ctx), $modifier);
+            self::assertTrue($this->pointcut(modifier: '!'.$modifier)->matchesMethod($function, $ctx), '!'.$modifier);
+        }
         self::assertFalse($this->pointcut(declaring: new TypePattern('*'))->matchesMethod($function, $ctx));
         self::assertFalse($this->pointcut(declaring: new TypePattern('*'))->matchesClass(null, $ctx));
     }
