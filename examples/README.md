@@ -21,6 +21,9 @@ for f in examples/*.php; do php -d extension=/path/to/aop.so "$f" >/dev/null || 
 
 Without the extension, a script stops at `enable()` with an `AspectDefinitionException` that names `ext-aop`.
 
+Example 30 loads its target class after `enable()`, because introductions apply only to classes compiled afterwards.
+The target class is in `30-introductions/Report.php`, which is not an example by itself.
+
 ## Scripts
 
 | Script | Shows | Docs |
@@ -51,3 +54,7 @@ Without the extension, a script stops at `enable()` with an `AspectDefinitionExc
 | [24-advisor-adapters.php](24-advisor-adapters.php) | A custom advice type through an advisor adapter | [spring-api](../docs/spring-api.md#advice-types-of-your-own) |
 | [25-advice-execution.php](25-advice-execution.php) | `adviceexecution()` | [pointcuts](../docs/pointcuts.md#adviceexecution) |
 | [26-named-pointcuts.php](26-named-pointcuts.php) | Named pointcuts with `#[Pointcut]`, used across aspects, with `if()` | [pointcuts](../docs/pointcuts.md#named-pointcuts) |
+| [27-fields.php](27-fields.php) | Fields: a `set()` advice that refuses a write, and a `get()` advice that changes a read | [pointcuts](../docs/pointcuts.md#get-and-set) |
+| [28-exception-handler.php](28-exception-handler.php) | `handler()`: advice on a `catch`, and an exception from advice that replaces the caught one | [pointcuts](../docs/pointcuts.md#handler) |
+| [29-initialization-without-constructor.php](29-initialization-without-constructor.php) | `initialization()` for a class without a constructor, and `#[Configurable]` on one | [pointcuts](../docs/pointcuts.md#initialization) |
+| [30-introductions.php](30-introductions.php) | `#[DeclareParents]`: an interface and its default implementation, with the target class in [30-introductions/Report.php](30-introductions/Report.php) | [configuration](../docs/configuration.md#introductions) |

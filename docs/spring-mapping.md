@@ -17,7 +17,7 @@ The status column says whether the feature is supported in this build.
 | `@Order`, `Ordered` | `#[Order]`, `AOP\Advisor\Ordered` | Supported. |
 | AspectJ `declare precedence` | `#[DeclarePrecedence('A, B, *')]` | Supported. |
 | AspectJ `declare warning`, `declare error` | `#[DeclareWarning]`, `#[DeclareError]` | Supported. |
-| AspectJ `declare parents` (`@DeclareParents`) | `#[DeclareParents]` | Experimental. No effect in this build. |
+| AspectJ `declare parents` (`@DeclareParents`) | `#[DeclareParents]` | Supported, compile-time: see [limitations](limitations.md#introductions). |
 | `perthis`, `pertarget` | `#[Aspect(scope: AspectScope::PER_THIS)]`, `PER_TARGET` | Supported. |
 | AspectJ `percflow`, `percflowbelow`, `pertypewithin` | `AspectScope::PER_CFLOW`, `PER_CFLOW_BELOW`, `PER_TYPE_WITHIN` | Supported. |
 | `ThrowsAdvice` | `AOP\Advice\Api\ThrowsAdviceInterface` | Supported. |
@@ -32,9 +32,9 @@ The status column says whether the feature is supported in this build.
 | AspectJ `call`, `withincode`, `@withincode` | Same names | Supported. |
 | AspectJ `cflow`, `cflowbelow` | Same names | Supported. |
 | AspectJ `if()` | `if(C::m())` | Supported. |
-| AspectJ `initialization` | `initialization()` for constructors | Supported for constructors. Constructor-less classes are experimental. |
+| AspectJ `initialization` | `initialization()` | Supported, for constructors and for classes without a constructor. |
 | AspectJ `adviceexecution()` | `adviceexecution()` | Supported. |
-| AspectJ `handler`, `get`, `set` | Same names | Experimental. Compiles, no effect in this build. |
+| AspectJ `handler`, `get`, `set` | Same names | Supported. Fields are checked on PHP 8.3; PHP 8.4 and 8.5 are in progress. See [limitations](limitations.md#fields-handlers-initialization-and-introductions). |
 | AspectJ `preinitialization`, `staticinitialization` | Rejected with `UnsupportedPointcutDesignatorException` | Not applicable, see below. |
 | `ControlFlowPointcut` (Spring API) | `AOP\Pointcut\Api\ControlFlowPointcut` | Supported. Execution-only and control-flow aware like `cflow()`, see [spring-api.md](spring-api.md#control-flow). |
 
@@ -46,9 +46,9 @@ The status column says whether the feature is supported in this build.
 | `Advised` (add, remove, freeze advisors) | `Weaver::addAdvisor()`, `removeAdvisor()`, `freeze()` | Supported. |
 | Per-object advice (`Advised` on one proxy) | `Weaver::advised($object)` | Supported. |
 | `AopContext.currentProxy()` | `AopContext::currentObject()`, `AopContext::currentJoinPoint()` | Supported. There is no proxy to expose. |
-| `MethodInterceptor`, `MethodBeforeAdvice`, `AfterReturningAdvice`, `ThrowsAdvice`, `IntroductionInterceptor` | The interfaces in `AOP\Advice\Api` | Supported, except introductions (experimental). |
+| `MethodInterceptor`, `MethodBeforeAdvice`, `AfterReturningAdvice`, `ThrowsAdvice`, `IntroductionInterceptor` | The interfaces in `AOP\Advice\Api` | Supported. |
 | `DefaultPointcutAdvisor`, `RegexpMethodPointcutAdvisor`, `NameMatchMethodPointcutAdvisor` | The classes in `AOP\Advisor\Api` | Supported. |
-| `DefaultIntroductionAdvisor` | `AOP\Advisor\Api\DefaultIntroductionAdvisor` | Experimental. |
+| `DefaultIntroductionAdvisor` | `AOP\Advisor\Api\DefaultIntroductionAdvisor` | Routes calls only; it does not add the interface. Use `#[DeclareParents]` to introduce one. |
 | `Pointcut`, `ClassFilter`, `MethodMatcher`, `StaticMethodMatcherPointcut`, `DynamicMethodMatcherPointcut` | `AOP\Pointcut\Api\*` | Supported. |
 | `ComposablePointcut`, `Pointcuts` | `AOP\Pointcut\Api\ComposablePointcut`, `Pointcuts` | Supported. |
 | `RegexpMethodPointcut`, `NameMatchMethodPointcut`, `AttributeMatchingPointcut` | Same names in `AOP\Pointcut\Api` | Supported. A bare expression matches the whole name; a delimited PCRE (`/Catalog::save/i`) is used as written. |
