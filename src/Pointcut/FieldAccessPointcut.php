@@ -11,7 +11,7 @@ use AOP\Pointcut\Pattern\FieldPattern;
  * Shared by get() and set(): a property read or write matching a field pattern. The decision depends on
  * (runtime class, property, kind) only, so it is static and not caller-sensitive.
  */
-abstract class FieldAccessPointcut implements PointcutInterface
+abstract class FieldAccessPointcut implements PointcutInterface, FieldInterceptionAwareInterface
 {
     public function __construct(private readonly FieldPattern $pattern)
     {
@@ -50,5 +50,10 @@ abstract class FieldAccessPointcut implements PointcutInterface
     public function isCallerSensitive(): bool
     {
         return false;
+    }
+
+    public function requiresFieldInterception(): bool
+    {
+        return true;
     }
 }

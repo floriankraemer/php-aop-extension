@@ -6,6 +6,8 @@ namespace AOP\Pointcut\Api;
 
 use AOP\Exception\PointcutSyntaxException;
 use AOP\Pointcut\ControlFlowAwareInterface;
+use AOP\Pointcut\FieldInterception;
+use AOP\Pointcut\FieldInterceptionAwareInterface;
 use AOP\Pointcut\ControlFlowPointcuts;
 use AOP\Pointcut\Expression\NamedPointcutResolverInterface;
 use AOP\Pointcut\Expression\PointcutExpressionCompiler;
@@ -17,7 +19,7 @@ use AOP\Pointcut\StaticMatchContext;
  * A pointcut written as an expression string, e.g. `execution(* App\Service\**::*(..)) && !within(App\Legacy\*)`
  * (Spring's AspectJExpressionPointcut). Compiled once, eagerly.
  */
-final class ExpressionPointcut implements PointcutInterface, ControlFlowAwareInterface
+final class ExpressionPointcut implements PointcutInterface, ControlFlowAwareInterface, FieldInterceptionAwareInterface
 {
     private readonly PointcutInterface $compiled;
 
@@ -74,5 +76,10 @@ final class ExpressionPointcut implements PointcutInterface, ControlFlowAwareInt
     public function cflowPointcuts(): array
     {
         return ControlFlowPointcuts::of($this->compiled);
+    }
+
+    public function requiresFieldInterception(): bool
+    {
+        return FieldInterception::requiredBy($this->compiled);
     }
 }

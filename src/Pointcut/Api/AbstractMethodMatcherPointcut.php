@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace AOP\Pointcut\Api;
 
 use AOP\JoinPoint\JoinPointKind;
+use AOP\Pointcut\FieldInterception;
+use AOP\Pointcut\FieldInterceptionAwareInterface;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
 use AOP\Pointcut\StaticMatchContext;
@@ -15,7 +17,7 @@ use AOP\Pointcut\StaticMatchContext;
  * a RuntimeMatchContext, so the Spring-style `matchesRuntime($function, $class, $args)` is called `matchesArguments()` here;
  * `getMethodMatcher()` exposes the pair as a real MethodMatcherInterface.
  */
-abstract class AbstractMethodMatcherPointcut implements PointcutInterface
+abstract class AbstractMethodMatcherPointcut implements PointcutInterface, FieldInterceptionAwareInterface
 {
     private ClassFilterInterface $classFilter = TrueClassFilter::INSTANCE;
 
@@ -98,5 +100,10 @@ abstract class AbstractMethodMatcherPointcut implements PointcutInterface
     private function pointcut(): ApiPointcut
     {
         return $this->delegate ??= new ApiPointcut($this->classFilter, $this->getMethodMatcher(), $this->kinds);
+    }
+
+    public function requiresFieldInterception(): bool
+    {
+        return $this->pointcut()->requiresFieldInterception();
     }
 }

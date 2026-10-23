@@ -37,6 +37,11 @@ final class NativeEngineBridge implements IntroducingEngineInterface
         return self::available() && \AOP\Engine::isRegistered();
     }
 
+    public function fieldInterceptionAvailable(): bool
+    {
+        return self::available() && \AOP\Engine::fieldInterceptionAvailable();
+    }
+
     public static function available(): bool
     {
         return class_exists(\AOP\Engine::class, false);

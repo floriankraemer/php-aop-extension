@@ -22,6 +22,7 @@ use AOP\Configurable\ConfigurableAspect;
 use AOP\Exception\AspectDefinitionException;
 use AOP\Exception\WeaverFrozenException;
 use AOP\Pointcut\Expression\PointcutExpressionCompiler;
+use AOP\Pointcut\FieldInterception;
 use AOP\Pointcut\Pattern\TypePattern;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Runtime\AdvisedInstance;
@@ -335,6 +336,7 @@ final class Weaver
         if ($this->enabled) {
             return;
         }
+        $this->assertFieldInterceptionAvailableWhereNeeded();
         $this->configure();
         $this->pushIntroductions();
         $this->engine->register($this->runtime->match(...), $this->runtime->dispatch(...));
@@ -429,6 +431,27 @@ final class Weaver
         }
 
         return $all;
+    }
+
+    /**
+     * Field-get/field-set and initialization advice cannot work on a backend without field interception; failing here
+     * beats advice that silently never runs.
+     *
+     * @throws AspectDefinitionException
+     */
+    private function assertFieldInterceptionAvailableWhereNeeded(): void
+    {
+        if ($this->engine->fieldInterceptionAvailable()) {
+            return;
+        }
+        foreach ($this->allAdvisors() as $advisor) {
+            if (FieldInterception::requiredBy($advisor->pointcut)) {
+                throw new AspectDefinitionException(sprintf(
+                    'Advisor "%s" targets field-get, field-set or initialization join points, which the active interception backend cannot intercept. Set aop.interception=hook (or aop.interception=auto without the opcache JIT) in php.ini.',
+                    $advisor->id,
+                ));
+            }
+        }
     }
 
     private function configure(): void
