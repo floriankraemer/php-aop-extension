@@ -10,8 +10,13 @@ use AOP\Pointcut\Expression\Ast\ExecutionNode;
  * `[modifier] [return type] [Declaring\Type[+]::]name(params)`: the method, constructor and function pattern shared by
  * execution(), call(), withincode() and initialization().
  *
- * A function pattern has no declaring type and may be namespaced; `public`/`protected` and a declaring type never match
- * a plain function.
+ * A function pattern has no declaring type and may be namespaced; a declaring type never matches a plain function. A plain
+ * function counts as public, non-static, non-final and non-abstract for the modifiers.
+ *
+ * Constructors are not overridden (AspectJ semantics): the declaring type of a constructor pattern matches the class that
+ * declares the executing constructor (`Base+` also its subclasses), so `Base::__construct` never matches the own
+ * constructor of a subclass. A class that inherits a constructor is matched by its own name as well. Every other method
+ * matches through the type that declares the signature, so an override is matched by the pattern of its base type.
  */
 final class MethodPattern
 {
@@ -31,7 +36,7 @@ final class MethodPattern
     public static function fromNode(ExecutionNode $node): self
     {
         return new self(
-            new ModifierPattern($node->modifier),
+            new ModifierPattern($node->modifiers),
             null === $node->returnPattern ? null : TypePattern::fromNode($node->returnPattern),
             null === $node->declaringType ? null : TypePattern::fromNode($node->declaringType),
             new NamePattern($node->namePattern),
@@ -65,10 +70,8 @@ final class MethodPattern
     /**
      * @param \ReflectionClass<object>|null $class                the runtime class of the member's object; defaults to the declaring class
      * @param list<class-string>            $introducedInterfaces
-     * @param bool                          $constructor          match the declaring type like AspectJ does for constructors: a constructor
-     *                                                            is not overridden, so it is the runtime class itself or the class declaring it
      */
-    public function matches(\ReflectionFunctionAbstract $function, ?\ReflectionClass $class = null, array $introducedInterfaces = [], bool $constructor = false): bool
+    public function matches(\ReflectionFunctionAbstract $function, ?\ReflectionClass $class = null, array $introducedInterfaces = []): bool
     {
         if (!$function instanceof \ReflectionMethod && null !== $this->declaringType) {
             return false;
@@ -78,23 +81,30 @@ final class MethodPattern
             && $this->name->matches($function->getName())
             && $this->params->matches($function)
             && (null === $this->returnType || $this->returnType->matchesDeclared($function->getReturnType(), $function instanceof \ReflectionMethod ? $function->getDeclaringClass() : null))
-            && ($constructor ? $this->constructorTypeMatches($function, $class) : $this->declaringTypeMatches($function, $class, $introducedInterfaces));
+            && ($function instanceof \ReflectionMethod && 0 === strcasecmp($function->getName(), '__construct') ? $this->constructorTypeMatches($function, $class) : $this->declaringTypeMatches($function, $class, $introducedInterfaces));
     }
 
     /**
+     * A constructor is not overridden: the pattern matches the class declaring it, or the runtime class when that class
+     * inherits the constructor (and therefore has no declaration of its own).
+     *
      * @param \ReflectionClass<object>|null $class
      */
-    private function constructorTypeMatches(\ReflectionFunctionAbstract $function, ?\ReflectionClass $class): bool
+    private function constructorTypeMatches(\ReflectionMethod $constructor, ?\ReflectionClass $class): bool
     {
         if (null === $this->declaringType) {
             return true;
         }
-        if (!$function instanceof \ReflectionMethod) {
+        $declaring = $constructor->getDeclaringClass();
+        if ($this->declaringType->matchesType($declaring)) {
+            return true;
+        }
+        if (null === $class || $class->getName() === $declaring->getName()) {
             return false;
         }
+        $own = $class->getConstructor();
 
-        return $this->declaringType->matchesType($function->getDeclaringClass())
-            || (null !== $class && $this->declaringType->matchesType($class));
+        return null !== $own && $own->getDeclaringClass()->getName() === $declaring->getName() && $this->declaringType->matchesType($class);
     }
 
     /**
@@ -105,11 +115,11 @@ final class MethodPattern
      */
     public function matchesImplicitConstructor(\ReflectionClass $class, array $introducedInterfaces = []): bool
     {
-        return $this->modifier->allowsPublic()
+        return $this->modifier->allowsImplicitConstructor()
             && null === $this->returnType
             && $this->name->matches('__construct')
             && $this->params->matchesNoParameters()
-            && $this->matchesClass($class, $introducedInterfaces);
+            && (null === $this->declaringType || $this->declaringType->matchesType($class));
     }
 
     /**

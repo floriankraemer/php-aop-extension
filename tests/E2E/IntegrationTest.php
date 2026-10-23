@@ -13,7 +13,12 @@ use AOP\TargetSource\HotSwappableTargetSource;
 use AOP\Weaver;
 use AopE2E\CallAspect;
 use AopE2E\ConfigAspect;
+use AopE2E\CtorBase;
+use AopE2E\CtorBaseAspect;
+use AopE2E\CtorChild;
+use AopE2E\CtorHeir;
 use AopE2E\Driver;
+use AopE2E\Factory;
 use AopE2E\FlowAspect;
 use AopE2E\Gate;
 use AopE2E\IfAspect;
@@ -122,6 +127,25 @@ final class IntegrationTest extends EngineTestCase
 
         $driver->outer(new Pipeline());
         self::assertSame(['spring:inner'], Journal::$entries);
+    }
+
+    #[Test]
+    public function aConstructorPatternMatchesOnlyTheConstructorDeclaredByTheType(): void
+    {
+        $this->weave([new CtorBaseAspect()]);
+
+        Factory::make(CtorBase::class);
+        self::assertSame(['base:AopE2E\CtorBase', 'plus:AopE2E\CtorBase'], Journal::$entries);
+
+        // CtorChild declares its own constructor: `Base+` matches it, `Base` only matches the parent::__construct() execution, once per `new`.
+        Journal::reset();
+        Factory::make(CtorChild::class);
+        self::assertSame(['plus:AopE2E\CtorChild', 'base:AopE2E\CtorChild', 'plus:AopE2E\CtorChild'], Journal::$entries);
+
+        // CtorHeir inherits Base's constructor, so it is Base's constructor that runs.
+        Journal::reset();
+        Factory::make(CtorHeir::class);
+        self::assertSame(['base:AopE2E\CtorHeir', 'plus:AopE2E\CtorHeir'], Journal::$entries);
     }
 
     #[Test]

@@ -10,7 +10,7 @@ namespace AOP\Pointcut\Expression\Ast;
 final readonly class FieldPatternNode implements NodeInterface
 {
     /**
-     * @param list<string>         $modifiers
+     * @param list<string>         $modifiers   `public`, `!static`, ...
      * @param TypePatternNode|null $type        null means `*`
      * @param string               $namePattern the property name pattern without `$`
      */

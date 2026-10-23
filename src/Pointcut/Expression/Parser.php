@@ -37,6 +37,7 @@ use AOP\Pointcut\Expression\Ast\TypePatternNode;
 use AOP\Pointcut\Expression\Ast\WildcardParamNode;
 use AOP\Pointcut\Expression\Ast\WithincodeNode;
 use AOP\Pointcut\Expression\Ast\WithinNode;
+use AOP\Pointcut\Pattern\ModifierPattern;
 
 /**
  * Recursive-descent parser for the pointcut expression language (grammar: docs/internals/contract.md, "Pointcut notes (stream E)").
@@ -165,16 +166,7 @@ final class Parser
 
     private function parseExecution(): ExecutionNode
     {
-        $modifier = null;
-        $current = $this->current();
-        if (
-            TokenType::Word === $current->type
-            && ('public' === $current->value || 'protected' === $current->value)
-            && in_array($this->peek(1)->type, [TokenType::Word, TokenType::Keyword, TokenType::Question], true)
-        ) {
-            $modifier = $current->value;
-            $this->advance();
-        }
+        $modifiers = $this->modifiers(ModifierPattern::MODIFIERS, 'method');
 
         // A constructor pattern (`Type::__construct(..)`) may omit the return type, which constructors do not have.
         $returnPattern = null;
@@ -205,7 +197,81 @@ final class Parser
         $params = $this->paramList(false);
         $this->expect(TokenType::RParen, '")"');
 
-        return new ExecutionNode($modifier, $returnPattern, $declaringType, $name, $params);
+        return new ExecutionNode($modifiers, $returnPattern, $declaringType, $name, $params);
+    }
+
+    /**
+     * The leading modifiers of a method, constructor or field pattern: known words, each optionally negated with `!`.
+     * A word that is clearly meant as a modifier but is not one is reported as an unknown modifier.
+     *
+     * @param list<string>                         $known
+     * @param 'method'|'initialization'|'field' $context
+     *
+     * @return list<string>
+     */
+    private function modifiers(array $known, string $context): array
+    {
+        $modifiers = [];
+        while (true) {
+            $negated = TokenType::Not === $this->current()->type;
+            $word = $this->peek($negated ? 1 : 0);
+            if ($negated && TokenType::Word !== $word->type) {
+                throw $this->unexpected('modifier after "!"');
+            }
+            if ($negated && !in_array($word->value, $known, true)) {
+                throw $this->unknownModifier($word, $known);
+            }
+            if (TokenType::Word !== $word->type || !in_array($word->value, $known, true)) {
+                break;
+            }
+            $following = $this->peek($negated ? 2 : 1)->type;
+            if (!in_array($following, [TokenType::Word, TokenType::Keyword, TokenType::Question, TokenType::Not], true)) {
+                break; // a modifier word is followed by the rest of the pattern, otherwise it is a name
+            }
+            $modifiers[] = ($negated ? '!' : '').$word->value;
+            $this->advance();
+            if ($negated) {
+                $this->advance();
+            }
+        }
+
+        if ($this->startsWithUnknownModifier($context)) {
+            throw $this->unknownModifier($this->current(), $known);
+        }
+
+        return $modifiers;
+    }
+
+    /**
+     * Does a word that is no modifier stand where one could be? `abstrct * Foo::bar()`: three words in a row, a word
+     * before `?type`, or a word before a constructor pattern can only be a modifier.
+     *
+     * @param 'method'|'initialization'|'field' $context
+     */
+    private function startsWithUnknownModifier(string $context): bool
+    {
+        $current = $this->current();
+        if (TokenType::Word !== $current->type) {
+            return false;
+        }
+        $isWord = static fn (Token $t): bool => TokenType::Word === $t->type || TokenType::Keyword === $t->type;
+        $next = $this->peek(1);
+
+        return match ($context) {
+            'initialization' => '*' !== $current->value && $isWord($next),
+            default => ($isWord($next) && $isWord($this->peek(2)))
+                || TokenType::Question === $next->type
+                || ('method' === $context && '*' !== $current->value && $isWord($next)
+                    && TokenType::DoubleColon === $this->peek(2)->type && '__construct' === $this->peek(3)->value),
+        };
+    }
+
+    /**
+     * @param list<string> $known
+     */
+    private function unknownModifier(Token $token, array $known): PointcutSyntaxException
+    {
+        return PointcutSyntaxException::at(sprintf('Unknown modifier "%s": expected %s, each optionally negated with "!"', $token->value, implode(', ', $known)), $token->position, $this->expression);
     }
 
     /**
@@ -246,26 +312,17 @@ final class Parser
      */
     private function parseInitialization(): InitializationNode
     {
-        $modifier = null;
-        $current = $this->current();
-        if (
-            TokenType::Word === $current->type
-            && ('public' === $current->value || 'protected' === $current->value)
-            && in_array($this->peek(1)->type, [TokenType::Word, TokenType::Keyword], true)
-        ) {
-            $modifier = $current->value;
-            $this->advance();
-        }
+        $modifiers = $this->modifiers(ModifierPattern::MODIFIERS, 'initialization');
 
         $word = $this->expectWord();
         $plus = $this->acceptPlus();
         $declaringType = $this->typePattern($word, false, $plus);
         if (null === $this->accept(TokenType::DoubleColon)) {
-            if (null !== $modifier) {
+            if ([] !== $modifiers) {
                 throw PointcutSyntaxException::at(sprintf('A modifier needs a full constructor pattern, expected "%s::__construct(..)"', $word->value), $word->position, $this->expression);
             }
 
-            return new InitializationNode(null, $declaringType, new ParamListNode([], true));
+            return new InitializationNode([], $declaringType, new ParamListNode([], true));
         }
         $name = $this->expectWord();
         if ('__construct' !== $name->value) {
@@ -275,7 +332,7 @@ final class Parser
         $params = $this->paramList(false);
         $this->expect(TokenType::RParen, '")"');
 
-        return new InitializationNode($modifier, $declaringType, $params);
+        return new InitializationNode($modifiers, $declaringType, $params);
     }
 
     /**
@@ -283,15 +340,7 @@ final class Parser
      */
     private function parseField(): FieldPatternNode
     {
-        $modifiers = [];
-        while (
-            TokenType::Word === $this->current()->type
-            && in_array($this->current()->value, self::FIELD_MODIFIERS, true)
-            && in_array($this->peek(1)->type, [TokenType::Word, TokenType::Keyword, TokenType::Question], true)
-        ) {
-            $modifiers[] = $this->current()->value;
-            $this->advance();
-        }
+        $modifiers = $this->modifiers(self::FIELD_MODIFIERS, 'field');
 
         $nullable = null !== $this->accept(TokenType::Question);
         $first = $this->expectWord();
