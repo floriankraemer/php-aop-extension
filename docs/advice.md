@@ -74,6 +74,9 @@ The message names the parameter and the pointcut.
 
 [`examples/09-pointcut-designators.php`](../examples/09-pointcut-designators.php) binds an attribute instance, an argument and a target.
 
+With the default backend (`aop.interception=woven`), argument bindings such as `args(name)` see the values after coercion to the declared parameter types.
+Advice for `get()`, `set()` and `initialization()` join points works only with `aop.interception=hook`; see [limitations](limitations.md#backends).
+
 ## Order
 
 Advice runs in order, and the order is about nesting.

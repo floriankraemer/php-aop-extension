@@ -23,6 +23,18 @@ enum JoinPointKind: string
     case ADVICE_EXECUTION = 'advice-execution';
 
     /**
+     * Field reads/writes and `initialization` (of classes without constructor) exist only under the `hook` interception
+     * backend; the `woven` backend has no way to observe them (see Engine::fieldInterceptionAvailable()).
+     */
+    public function requiresFieldInterception(): bool
+    {
+        return match ($this) {
+            self::FIELD_GET, self::FIELD_SET, self::INITIALIZATION => true,
+            default => false,
+        };
+    }
+
+    /**
      * The join point is a call site: the code seen from the caller.
      */
     public function isCall(): bool

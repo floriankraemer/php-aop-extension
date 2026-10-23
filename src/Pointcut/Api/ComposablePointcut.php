@@ -7,6 +7,8 @@ namespace AOP\Pointcut\Api;
 use AOP\Pointcut\AndPointcut;
 use AOP\Pointcut\ControlFlowAwareInterface;
 use AOP\Pointcut\ControlFlowPointcuts;
+use AOP\Pointcut\FieldInterception;
+use AOP\Pointcut\FieldInterceptionAwareInterface;
 use AOP\Pointcut\OrPointcut;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
@@ -24,7 +26,7 @@ use AOP\Pointcut\StaticMatchContext;
  *
  * The methods mutate and return `$this` so calls chain.
  */
-final class ComposablePointcut implements PointcutInterface, ControlFlowAwareInterface
+final class ComposablePointcut implements PointcutInterface, ControlFlowAwareInterface, FieldInterceptionAwareInterface
 {
     private PointcutInterface $root;
 
@@ -89,5 +91,10 @@ final class ComposablePointcut implements PointcutInterface, ControlFlowAwareInt
             $operand instanceof ClassFilterInterface => new ApiPointcut($operand, TrueMethodMatcher::INSTANCE),
             default => new ApiPointcut(TrueClassFilter::INSTANCE, $operand),
         };
+    }
+
+    public function requiresFieldInterception(): bool
+    {
+        return FieldInterception::requiredBy($this->root);
     }
 }

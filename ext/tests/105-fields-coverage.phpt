@@ -2,6 +2,8 @@
 Fields: what is not covered (objects not created by new after register, isset/unset, static properties, non-standard handlers, primed oplines)
 --EXTENSIONS--
 aop
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 require __DIR__.'/100-helper.inc';

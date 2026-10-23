@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace AOP\Pointcut\Api;
 
 use AOP\JoinPoint\JoinPointKind;
+use AOP\Pointcut\FieldInterception;
+use AOP\Pointcut\FieldInterceptionAwareInterface;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
 use AOP\Pointcut\StaticMatchContext;
@@ -15,7 +17,7 @@ use AOP\Pointcut\StaticMatchContext;
  * It only matches execution join points whose kind is in `$kinds` (default: method and function executions),
  * because a Spring pointcut is about "method invocations on the target", never about calls, fields or handlers.
  */
-final class ApiPointcut implements PointcutInterface
+final class ApiPointcut implements PointcutInterface, FieldInterceptionAwareInterface
 {
     /** @var list<JoinPointKind> */
     private readonly array $kinds;
@@ -76,5 +78,10 @@ final class ApiPointcut implements PointcutInterface
     public function isCallerSensitive(): bool
     {
         return false;
+    }
+
+    public function requiresFieldInterception(): bool
+    {
+        return FieldInterception::anyKind($this->kinds);
     }
 }

@@ -2,6 +2,8 @@
 The advised frame stays on the stack while the dispatcher runs; dispatch inside fibers
 --EXTENSIONS--
 aop
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 class Svc

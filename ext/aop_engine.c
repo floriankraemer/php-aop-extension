@@ -12,6 +12,7 @@
 #include "php.h"
 #include "zend_exceptions.h"
 #include "zend_interfaces.h"
+#include "zend_weakrefs.h"
 #include "php_aop.h"
 
 /* {{{ namespace and frame helpers */
@@ -374,6 +375,8 @@ zend_long aop_decide(zend_function *func, zend_class_entry *called, zend_execute
 }
 /* }}} */
 
+static void aop_bypass_generator(zend_object *generator);
+
 /* {{{ AOP\OriginalCall */
 typedef struct {
 	zend_function *func;
@@ -531,12 +534,56 @@ ZEND_METHOD(AOP_OriginalCall, __invoke)
 	zend_call_known_function(oc->func, oc->this_obj, oc->called_scope, return_value, 0, NULL,
 		zend_hash_num_elements(args) ? args : NULL);
 	AOP_G(bypass) = NULL;
+	if (aop_interception_mode == AOP_MODE_WOVEN && (oc->func->common.fn_flags & ZEND_ACC_GENERATOR)
+			&& Z_TYPE_P(return_value) == IS_OBJECT) {
+		aop_bypass_generator(Z_OBJ_P(return_value));
+	}
 
 	if (Z_ISUNDEF_P(return_value)) {
 		ZVAL_NULL(return_value);
 	} else {
 		aop_unwrap_reference(return_value);
 	}
+}
+/* }}} */
+
+/* {{{ woven backend: generators created by OriginalCall */
+/*
+ * The woven prologue of a generator function runs on the first resume, long after OriginalCall::__invoke()
+ * cleared the single-shot bypass. The generators it created are therefore remembered, by identity: the
+ * weak keys drop an entry when its generator is destroyed unstarted (so a reused address never matches),
+ * and AOP\Internal\intercept() consumes the entry of the generator it runs in.
+ */
+static void aop_bypass_generator(zend_object *generator)
+{
+	zval marker;
+
+	if (!AOP_G(bypassed_generators)) {
+		ALLOC_HASHTABLE(AOP_G(bypassed_generators));
+		zend_hash_init(AOP_G(bypassed_generators), 8, NULL, NULL, 0);
+	}
+	ZVAL_TRUE(&marker);
+	zend_weakrefs_hash_add(AOP_G(bypassed_generators), generator, &marker);
+}
+
+void aop_bypassed_generators_free(void)
+{
+	HashTable *ht = AOP_G(bypassed_generators);
+
+	if (!ht) {
+		return;
+	}
+	/* Unregister the weak keys before the table goes away. */
+	while (zend_hash_num_elements(ht)) {
+		zend_ulong key = 0;
+		ZEND_HASH_FOREACH_NUM_KEY(ht, key) {
+			break;
+		} ZEND_HASH_FOREACH_END();
+		zend_weakrefs_hash_del(ht, zend_weakref_key_to_object(key));
+	}
+	zend_hash_destroy(ht);
+	FREE_HASHTABLE(ht);
+	AOP_G(bypassed_generators) = NULL;
 }
 /* }}} */
 
@@ -597,7 +644,7 @@ void aop_dispatch(zend_execute_data *ex, zend_function *func, zend_class_entry *
 {
 	zval params[4];
 
-	AOP_CHECK(EG(current_execute_data) == ex);
+	/* ex is the current frame in the hook backend, the caller of AOP\Internal\intercept() in the woven one. */
 	AOP_CHECK(AOP_G(in_matcher) == 0);
 
 	aop_descriptor(&params[0], func, called, aop_caller_frame(ex), AOP_DESC_FULL, this_obj);
@@ -848,6 +895,7 @@ void aop_engine_rinit(void)
 	AOP_G(bypass) = NULL;
 	zend_hash_init(&AOP_G(decisions), 64, NULL, NULL, 0);
 	zend_hash_init(&AOP_G(caller_decisions), 16, NULL, NULL, 0);
+	aop_woven_rinit();
 	/* stream G */
 	zend_hash_init(&AOP_G(jp_decisions), 16, NULL, NULL, 0);
 	zend_hash_init(&AOP_G(jp_caller_decisions), 8, NULL, NULL, 0);
@@ -875,6 +923,7 @@ void aop_engine_unregister(void)
 
 void aop_engine_rshutdown(void)
 {
+	aop_woven_rshutdown();
 	aop_engine_unregister();
 	zend_hash_destroy(&AOP_G(decisions));
 	zend_hash_destroy(&AOP_G(caller_decisions));

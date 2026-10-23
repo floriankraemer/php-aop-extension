@@ -10,6 +10,7 @@ use AOP\Pointcut\StaticMatchContext;
 
 /**
  * Spring's Pointcut.TRUE: matches every join point, of every kind.
+ * Not a field pointcut for Weaver::enable(): under woven it just does not see field join points.
  */
 enum TruePointcut implements PointcutInterface
 {

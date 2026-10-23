@@ -2,6 +2,8 @@
 Fields: visibility is checked before the join point; private shadowing; OriginalCall keeps the accessing scope
 --EXTENSIONS--
 aop
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 require __DIR__.'/100-helper.inc';

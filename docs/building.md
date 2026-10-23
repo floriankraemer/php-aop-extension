@@ -23,16 +23,33 @@ It runs `phpize --clean` first, so the build directory stays consistent.
 
 ## Configuration (php.ini)
 
-The extension has three INI settings.
+The extension has four INI settings.
 The README has the same table for users.
 
 | Setting | Default | Changeable | Meaning |
 |---|---|---|---|
-| `aop.enable` | `1` | php.ini or `-d` only (`PHP_INI_SYSTEM`) | `0` installs no hook: no zend_extension, no `zend_execute_ex` override, and the JIT runs. `Weaver::enable()` throws a `RuntimeException`. `phpinfo()` shows "Interception hooks => inactive". |
+| `aop.enable` | `1` | php.ini or `-d` only (`PHP_INI_SYSTEM`) | `0` installs nothing: no backend, no zend_extension, no `zend_execute_ex` override, and the JIT runs. `Weaver::enable()` throws a `RuntimeException`. `phpinfo()` shows "Interception hooks => inactive (aop.enable=0)" and "Interception backend => none (aop.enable=0)". |
+| `aop.interception` | `woven` | php.ini or `-d` only (`PHP_INI_SYSTEM`) | The interception backend: `woven`, `hook` or `auto` (case-insensitive). `woven` weaves a prologue into every function at compile time and keeps the opcache JIT, but has no field or `initialization()` join points. `hook` overrides `zend_execute_ex` and installs user opcode handlers: all join points, and opcache turns the JIT off. `auto` resolves to `hook`, unless the JIT is configured for the SAPI (opcache enabled, `opcache.jit` not `disable`, `opcache.jit_buffer_size` > 0), then to `woven`. An invalid value raises `Warning: aop.interception: invalid value "<value>", expected woven, hook or auto` and keeps `woven`. With `aop.enable=0` the setting has no effect. |
 | `aop.disable_inlining` | `1` | php.ini or `-d` only (`PHP_INI_SYSTEM`) | With `aop.enable=1`, `1` makes opcache's optimizer leave user functions and methods alone, so opcache never inlines them and their advice runs. `0` allows inlining: a function that only returns a constant can then be inlined at compile time, and its calls may never reach the engine. |
 | `aop.weave_autoload` | `0` | any time (`PHP_INI_ALL`), also `ini_set()` | `1` weaves the calls made while PHP autoloads a class. |
 
-`phpinfo()` shows the state of the first two in the rows "opcache function inlining" and "opcache JIT".
+`phpinfo()` shows the state in these rows of the aop section:
+
+| Row | Values |
+|---|---|
+| Interception hooks | `active`, or `inactive (aop.enable=0)` |
+| Interception backend | `woven`, `hook`, `woven (auto: opcache JIT configured)`, `hook (auto: opcache JIT not configured)`, or `none (aop.enable=0)` |
+| opcache JIT | `compatible (aop.interception=woven)`; with `hook`: `disabled: aop.interception=hook overrides zend_execute_ex() (use aop.interception=woven to keep the JIT)` when the JIT is configured, otherwise `not configured; it cannot run while aop.interception=hook overrides zend_execute_ex()`; with `aop.enable=0`: `not affected by aop (aop.enable=0)` |
+| opcache function inlining | `prevented for user functions (aop.disable_inlining=1)`, `allowed (aop.disable_inlining=0): calls to functions that return a constant may not be intercepted`, or `not affected by aop (aop.enable=0)` |
+| Field interception | `available` (`hook`), `not available (aop.interception=woven)`, or `not available` (`aop.enable=0`) |
+
+With `aop.interception=hook` and a configured JIT, startup prints this notice, followed by PHP's own JIT warning:
+
+```text
+Notice: aop: the opcache JIT is disabled because aop.interception=hook overrides zend_execute_ex(); set aop.interception=woven to keep the JIT
+```
+
+The backends are described in [limitations](limitations.md#backends).
 
 ## Make targets
 
@@ -57,7 +74,10 @@ The phpunit suites are:
 
 The phpt suite is in `ext/tests`.
 `make test-ext` runs it twice: once as it is, and once with opcache enabled for the CLI (`scripts/opcache-args.sh`), because the opcache optimizer changes what reaches the engine.
-The tests that need opcache (`025`, `122`, `200` to `203`) skip themselves when it is not loaded.
+The tests that need opcache (`025`, `122`, `200` to `203`, `300`, `301`, `302`, `315`) skip themselves when it is not loaded.
+The phpt files `300` to `315` cover the woven backend.
+Tests whose expected output depends on the backend are pinned with `aop.interception=hook` in their `--INI--` section: the field and initialization tests (`100` to `109`, `210` to `212`), `111`, `122`, `200`, `202`, `205`, and the originals of the argument, exception and fiber tests (`007`, `008`, `022`, which have woven counterparts `310`, `311`, `312`).
+The [contract](internals/contract.md#woven-backend) has the details.
 
 ## Variables
 

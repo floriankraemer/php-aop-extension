@@ -6,6 +6,8 @@ namespace AOP\Pointcut\Api;
 
 use AOP\JoinPoint\JoinPointKind;
 use AOP\Pointcut\ControlFlowAwareInterface;
+use AOP\Pointcut\FieldInterception;
+use AOP\Pointcut\FieldInterceptionAwareInterface;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
 use AOP\Pointcut\StaticMatchContext;
@@ -23,7 +25,7 @@ use AOP\Pointcut\StaticMatchContext;
  * and it is control-flow aware like `cflow()`: it names the join points that make up the flow
  * (`cflowPointcuts()`), so the runtime tracks them on the stack even when no other advisor touches them.
  */
-final class ControlFlowPointcut implements PointcutInterface, ControlFlowAwareInterface
+final class ControlFlowPointcut implements PointcutInterface, ControlFlowAwareInterface, FieldInterceptionAwareInterface
 {
     /** @var list<JoinPointKind> */
     private readonly array $kinds;
@@ -108,5 +110,10 @@ final class ControlFlowPointcut implements PointcutInterface, ControlFlowAwareIn
     public function isCallerSensitive(): bool
     {
         return false;
+    }
+
+    public function requiresFieldInterception(): bool
+    {
+        return FieldInterception::anyKind($this->kinds);
     }
 }

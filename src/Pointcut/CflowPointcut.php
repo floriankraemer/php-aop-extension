@@ -12,7 +12,7 @@ namespace AOP\Pointcut;
  * Always a runtime pointcut. The bindings of p propagate: the innermost matching stack entry provides the values.
  * Not caller-sensitive: the entries are matched with their own, recorded caller.
  */
-final class CflowPointcut implements PointcutInterface, ControlFlowAwareInterface
+final class CflowPointcut implements PointcutInterface, ControlFlowAwareInterface, FieldInterceptionAwareInterface
 {
     public function __construct(private readonly PointcutInterface $inner, private readonly bool $below = false)
     {
@@ -79,5 +79,10 @@ final class CflowPointcut implements PointcutInterface, ControlFlowAwareInterfac
     public function cflowPointcuts(): array
     {
         return [$this->inner, ...ControlFlowPointcuts::of($this->inner)];
+    }
+
+    public function requiresFieldInterception(): bool
+    {
+        return FieldInterception::requiredBy($this->inner);
     }
 }

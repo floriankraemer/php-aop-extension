@@ -21,16 +21,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (hot-swappable, pooling, prototype and fiber-local).
 - Configuration: aspects and advisors described as an array in the shape of Spring's XML schema, and `#[Configurable]`
   for objects created with `new`.
-- Fields: `get()` and `set()` pointcuts on property reads and writes, including PHP 8.4 property hooks and lazy objects.
+- Fields: `get()` and `set()` pointcuts on property reads and writes, including PHP 8.4 property hooks and lazy objects (needs `aop.interception=hook`).
 - Exception handlers: `handler()` pointcuts on `catch` clauses.
-- Constructor-less classes: `initialization()` matches their creation, and `#[Configurable]` configures them.
+- Constructor-less classes: `initialization()` matches their creation, and `#[Configurable]` configures them (needs `aop.interception=hook`).
 - Introductions: `#[DeclareParents]` and the `declare-parents` configuration key make a class implement an interface,
   with a default implementation, at compile time; `Weaver::declareParents()` is the programmatic form.
+- php.ini setting `aop.interception` (`woven`, `hook` or `auto`; php.ini only): the interception backend.
+  The new `woven` backend weaves a prologue into every named function and method at compile time and a call into every `catch` block.
+  It installs no `zend_execute_ex` override and no user opcode handlers, so the opcache JIT stays on.
+  `phpinfo()` shows the resolved backend in the row "Interception backend".
 - php.ini settings `aop.enable`, `aop.disable_inlining` (keeps opcache from inlining advisable functions) and
   `aop.weave_autoload` (calls made while a class is autoloaded are not woven by default).
 - PHP 8.3, 8.4 and 8.5, NTS and ZTS.
 - Build and release tooling: `make ext|test-ext|test|check|test-all|dist`, Docker matrix builds for PHP 8.3/8.4/8.5
   (NTS and ZTS, glibc and musl), CI and tag-driven release workflows with PIE-compatible Windows assets and `SHA256SUMS`.
+
+### Changed
+
+- **Breaking:** the default interception backend is `woven` instead of the JIT-disabling hook.
+  The opcache JIT now runs with the extension.
+  The woven backend has no field join points and no `initialization()`: `get()`, `set()` and every `initialization()` pointcut are rejected by `Weaver::enable()` with an `AspectDefinitionException` that names the advisor and `aop.interception`.
+  Migration: set `aop.interception=hook` in php.ini to keep field and `initialization()` advice (the JIT stays off then), or `aop.interception=auto` to get `hook` only where the JIT is not configured.
+- Under `woven`, advice sees arguments after parameter coercion, advice on a generator function runs at the first resume, and backtraces contain `AOP\Internal\intercept` and `AOP\Internal\caught` frames.
+  See [docs/limitations.md](docs/limitations.md#woven-differences).
+- With `aop.interception=hook`, the startup notice for a configured JIT now reads "aop: the opcache JIT is disabled because aop.interception=hook overrides zend_execute_ex(); set aop.interception=woven to keep the JIT".
+- `Weaver::enable()` rejects `@annotation(Attr)` when `Attr` can only target properties.
+  `true`, `within()`, `this()`, `target()` and `configurable()` are accepted under `woven`; a constructor-less `#[Configurable]` class raises an `AspectDefinitionException` when the engine first asks about one of its methods.
+  Without the extension or with `aop.enable=0`, `enable()` keeps reporting that instead of the hook hint.
+- The examples 04, 27 and 29 need `aop.interception=hook`.
 
 ### Fixed
 

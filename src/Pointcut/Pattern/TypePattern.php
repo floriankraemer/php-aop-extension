@@ -13,18 +13,28 @@ use AOP\Pointcut\Expression\Ast\TypePatternNode;
 final class TypePattern
 {
     private readonly string $regex;
+    private readonly string $source;
 
     public function __construct(
         string $pattern,
         public readonly bool $nullable = false,
         public readonly bool $includeSubtypes = false,
     ) {
-        $this->regex = self::compile(ltrim($pattern, '\\'));
+        $this->source = ltrim($pattern, '\\');
+        $this->regex = self::compile($this->source);
     }
 
     public static function fromNode(TypePatternNode $node): self
     {
         return new self($node->pattern, $node->nullable, $node->includeSubtypes);
+    }
+
+    /**
+     * The one class name this pattern denotes, or null for a wildcard pattern or one with `+`.
+     */
+    public function exactName(): ?string
+    {
+        return $this->includeSubtypes || str_contains($this->source, '*') ? null : $this->source;
     }
 
     /**

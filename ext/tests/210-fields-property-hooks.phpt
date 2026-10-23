@@ -4,6 +4,8 @@ PHP 8.4+ fields: a hooked property access is one join point around the hook; bac
 aop
 --SKIPIF--
 <?php if (PHP_VERSION_ID < 80400) die('skip PHP 8.4+ (property hooks)'); ?>
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 declare(strict_types=1);

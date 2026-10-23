@@ -6,8 +6,20 @@
  *   - i_init_func_execute_data() / zend_copy_extra_args()  (Zend/zend_execute.c)
  *   - ZEND_DO_FCALL and the ZEND_CALL_TOP branch of zend_leave_helper  (Zend/zend_vm_def.h)
  *   - zend_call_function()  (Zend/zend_execute_API.c)
- * It also holds the compile-time side: the zend_extension op_array handler behind aop.disable_inlining and
- * the JIT startup notice.
+ * It also holds the compile-time side: the zend_extension op_array handler behind aop.disable_inlining, the
+ * post-startup installation of the backend chosen by aop.interception, and the JIT startup notice.
+ *
+ * Two backends share the decision and dispatch code (aop_advise_frame()):
+ *   hook    zend_execute_ex sees every user call; needs the VM hook, so opcache disables its JIT.
+ *   woven   a prologue woven into each function (aop_weave.c) calls AOP\Internal\intercept() from the function's
+ *           own frame; only zend_execute_internal is hooked, which the JIT honours.
+ * Additionally verified for the woven backend against PHP-8.3.6, 8.4.27 and 8.5.12:
+ *   - ZEND_GENERATOR_CREATE sets the generator frame's return_value to the zend_generator object, and the
+ *     generator body (so the prologue) runs on its first resume  (Zend/zend_vm_def.h, zend_generators.c)
+ *   - ZEND_RECV_VARIADIC copies the extra named parameters into the variadic array and leaves them in the frame
+ *   - zend_verify_never_error(), get_function_or_method_name()
+ *   - accel_post_startup() (ext/opcache/ZendAccelerator.c) calls the previous zend_post_startup_cb before
+ *     zend_jit_check_support(), which refuses the JIT when zend_execute_ex was overridden
  */
 #ifdef HAVE_CONFIG_H
 # include "config.h"
@@ -18,8 +30,11 @@
 #include "zend_execute.h"
 #include "zend_observer.h"
 #include "zend_extensions.h"
+#include "zend_interfaces.h"
+#include "zend_weakrefs.h"
 #include "SAPI.h"
 #include "php_aop.h"
+#include "aop_g.h"
 #include "aop_compat.h"
 
 static void (*aop_prev_execute_ex)(zend_execute_data *execute_data) = NULL;
@@ -194,6 +209,48 @@ static void aop_collect_internal_args(zend_execute_data *ex, zval *args)
 	}
 	aop_add_extra_named(ex, args);
 }
+
+/*
+ * Arguments of a woven frame, read by the prologue after the RECV opcodes ran: the declared parameters
+ * hold the coerced values (and the defaults of omitted ones, which are left out here), extra positional
+ * arguments sit behind the CVs and TMPs as before. A variadic parameter is already an array: its string keys
+ * are the extra named arguments (RECV_VARIADIC moved them there), so extra_named_params is not read again.
+ */
+static void aop_collect_woven_args(zend_execute_data *ex, zval *args)
+{
+	zend_op_array *op_array = &ex->func->op_array;
+	uint32_t num_args = ZEND_CALL_NUM_ARGS(ex);
+	uint32_t declared = MIN(num_args, op_array->num_args);
+	uint32_t i;
+
+	array_init_size(args, num_args);
+	for (i = 0; i < declared; i++) {
+		zval *arg = ZEND_CALL_VAR_NUM(ex, i);
+		Z_TRY_ADDREF_P(arg);
+		zend_hash_next_index_insert_new(Z_ARRVAL_P(args), arg);
+	}
+	if (op_array->fn_flags & ZEND_ACC_VARIADIC) {
+		zval *rest = ZEND_CALL_VAR_NUM(ex, op_array->num_args);
+		if (Z_TYPE_P(rest) == IS_ARRAY) {
+			zend_string *name;
+			zval *val;
+			ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(rest), name, val) {
+				Z_TRY_ADDREF_P(val);
+				if (name) {
+					zend_hash_update(Z_ARRVAL_P(args), name, val);
+				} else {
+					zend_hash_next_index_insert(Z_ARRVAL_P(args), val);
+				}
+			} ZEND_HASH_FOREACH_END();
+		}
+	} else if (num_args > op_array->num_args) {
+		zval *extra = ZEND_CALL_VAR_NUM(ex, op_array->last_var + op_array->T);
+		for (i = op_array->num_args; i < num_args; i++, extra++) {
+			Z_TRY_ADDREF_P(extra);
+			zend_hash_next_index_insert(Z_ARRVAL_P(args), extra);
+		}
+	}
+}
 /* }}} */
 
 /* {{{ frame teardown */
@@ -243,52 +300,78 @@ static void aop_finish_user_frame(zend_execute_data *ex, zval *retval)
 }
 /* }}} */
 
-/* {{{ hooks */
-static void aop_execute_ex(zend_execute_data *ex)
+/* {{{ shared decision and dispatch */
+typedef void (*aop_collect_fn)(zend_execute_data *ex, zval *args);
+
+typedef enum {
+	AOP_PASS,    /* not intercepted: run the function */
+	AOP_ADVISED, /* the dispatcher ran; retval holds its result (UNDEF when it threw) */
+	AOP_ABORTED  /* the matcher failed with an exception: the call fails with it, retval is UNDEF */
+} aop_outcome;
+
+/*
+ * The part of an interception both backends share (contract §1): bypass, guards, join point, decision,
+ * arguments, dispatch. ex is the frame of the function (current in the hook backend, the caller of
+ * intercept() in the woven one). skip_info lists the ZEND_CALL_* flags of frames that are no join points.
+ */
+static zend_always_inline aop_outcome aop_advise_frame(zend_execute_data *ex, uint32_t skip_info,
+		aop_collect_fn collect, zval *retval)
 {
-	zend_function *func = ex->func;
 	zend_function *target;
 	zend_class_entry *called = NULL;
 	zend_object *this_obj = NULL;
 	zend_long flags;
-	zval args, retval;
+	zval args;
 
-	if (UNEXPECTED(AOP_G(bypass) != NULL) && AOP_G(bypass) == func) {
+	if (UNEXPECTED(AOP_G(bypass) != NULL) && AOP_G(bypass) == ex->func) {
 		AOP_G(bypass) = NULL;
-		goto pass;
+		return AOP_PASS;
 	}
 	if (EXPECTED(!AOP_G(registered)) || AOP_G(in_matcher) || EG(exception)) {
-		goto pass;
+		return AOP_PASS;
 	}
-	/* Generator resumption and top-level/include/eval code are no join points. */
-	if (ZEND_CALL_INFO(ex) & (ZEND_CALL_GENERATOR | ZEND_CALL_CODE)) {
-		goto pass;
+	if (ZEND_CALL_INFO(ex) & skip_info) {
+		return AOP_PASS;
 	}
 	target = aop_join_point(ex, &called, &this_obj);
 	if (!target) {
-		goto pass;
+		return AOP_PASS;
 	}
 
 	flags = aop_decide(target, called, aop_caller_frame(ex));
 	if (UNEXPECTED(EG(exception))) {
-		/* The matcher warning was turned into an exception (error handler): the call fails with it. */
-		ZVAL_UNDEF(&retval);
-		aop_finish_user_frame(ex, &retval);
-		return;
+		ZVAL_UNDEF(retval);
+		return AOP_ABORTED;
 	}
 	if (!(flags & AOP_INTERCEPT) || !AOP_G(registered)) {
-		goto pass;
+		return AOP_PASS;
 	}
 
-	AOP_CHECK(EG(current_execute_data) == ex);
-	aop_collect_user_args(ex, &args);
-	aop_dispatch(ex, target, called, this_obj, &args, &retval);
-	AOP_CHECK(EG(current_execute_data) == ex);
-	aop_finish_user_frame(ex, &retval);
-	return;
+	AOP_CHECK(collect == aop_collect_woven_args || EG(current_execute_data) == ex);
+	collect(ex, &args);
+	aop_dispatch(ex, target, called, this_obj, &args, retval);
+	AOP_CHECK(collect == aop_collect_woven_args || EG(current_execute_data) == ex);
+	return AOP_ADVISED;
+}
+/* }}} */
 
-pass:
-	aop_prev_execute_ex(ex);
+/* {{{ hook backend */
+static void aop_execute_ex(zend_execute_data *ex)
+{
+	zval retval;
+
+	/* Generator resumption and top-level/include/eval code are no join points. */
+	switch (aop_advise_frame(ex, ZEND_CALL_GENERATOR | ZEND_CALL_CODE, aop_collect_user_args, &retval)) {
+		case AOP_PASS:
+			aop_prev_execute_ex(ex);
+			return;
+		case AOP_ABORTED:
+			/* The matcher warning was turned into an exception (error handler): the call fails with it. */
+			break;
+		case AOP_ADVISED:
+			break;
+	}
+	aop_finish_user_frame(ex, &retval);
 }
 
 static zend_always_inline void aop_call_internal(zend_execute_data *ex, zval *return_value)
@@ -302,64 +385,226 @@ static zend_always_inline void aop_call_internal(zend_execute_data *ex, zval *re
 
 static void aop_execute_internal(zend_execute_data *ex, zval *return_value)
 {
-	zend_function *func = ex->func;
-	zend_function *target;
-	zend_class_entry *called = NULL;
-	zend_object *this_obj = NULL;
-	zend_long flags;
-	zval args, retval;
+	zval retval;
+	zif_handler handler = ex->func->internal_function.handler;
 
-	if (UNEXPECTED(AOP_G(bypass) != NULL) && AOP_G(bypass) == func) {
-		AOP_G(bypass) = NULL;
-		goto pass;
-	}
-	if (EXPECTED(!AOP_G(registered)) || AOP_G(in_matcher) || EG(exception)) {
-		goto pass;
-	}
-	target = aop_join_point(ex, &called, &this_obj);
-	if (!target) {
-		goto pass;
-	}
-
-	flags = aop_decide(target, called, aop_caller_frame(ex));
-	if (UNEXPECTED(EG(exception))) {
+	/* The woven backend's own calls: one pointer comparison instead of the join point checks. */
+	if (handler == ZEND_FN(AOP_Internal_intercept) || handler == ZEND_FN(AOP_Internal_result)
+			|| handler == ZEND_FN(AOP_Internal_caught)) {
+		aop_call_internal(ex, return_value);
 		return;
 	}
-	if (!(flags & AOP_INTERCEPT) || !AOP_G(registered)) {
-		goto pass;
+	switch (aop_advise_frame(ex, 0, aop_collect_internal_args, &retval)) {
+		case AOP_PASS:
+			aop_call_internal(ex, return_value);
+			return;
+		case AOP_ABORTED:
+			return;
+		case AOP_ADVISED:
+			break;
 	}
-
-	AOP_CHECK(EG(current_execute_data) == ex);
-	aop_collect_internal_args(ex, &args);
-	aop_dispatch(ex, target, called, this_obj, &args, &retval);
-	AOP_CHECK(EG(current_execute_data) == ex);
 	if (EG(exception)) {
 		return;
 	}
 	zval_ptr_dtor(return_value);
 	ZVAL_COPY_VALUE(return_value, &retval);
-	return;
-
-pass:
-	aop_call_internal(ex, return_value);
 }
 
-void aop_hook_install(void)
+/* The hook backend is only active in MODE_HOOK; the internal hook serves both. */
+static void aop_hook_install(bool execute_ex)
 {
-	aop_prev_execute_ex = zend_execute_ex;
-	zend_execute_ex = aop_execute_ex;
+	if (execute_ex) {
+		aop_prev_execute_ex = zend_execute_ex;
+		zend_execute_ex = aop_execute_ex;
+	}
 	aop_prev_execute_internal = zend_execute_internal;
 	zend_execute_internal = aop_execute_internal;
 }
 
 void aop_hook_uninstall(void)
 {
-	zend_execute_ex = aop_prev_execute_ex;
+	if (aop_interception_mode == AOP_MODE_HOOK) {
+		zend_execute_ex = aop_prev_execute_ex;
+	}
 	zend_execute_internal = aop_prev_execute_internal;
 }
 /* }}} */
 
-/* {{{ compile time: opcache inlining (aop.disable_inlining) */
+/* {{{ woven backend: AOP\Internal\intercept() / AOP\Internal\result() */
+#ifdef ZEND_CHECK_STACK_LIMIT
+/* The engine's own error (zend_call_stack_size_error() is not exported before 8.4). */
+static ZEND_COLD void aop_stack_size_error(void)
+{
+	size_t max_stack_size = 0;
+
+	if ((uintptr_t) EG(stack_base) > (uintptr_t) EG(stack_limit)) {
+		max_stack_size = (uintptr_t) EG(stack_base) - (uintptr_t) EG(stack_limit) + EG(reserved_stack_size);
+	}
+	zend_throw_error(NULL, "Maximum call stack size of %zu bytes reached. Infinite recursion?", max_stack_size);
+}
+#endif
+
+/*
+ * Called by the prologue woven into a function, so the frame to look at is the caller's. Returns true when
+ * the call was dispatched: the function then returns what result() hands over (or fails with the exception
+ * the dispatcher threw, which the engine raises right after this call returns).
+ */
+ZEND_FUNCTION(AOP_Internal_intercept)
+{
+	zend_execute_data *ex = execute_data->prev_execute_data;
+	zval retval;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	if (UNEXPECTED(!ex || !ex->func || !ZEND_USER_CODE(ex->func->type))) {
+		RETURN_FALSE;
+	}
+	/* A generator that OriginalCall created starts lazily, so the single-shot bypass cannot mark it. */
+	if (UNEXPECTED(AOP_G(bypassed_generators) != NULL) && (ZEND_CALL_INFO(ex) & ZEND_CALL_GENERATOR)
+			&& zend_weakrefs_hash_del(AOP_G(bypassed_generators), (zend_object *) ex->return_value) == SUCCESS) {
+		RETURN_FALSE;
+	}
+	switch (aop_advise_frame(ex, 0, aop_collect_woven_args, &retval)) {
+		case AOP_PASS:
+#ifdef ZEND_CHECK_STACK_LIMIT
+			/*
+			 * aop_join_point() refuses to dispatch near the end of the C stack. The hook backend then runs
+			 * execute_ex(), whose entry raises the engine's error; here the function runs in the VM loop that
+			 * is already active, so raise it now instead of recursing until the memory limit.
+			 */
+			if (UNEXPECTED(AOP_G(registered)) && UNEXPECTED(zend_call_stack_overflowed(EG(stack_limit)))) {
+				aop_stack_size_error();
+				RETURN_TRUE;
+			}
+#endif
+			RETURN_FALSE;
+		case AOP_ABORTED:
+			RETURN_TRUE;
+		case AOP_ADVISED:
+			break;
+	}
+	if (!EG(exception)) {
+		zval_ptr_dtor(&AOP_G(woven_result));
+		ZVAL_COPY_VALUE(&AOP_G(woven_result), &retval);
+	}
+	RETURN_TRUE;
+}
+
+/*
+ * The advice result for the function that called intercept(). It is typed like the function's own return
+ * (the engine checks it after the prologue's return), with two exceptions: a never function must not
+ * return, and the advice of a generator function must yield from something.
+ */
+ZEND_FUNCTION(AOP_Internal_result)
+{
+	zend_execute_data *ex = execute_data->prev_execute_data;
+	zend_function *func = ex ? ex->func : NULL;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	if (Z_ISUNDEF(AOP_G(woven_result))) {
+		RETURN_NULL();
+	}
+	ZVAL_COPY_VALUE(return_value, &AOP_G(woven_result));
+	ZVAL_UNDEF(&AOP_G(woven_result));
+
+	if (!func || !ZEND_USER_CODE(func->type)) {
+		return;
+	}
+	if ((func->common.fn_flags & ZEND_ACC_HAS_RETURN_TYPE)
+			&& ZEND_TYPE_CONTAINS_CODE(func->common.arg_info[-1].type, IS_NEVER)) {
+		zval_ptr_dtor(return_value);
+		ZVAL_NULL(return_value);
+		if (!EG(exception)) {
+			zend_verify_never_error(func);
+		}
+		return;
+	}
+	if ((func->common.fn_flags & ZEND_ACC_GENERATOR)
+			&& Z_TYPE_P(return_value) != IS_ARRAY
+			&& !(Z_TYPE_P(return_value) == IS_OBJECT && instanceof_function(Z_OBJCE_P(return_value), zend_ce_traversable))) {
+		zend_string *name = get_function_or_method_name(func);
+		zend_type_error("%s(): the advice of a generator function must return an array or a Traversable, %s returned",
+			ZSTR_VAL(name), zend_zval_type_name(return_value));
+		zend_string_release(name);
+		zval_ptr_dtor(return_value);
+		ZVAL_NULL(return_value);
+	}
+}
+
+void aop_woven_rinit(void)
+{
+	ZVAL_UNDEF(&AOP_G(woven_result));
+	AOP_G(bypassed_generators) = NULL;
+}
+
+void aop_woven_rshutdown(void)
+{
+	zval_ptr_dtor(&AOP_G(woven_result));
+	ZVAL_UNDEF(&AOP_G(woven_result));
+	aop_bypassed_generators_free();
+}
+/* }}} */
+
+/* {{{ compile time: op_array handler */
+/*
+ * Woven constructors with promoted parameters. The compiler emits RECV..., then one ASSIGN_OBJ (+ OP_DATA) per
+ * promoted parameter, then the body, which starts with the prologue. Advice that skips the constructor, or runs
+ * it again through OriginalCall, must not see the promotion done (a readonly property cannot be assigned twice,
+ * a set hook would run twice), so the assignments move behind the prologue:
+ *
+ *   before: RECV* ASSIGN_OBJ* [INIT_FCALL intercept, DO_FCALL, JMPZ end, ...] end: body
+ *   after:  RECV* [INIT_FCALL intercept, DO_FCALL, JMPZ assigns, ...] assigns: ASSIGN_OBJ* body
+ *
+ * pass_two() has not made jump targets relative yet; the prologue's JMPZ is the only jump into or out of the
+ * moved range, and the body starts at the same index as before.
+ */
+static void aop_hoist_prologue(zend_op_array *op_array)
+{
+	zend_op *ops = op_array->opcodes;
+	uint32_t first_assign, prologue, end, jmpz, i, assigns_len, prologue_len;
+	zend_op *tmp;
+
+	for (first_assign = 0; first_assign < op_array->last && (ops[first_assign].opcode == ZEND_RECV
+			|| ops[first_assign].opcode == ZEND_RECV_INIT || ops[first_assign].opcode == ZEND_RECV_VARIADIC); first_assign++) {}
+	for (prologue = first_assign; prologue + 1 < op_array->last
+			&& (ops[prologue].opcode == ZEND_ASSIGN_OBJ || ops[prologue].opcode == ZEND_ASSIGN_OBJ_REF)
+			&& ops[prologue + 1].opcode == ZEND_OP_DATA; prologue += 2) {}
+	if (prologue == first_assign || prologue >= op_array->last) {
+		return;
+	}
+	if ((ops[prologue].opcode != ZEND_INIT_FCALL && ops[prologue].opcode != ZEND_INIT_FCALL_BY_NAME
+			&& ops[prologue].opcode != ZEND_INIT_NS_FCALL_BY_NAME)
+			|| ops[prologue].op2_type != IS_CONST
+			|| Z_TYPE_P(CT_CONSTANT_EX(op_array, ops[prologue].op2.constant)) != IS_STRING
+			|| !zend_string_equals_literal_ci(Z_STR_P(CT_CONSTANT_EX(op_array, ops[prologue].op2.constant)),
+				"AOP\\Internal\\intercept")) {
+		return;
+	}
+	for (jmpz = prologue; jmpz < op_array->last && jmpz < prologue + 8 && ops[jmpz].opcode != ZEND_JMPZ; jmpz++) {}
+	if (jmpz >= op_array->last || ops[jmpz].opcode != ZEND_JMPZ) {
+		return;
+	}
+	end = ops[jmpz].op2.opline_num;
+	if (end <= jmpz || end > op_array->last) {
+		return;
+	}
+	for (i = prologue; i < end; i++) {
+		/* A jump out of the prologue other than the guard, or a return type check, would need its own fix-up. */
+		if (i != jmpz && (ops[i].opcode == ZEND_JMP || ops[i].opcode == ZEND_JMPZ || ops[i].opcode == ZEND_JMPNZ)) {
+			return;
+		}
+	}
+	assigns_len = prologue - first_assign;
+	prologue_len = end - prologue;
+	tmp = safe_emalloc(assigns_len, sizeof(zend_op), 0);
+	memcpy(tmp, ops + first_assign, assigns_len * sizeof(zend_op));
+	memmove(ops + first_assign, ops + prologue, prologue_len * sizeof(zend_op));
+	memcpy(ops + first_assign + prologue_len, tmp, assigns_len * sizeof(zend_op));
+	efree(tmp);
+	ops[jmpz - assigns_len].op2.opline_num = first_assign + prologue_len;
+}
+
 /*
  * Called by pass_two() for every op_array compiled with ZEND_COMPILE_HANDLE_OP_ARRAY, which is the default
  * and which opcache sets for the scripts it caches; it runs before opcache's optimizer. Every named
@@ -369,7 +614,11 @@ void aop_hook_uninstall(void)
  */
 static void aop_op_array_handler(zend_op_array *op_array)
 {
-	if (op_array->function_name
+	if (aop_interception_mode == AOP_MODE_WOVEN && op_array->function_name) {
+		aop_hoist_prologue(op_array);
+	}
+	if (AOP_G(disable_inlining)
+			&& op_array->function_name
 			&& !(op_array->fn_flags & ZEND_ACC_CLOSURE)
 			&& !aop_is_property_hook((zend_function *) op_array)) {
 		op_array->fn_flags |= AOP_ACC_NO_INLINE;
@@ -425,12 +674,43 @@ bool aop_jit_requested(void)
 
 static zend_result (*aop_prev_post_startup)(void) = NULL;
 
+/* The backend aop.interception selects. "auto" is the hook backend unless the JIT is configured. */
+static aop_mode_t aop_resolve_mode(void)
+{
+	switch (aop_interception_setting) {
+		case AOP_SETTING_HOOK:
+			return AOP_MODE_HOOK;
+		case AOP_SETTING_AUTO:
+			return aop_jit_requested() ? AOP_MODE_WOVEN : AOP_MODE_HOOK;
+		default:
+			return AOP_MODE_WOVEN;
+	}
+}
+
+/*
+ * Installs the interception once opcache's INI entries exist, and before opcache decides about the JIT:
+ * accel_post_startup() runs the callback chain first and only then zend_jit_check_support(), which turns the
+ * JIT off for an overridden zend_execute_ex or any user opcode handler. No script is compiled or run between
+ * MINIT and this callback, so nothing is missed by installing late.
+ */
+void aop_install_backend(void)
+{
+	aop_interception_mode = aop_resolve_mode();
+	aop_hook_install(aop_interception_mode == AOP_MODE_HOOK);
+	if (aop_interception_mode == AOP_MODE_HOOK) {
+		aop_fields_minit();
+		aop_catch_minit();
+	}
+	aop_hooks_installed = true;
+}
+
 /*
  * PHP itself warns "JIT is incompatible with third party extensions that override zend_execute_ex()";
  * this notice names the extension and the way out.
  */
 static zend_result aop_post_startup(void)
 {
+	aop_install_backend();
 	if (aop_prev_post_startup) {
 		zend_result (*cb)(void) = aop_prev_post_startup;
 		aop_prev_post_startup = NULL;
@@ -438,14 +718,14 @@ static zend_result aop_post_startup(void)
 			return FAILURE;
 		}
 	}
-	if (aop_hooks_installed && aop_jit_requested()) {
-		zend_error(E_NOTICE, "aop: the opcache JIT is disabled because aop interception overrides "
-			"zend_execute_ex(); set aop.enable=0 to use the JIT");
+	if (aop_interception_mode == AOP_MODE_HOOK && aop_jit_requested()) {
+		zend_error(E_NOTICE, "aop: the opcache JIT is disabled because aop.interception=hook overrides "
+			"zend_execute_ex(); set aop.interception=woven to keep the JIT");
 	}
 	return SUCCESS;
 }
 
-void aop_jit_notice_install(void)
+void aop_post_startup_install(void)
 {
 	aop_prev_post_startup = zend_post_startup_cb;
 	zend_post_startup_cb = aop_post_startup;

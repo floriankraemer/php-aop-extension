@@ -13,7 +13,7 @@ use AOP\Pointcut\Pattern\MethodPattern;
  * is not an initialization of its own). The pattern is a constructor pattern: `App\Foo::__construct(..)`, or `App\Foo+`
  * for any constructor of the type and its subtypes.
  */
-final class InitializationPointcut implements PointcutInterface
+final class InitializationPointcut implements PointcutInterface, FieldInterceptionAwareInterface
 {
     public function __construct(private readonly MethodPattern $pattern)
     {
@@ -61,5 +61,14 @@ final class InitializationPointcut implements PointcutInterface
     public function isCallerSensitive(): bool
     {
         return false;
+    }
+
+    /**
+     * Whether a class has a constructor is unknown when the Weaver is enabled, and a constructor-less class is
+     * initialized only under field interception, so every initialization pointcut counts.
+     */
+    public function requiresFieldInterception(): bool
+    {
+        return true;
     }
 }
