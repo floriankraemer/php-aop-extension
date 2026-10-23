@@ -18,7 +18,7 @@ register_shutdown_function(fn () => print("shutdown\n"));
         }
     }
 );
-function stop() { exit('bye' . PHP_EOL); }
+function stop() { exit("bye\n"); }
 stop();
 echo "after\n";
 ?>
