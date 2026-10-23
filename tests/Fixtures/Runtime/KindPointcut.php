@@ -34,8 +34,11 @@ final class KindPointcut implements PointcutInterface
 
     public function matchesMethod(?\ReflectionFunctionAbstract $function, StaticMatchContext $ctx): bool
     {
-        if (!\in_array($ctx->kind, $this->kinds, true) || null === $function) {
+        if (!\in_array($ctx->kind, $this->kinds, true)) {
             return false;
+        }
+        if (null === $function) {
+            return JoinPointKind::INITIALIZATION === $ctx->kind;
         }
         if ('*' !== $this->name && $function->getName() !== $this->name) {
             return false;

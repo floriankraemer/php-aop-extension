@@ -27,6 +27,7 @@ use AOP\JoinPoint\SignatureInterface;
 use AOP\JoinPoint\SourceLocation;
 use AOP\JoinPoint\StaticPart;
 use AOP\Pointcut\ControlFlowInterface;
+use AOP\Pointcut\ControlFlowPointcuts;
 use AOP\Pointcut\EnclosingContext;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\StaticMatchContext;
@@ -130,7 +131,7 @@ final class NativeRuntime
             $all[] = $entry->pointcut;
         }
         foreach ($this->advisors as $advisor) {
-            foreach (self::consumedPointcuts($advisor->pointcut) as $inner) {
+            foreach (ControlFlowPointcuts::of($advisor->pointcut) as $inner) {
                 $this->trackers[] = $inner;
             }
         }
@@ -490,15 +491,16 @@ final class NativeRuntime
         $isCode = $kind->isExecution() || JoinPointKind::INITIALIZATION === $kind;
         $executing = $isCode || JoinPointKind::EXCEPTION_HANDLER === $kind ? $thisObject : $callerObject;
         $static = (bool) ($d['static'] ?? false);
+        $outermost = (bool) ($d['outermost'] ?? true);
         $target = JoinPointKind::EXCEPTION_HANDLER === $kind || $static ? null : $thisObject;
         /** @var class-string|null $calledClass */
         $calledClass = self::str($d['class'] ?? null);
 
-        $runExecution = function (array $a) use ($plan, $executing, $target, $thisObject, $invoke, $calledClass): mixed {
+        $runExecution = function (array $a) use ($plan, $executing, $target, $thisObject, $invoke, $calledClass, $outermost): mixed {
             if ([] === $plan->executionChain) {
                 return $invoke($a);
             }
-            $data = new JoinPointData($plan->executionKind, $executing, $target, $plan->signature, $plan->executionPart, $plan->enclosing, $plan->executionLocation);
+            $data = new JoinPointData($plan->executionKind, $executing, $target, $plan->signature, $plan->executionPart, $plan->enclosing, $plan->executionLocation, $outermost);
             $result = (new MethodInvocation($data, $a, $plan->executionChain, $invoke))->proceed();
 
             return $this->checked($plan, $plan->executionArounds, $result, $thisObject, $calledClass);
@@ -790,39 +792,6 @@ final class NativeRuntime
     }
 
     // ---------------------------------------------------------------- helpers
-
-    /**
-     * Inner pointcuts of the cflow()/cflowbelow() designators inside a pointcut tree.
-     *
-     * @return list<PointcutInterface>
-     */
-    private static function consumedPointcuts(PointcutInterface $pointcut, int $depth = 0): array
-    {
-        $found = [];
-        if ($pointcut instanceof ControlFlowConsumer) {
-            $inner = $pointcut->controlFlowPointcut();
-            $found[] = $inner;
-            if ($depth < 16) {
-                array_push($found, ...self::consumedPointcuts($inner, $depth + 1));
-            }
-        }
-        if ($depth >= 16) {
-            return $found;
-        }
-        foreach ((new \ReflectionObject($pointcut))->getProperties() as $property) {
-            if (!$property->isInitialized($pointcut)) {
-                continue;
-            }
-            $value = $property->getValue($pointcut);
-            foreach (\is_array($value) ? $value : [$value] as $item) {
-                if ($item instanceof PointcutInterface && $item !== $pointcut) {
-                    array_push($found, ...self::consumedPointcuts($item, $depth + 1));
-                }
-            }
-        }
-
-        return $found;
-    }
 
     private function newChains(): AdvisorChainFactory
     {

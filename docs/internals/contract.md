@@ -321,12 +321,10 @@ never intercepts `AOP\Tests\`, so E2E fixtures must live elsewhere, and their ca
 Everything else is advisable. A matcher exception inside our own reflection yields 0.
 
 **Matcher.** `ADVISE` when any advisor, declare rule or per-instance class marker matches the execution kind or the derived call kind
-(method/constructor/function execution -> method/constructor/function call). `TRACK` when only a cflow feeds on it: pointcuts implementing
-`AOP\Runtime\ControlFlowConsumer::controlFlowPointcut()` (stream E's `cflow`/`cflowbelow` must implement it; the runtime finds consumers
-inside And/Or/Not/etc. by walking pointcut properties) and the entry pointcuts of percflow aspects. `CALLER_SENSITIVE` (only on the
+(method/constructor/function execution -> method/constructor/function call). `TRACK` when only a cflow feeds on it: `ControlFlowPointcuts::of($advisor->pointcut)` (stream E) contains an inner pointcut whose static half matches, or the join point is the entry of a percflow aspect. `ScopedPointcut` forwards `cflowPointcuts()`. `CALLER_SENSITIVE` (only on the
 caller-less first ask) when a caller-sensitive pointcut passes `matchesClass` for the call kind (or for the kind itself on fields/handlers).
 Execution-kind contexts carry `caller = null`; call-kind contexts carry the `EnclosingContext` of the caller. A `constructor-execution`
-that is not `outermost` has no call kind. Call-kind chains only exist when the descriptor has a caller.
+that is not `outermost` has no call kind and its join point reports `isOutermost() === false` (`JoinPointData::$outermost`, `MethodInvocation implements OutermostAwareInterface`). Call-kind chains only exist when the descriptor has a caller.
 
 **Services.** Matcher: class-level service of the runtime class or nearest parent, plus every name registered for an instance of that exact
 class (a superset, resolved per object in the dispatcher). Instance services win over class services in the dispatcher.
@@ -573,3 +571,9 @@ plus the aspect metadata/instances. Nothing in it needs the engine; the Weaver o
    - `initialization` join points (constructor-less classes) must pass the new object as `getThis()` (settled: §1.2 now passes the new object).
 5. Introductions from `DefaultIntroductionAdvisor` run through the normal chain (delegating the introduced interface methods). For true interface introduction the Weaver still has to call
    `Engine::setIntroductions()` (§6) with `introducedInterfaces()`; F does not do that.
+
+**Weaver additions (integration).** `Weaver::fromConfig(array, ?callable, ?EngineBridgeInterface)` / `addConfig(ConfigResult)` register the configured
+aspects like `addAspect()` (aspect instances may be factories: `ScopedAspectResolver::register()` calls them lazily, once per scope key for
+non-singletons) and add the programmatic advisors; `removeAspect()` drops them. `targetSource($class, $source)` creates a `TargetSourceStandIn` and
+attaches its advisor with `advised()`. `configurable($configurer)` adds `ConfigurableAspect::toAdvisor()`. Chains are built with the runtime's
+per-Fiber `ControlFlowInterface`. E2E notes: the scratch `aop.so` of stream A does not emit `initialization` yet, so that E2E test skips itself.
