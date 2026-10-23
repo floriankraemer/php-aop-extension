@@ -21,11 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (hot-swappable, pooling, prototype and fiber-local).
 - Configuration: aspects and advisors described as an array in the shape of Spring's XML schema, and `#[Configurable]`
   for objects created with `new`.
-- Fields: `get()` and `set()` pointcuts on property reads and writes. Checked on PHP 8.3; PHP 8.4 and 8.5 support is in progress.
+- Fields: `get()` and `set()` pointcuts on property reads and writes, including PHP 8.4 property hooks and lazy objects.
 - Exception handlers: `handler()` pointcuts on `catch` clauses.
 - Constructor-less classes: `initialization()` matches their creation, and `#[Configurable]` configures them.
 - Introductions: `#[DeclareParents]` and the `declare-parents` configuration key make a class implement an interface,
-  with a default implementation, at compile time.
+  with a default implementation, at compile time; `Weaver::declareParents()` is the programmatic form.
+- php.ini settings `aop.enable`, `aop.disable_inlining` (keeps opcache from inlining advisable functions) and
+  `aop.weave_autoload` (calls made while a class is autoloaded are not woven by default).
 - PHP 8.3, 8.4 and 8.5, NTS and ZTS.
 - Build and release tooling: `make ext|test-ext|test|check|test-all|dist`, Docker matrix builds for PHP 8.3/8.4/8.5
   (NTS and ZTS, glibc and musl), CI and tag-driven release workflows with PIE-compatible Windows assets and `SHA256SUMS`.
