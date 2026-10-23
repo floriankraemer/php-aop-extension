@@ -34,8 +34,12 @@
  *     through zend_call_function() and reaches aop_execute_ex(). See aop_is_property_hook().
  *   - 8.4: lazy objects. Calling a method on an uninitialized lazy ghost/proxy does not initialize it; only
  *     property access does. The engine never reads properties of $this, so advice does not initialize lazy
- *     objects by itself (ext/tests/203-lazy-objects.phpt).
+ *     objects by itself (ext/tests/205-lazy-objects.phpt).
  *   - 8.4: closure names in traces are "{closure:file:line}" (8.3: "{closure}").
+ *   - 8.4: field join points (aop_fields.c): property hooks, asymmetric visibility (public readonly is implicitly
+ *     protected(set)), lazy objects in the std property handlers and in zend_objects_clone_obj(); see the comment
+ *     at the top of aop_fields.c. AOP_PROP_IS_HOOKED().
+ *   - 8.5: EG(fake_scope) is const (AOP_FAKE_SCOPE_T); clone($o, [...]) writes through write_property.
  *   - 8.4: exit()/die() is an internal function; it can be advised like any internal function.
  *   - 8.4: user functions can be #[\Deprecated] (ZEND_ACC_DEPRECATED); zend_call_function() reports the
  *     deprecation again, so every OriginalCall of a deprecated function repeats it (also true for deprecated
@@ -53,6 +57,20 @@
 #define AOP_HAVE_PROPERTY_HOOKS   (PHP_VERSION_ID >= 80400)
 #define AOP_HAVE_LAZY_OBJECTS     (PHP_VERSION_ID >= 80400)
 #define AOP_HAVE_FRAMELESS_CALLS  (PHP_VERSION_ID >= 80400)
+
+/* The type of EG(fake_scope): const since 8.5. */
+#if PHP_VERSION_ID >= 80500
+# define AOP_FAKE_SCOPE_T const zend_class_entry
+#else
+# define AOP_FAKE_SCOPE_T zend_class_entry
+#endif
+
+/* A declared property with hooks (8.4+); info may be NULL. */
+#if AOP_HAVE_PROPERTY_HOOKS
+# define AOP_PROP_IS_HOOKED(info) ((info) != NULL && (info)->hooks != NULL)
+#else
+# define AOP_PROP_IS_HOOKED(info) ((void) (info), false)
+#endif
 
 /* A property hook body ("$prop::get"/"$prop::set", 8.4+). Never a method join point: it is no method of the
  * class (ReflectionMethod cannot load it by name), and its accesses are field join points (stream G). */
