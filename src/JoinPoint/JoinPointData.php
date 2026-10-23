@@ -12,6 +12,7 @@ final readonly class JoinPointData
 {
     /**
      * @param object|null $thisObject the executing object; for call kinds the caller's object
+     * @param bool        $outermost  false for the execution of a `parent::__construct()`
      * @param object|null $target     the object the member belongs to; null for static members and functions
      */
     public function __construct(
@@ -22,6 +23,7 @@ final readonly class JoinPointData
         public StaticPart $staticPart,
         public ?StaticPart $enclosingStaticPart = null,
         public ?SourceLocation $sourceLocation = null,
+        public bool $outermost = true,
     ) {
     }
 }

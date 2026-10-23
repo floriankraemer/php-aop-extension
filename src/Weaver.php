@@ -12,9 +12,13 @@ use AOP\Advisor\Ordered;
 use AOP\Aspect\AspectMetadata;
 use AOP\Aspect\AspectMetadataReader;
 use AOP\Aspect\AspectScope;
+use AOP\Attribute\Configurable;
 use AOP\Attribute\DeclareError;
 use AOP\Attribute\DeclarePrecedence;
 use AOP\Attribute\DeclareWarning;
+use AOP\Config\ConfigLoader;
+use AOP\Config\ConfigResult;
+use AOP\Configurable\ConfigurableAspect;
 use AOP\Exception\AspectDefinitionException;
 use AOP\Exception\WeaverFrozenException;
 use AOP\Pointcut\Expression\PointcutExpressionCompiler;
@@ -29,6 +33,8 @@ use AOP\Runtime\NativeEngineBridge;
 use AOP\Runtime\NativeRuntime;
 use AOP\Runtime\RuntimeSettings;
 use AOP\Runtime\ScopedPointcut;
+use AOP\TargetSource\TargetSourceInterface;
+use AOP\TargetSource\TargetSourceStandIn;
 
 /**
  * The front door: collects aspects and advisors and, once enabled, weaves them through the engine.
@@ -83,28 +89,95 @@ final class Weaver
     }
 
     /**
+     * @param array<string, mixed>            $config        see ConfigLoader for the shape
+     * @param (callable(string): object)|null $aspectFactory builds the aspect objects named in the configuration
+     */
+    public static function fromConfig(array $config, ?callable $aspectFactory = null, ?EngineBridgeInterface $engine = null): self
+    {
+        $weaver = new self($engine ?? new NativeEngineBridge());
+        $weaver->addConfig(ConfigLoader::load($config, $aspectFactory));
+
+        return $weaver;
+    }
+
+    /**
+     * Registers the aspects of a configuration like addAspect() does, and its programmatic advisors like addAdvisor().
+     */
+    public function addConfig(ConfigResult $result): void
+    {
+        $this->assertMutable();
+        $instances = $result->aspectInstances();
+        foreach ($result->metadata() as $meta) {
+            $class = $meta->aspectClass;
+            $own = array_values(array_filter($result->aspectAdvisors(), static fn (Advisor $a): bool => $a->advice?->aspectClass === $class));
+            $this->registerAspect($meta, $instances[$class] ?? throw new AspectDefinitionException(sprintf('No instance for configured aspect "%s".', $class)), $own, $result->namedPointcutResolver());
+        }
+        foreach ($result->programmaticAdvisors() as $advisor) {
+            $this->addAdvisor($advisor);
+        }
+        $this->changed();
+    }
+
+    /**
+     * A stand-in for `$class` whose methods run on the targets of the source (see TargetSourceStandIn).
+     *
+     * @template T of object
+     *
+     * @param class-string<T> $class
+     *
+     * @return T
+     */
+    public function targetSource(string $class, TargetSourceInterface $source): object
+    {
+        [$standIn, $advisor] = TargetSourceStandIn::create($class, $source);
+        $this->advised($standIn)->addAdvisor($advisor);
+        \assert($standIn instanceof $class);
+
+        return $standIn;
+    }
+
+    /**
+     * Enables `#[Configurable]`: the configurer runs for objects of annotated classes created with `new`.
+     *
+     * @param callable(object, Configurable): void $configurer
+     */
+    public function configurable(callable $configurer): void
+    {
+        $this->addAdvisor((new ConfigurableAspect($configurer))->toAdvisor());
+    }
+
+    /**
      * @throws AspectDefinitionException when the class is not an aspect, is invalid, or is already registered
      * @throws WeaverFrozenException
      */
     public function addAspect(object $aspect): void
     {
         $this->assertMutable();
-        $class = $aspect::class;
-        if (isset($this->aspects[$class])) {
-            throw new AspectDefinitionException(sprintf('Aspect "%s" is already registered.', $class));
-        }
-
-        $meta = $this->reader->read($class);
+        $meta = $this->reader->read($aspect::class);
         if ($aspect instanceof Ordered) {
             $meta = new AspectMetadata($meta->aspectClass, $aspect->getOrder(), $meta->namedPointcuts, $meta->advices, $meta->introductions, $meta->scope, $meta->scopePointcut);
         }
         $resolver = new MetadataNamedPointcutResolver([$meta], $this->reader);
+        $this->registerAspect($meta, $aspect, $this->factory->fromMetadata($meta, $resolver), $resolver);
+        $this->changed();
+    }
+
+    /**
+     * @param object|\Closure(): object $instance
+     * @param list<Advisor>             $advisors the advisors of the aspect, built from its metadata
+     */
+    private function registerAspect(AspectMetadata $meta, object $instance, array $advisors, MetadataNamedPointcutResolver $resolver): void
+    {
+        $class = $meta->aspectClass;
+        if (isset($this->aspects[$class])) {
+            throw new AspectDefinitionException(sprintf('Aspect "%s" is already registered.', $class));
+        }
         $reflection = new \ReflectionClass($class);
 
         [$restriction, $entry] = $this->scopePointcut($meta);
-        $advisors = [];
-        foreach ($this->factory->fromMetadata($meta, $resolver) as $advisor) {
-            $advisors[] = AspectScope::SINGLETON === $meta->scope ? $advisor : new Advisor(
+        $scoped = [];
+        foreach ($advisors as $advisor) {
+            $scoped[] = AspectScope::SINGLETON === $meta->scope ? $advisor : new Advisor(
                 $advisor->id,
                 $advisor->advice,
                 $advisor->order,
@@ -124,7 +197,7 @@ final class Weaver
         $precedence = array_map(static fn (\ReflectionAttribute $a): string => $a->newInstance()->aspects, $reflection->getAttributes(DeclarePrecedence::class));
 
         $this->aspects[$class] = [
-            'advisors' => $advisors,
+            'advisors' => $scoped,
             'precedence' => $precedence,
             'rules' => $rules,
             'entries' => null === $entry ? [] : [$entry],
@@ -134,8 +207,7 @@ final class Weaver
                 $meta->introductions,
             ),
         ];
-        $this->runtime->aspects()->register($aspect, $meta->scope);
-        $this->changed();
+        $this->runtime->aspects()->register($class, $instance, $meta->scope);
     }
 
     /**

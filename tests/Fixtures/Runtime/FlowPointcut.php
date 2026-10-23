@@ -5,15 +5,15 @@ declare(strict_types=1);
 namespace AOP\Tests\Fixtures\Runtime;
 
 use AOP\JoinPoint\JoinPointKind;
+use AOP\Pointcut\ControlFlowAwareInterface;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
 use AOP\Pointcut\StaticMatchContext;
-use AOP\Runtime\ControlFlowConsumer;
 
 /**
  * A minimal `cflow(execution(* *::name(..)))`: true while a method of that name is on the control flow stack.
  */
-final class FlowPointcut implements PointcutInterface, ControlFlowConsumer
+final class FlowPointcut implements PointcutInterface, ControlFlowAwareInterface
 {
     /** @var list<list<string>> the stacks seen, as short strings */
     public array $stacks = [];
@@ -22,9 +22,9 @@ final class FlowPointcut implements PointcutInterface, ControlFlowConsumer
     {
     }
 
-    public function controlFlowPointcut(): PointcutInterface
+    public function cflowPointcuts(): array
     {
-        return new KindPointcut([JoinPointKind::METHOD_EXECUTION], $this->name);
+        return [new KindPointcut([JoinPointKind::METHOD_EXECUTION], $this->name)];
     }
 
     public function matchesClass(?\ReflectionClass $class, StaticMatchContext $ctx): bool

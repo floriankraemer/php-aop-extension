@@ -9,11 +9,14 @@ declare(strict_types=1);
 
 namespace AopE2E;
 
+use AOP\Advice\Api\MethodBeforeAdviceInterface;
 use AOP\Aspect\AspectScope;
 use AOP\Attribute\Around;
 use AOP\Attribute\Aspect;
 use AOP\Attribute\Before;
+use AOP\Attribute\Configurable;
 use AOP\Attribute\DeclareError;
+use AOP\JoinPoint\JoinPointInterface;
 use AOP\JoinPoint\ProceedingJoinPointInterface;
 
 final class Journal
@@ -151,6 +154,31 @@ final class Driver
         return $s->sealed().$s->sealed();
     }
 
+    public function outer(Pipeline $p): string
+    {
+        return $p->outer();
+    }
+
+    public function inner(Pipeline $p): string
+    {
+        return $p->inner();
+    }
+
+    public function whoami(Named $n): string
+    {
+        return $n->whoami();
+    }
+
+    public function widget(): Widget
+    {
+        return new Widget();
+    }
+
+    public function plainWidget(): PlainWidget
+    {
+        return new PlainWidget();
+    }
+
     public function final(FinalService $s): string
     {
         return $s->hello();
@@ -235,4 +263,122 @@ final class PerTargetAspect
 #[DeclareError('execution(* AopE2E\FinalService::hello(..))', 'hello() is forbidden')]
 final class ForbidAspect
 {
+}
+
+final class Pipeline
+{
+    public function outer(): string
+    {
+        return 'outer>'.$this->inner();
+    }
+
+    public function inner(): string
+    {
+        return 'inner';
+    }
+}
+
+final class Named
+{
+    public function __construct(private readonly string $name)
+    {
+    }
+
+    public function whoami(): string
+    {
+        return $this->name;
+    }
+}
+
+final class Gate
+{
+    public static bool $open = false;
+
+    public static function open(): bool
+    {
+        return self::$open;
+    }
+}
+
+#[Configurable(service: 'cfg')]
+final class Widget
+{
+    public string $configured = 'no';
+    public string $seenInConstructor = '';
+
+    public function __construct()
+    {
+        $this->seenInConstructor = $this->configured;
+    }
+}
+
+#[Configurable(service: 'plain')]
+final class PlainWidget
+{
+    public string $configured = 'no';
+}
+
+#[Aspect]
+final class FlowAspect
+{
+    #[Before('execution(* AopE2E\Pipeline::inner(..)) && cflow(execution(* AopE2E\Pipeline::outer(..)))')]
+    public function inFlow(): void
+    {
+        Journal::$entries[] = 'cflow';
+    }
+}
+
+#[Aspect]
+final class CallAspect
+{
+    #[Around('call(* AopE2E\Pipeline::inner(..))')]
+    public function call(ProceedingJoinPointInterface $pjp): mixed
+    {
+        Journal::$entries[] = 'call>'.get_debug_type($pjp->getThis());
+
+        return $pjp->proceed();
+    }
+
+    #[Before('execution(* AopE2E\Pipeline::inner(..))')]
+    public function execution(JoinPointInterface $jp): void
+    {
+        Journal::$entries[] = 'execution>'.$jp->getKind()->value;
+    }
+}
+
+#[Aspect]
+final class WithincodeAspect
+{
+    #[Before('call(* AopE2E\Pipeline::inner(..)) && withincode(* AopE2E\Pipeline::outer(..))')]
+    public function fromOuter(): void
+    {
+        Journal::$entries[] = 'withincode';
+    }
+}
+
+#[Aspect]
+final class IfAspect
+{
+    #[Before('execution(* AopE2E\Pipeline::inner(..)) && if(AopE2E\Gate::open())')]
+    public function gated(): void
+    {
+        Journal::$entries[] = 'gated';
+    }
+}
+
+final class SpringBefore implements MethodBeforeAdviceInterface
+{
+    public function before(JoinPointInterface $joinPoint): void
+    {
+        Journal::$entries[] = 'spring:'.$joinPoint->getSignature()->getName();
+    }
+}
+
+/** A plain class used as a configured aspect (no attributes). */
+final class ConfigAspect
+{
+    public function log(JoinPointInterface $jp): void
+    {
+        Journal::$entries[] = 'config:'.$jp->getSignature()->getName();
+    }
 }

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace AOP\Runtime;
 
 use AOP\Aspect\AspectScope;
+use AOP\Pointcut\ControlFlowAwareInterface;
+use AOP\Pointcut\ControlFlowPointcuts;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
 use AOP\Pointcut\StaticMatchContext;
@@ -16,7 +18,7 @@ use AOP\Pointcut\StaticMatchContext;
  *
  * @internal
  */
-final class ScopedPointcut implements PointcutInterface
+final class ScopedPointcut implements PointcutInterface, ControlFlowAwareInterface
 {
     /**
      * @param class-string $aspectClass
@@ -28,6 +30,11 @@ final class ScopedPointcut implements PointcutInterface
         private readonly ?PointcutInterface $restriction,
         private readonly ControlFlowStack $flow,
     ) {
+    }
+
+    public function cflowPointcuts(): array
+    {
+        return ControlFlowPointcuts::of($this->inner);
     }
 
     public function inner(): PointcutInterface
