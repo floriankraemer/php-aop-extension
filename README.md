@@ -1,4 +1,4 @@
-# php-aop-extension
+# A modern AOP Extension for PHP
 
 Aspect-oriented programming for PHP, woven inside the Zend engine.
 It brings Spring's and AspectJ's model to PHP: aspects, pointcuts, advice, the Spring AOP API and AspectJ's join points.
