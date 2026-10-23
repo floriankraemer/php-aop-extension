@@ -58,7 +58,7 @@ aspect never kills unrelated code paths silently.
 
 Called for every join point whose decision is non-zero, with the advised frame still on the stack
 (so `debug_backtrace()` and exception traces show the advised function).
-Receives the full descriptor, `$this` (null for static methods, functions, ctor-less `initialization`), the raw
+Receives the full descriptor, `$this` (null for static methods and functions; the newly created object for ctor-less `initialization`), the raw
 argument array (§3) and an `OriginalCall`. Its return value becomes the result of the call; an exception thrown
 by it propagates to the caller exactly like one thrown by the original code.
 The PHP side type-hints the original as `callable` (tests pass a `\Closure`; see `tests/Support/FakeEngine.php`).
@@ -506,6 +506,6 @@ plus the aspect metadata/instances. Nothing in it needs the engine; the Weaver o
    (nearest attribute up the class hierarchy). Requirements on the runtime:
    - `constructor-execution` is dispatched for `parent::__construct()` too (§2 says so), each time with the same object as `getThis()`; the aspect counts running constructors per object to find the outermost one
      because **the join point model does not expose the descriptor's `outermost` flag** (gap: if `JoinPointInterface`/`JoinPointData` gains it, `ConfigurableInterceptor` could use it instead of the counter);
-   - `initialization` join points (constructor-less classes) must pass the new object as `getThis()`; §1.2 lists `$this` as null for "ctor-less `initialization`", in which case the object is skipped silently (gap to settle between C and D).
+   - `initialization` join points (constructor-less classes) must pass the new object as `getThis()` (settled: §1.2 now passes the new object).
 5. Introductions from `DefaultIntroductionAdvisor` run through the normal chain (delegating the introduced interface methods). For true interface introduction the Weaver still has to call
    `Engine::setIntroductions()` (§6) with `introducedInterfaces()`; F does not do that.
