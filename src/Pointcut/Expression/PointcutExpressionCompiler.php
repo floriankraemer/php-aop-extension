@@ -5,43 +5,68 @@ declare(strict_types=1);
 namespace AOP\Pointcut\Expression;
 
 use AOP\Exception\PointcutSyntaxException;
+use AOP\Pointcut\AdviceExecutionPointcut;
 use AOP\Pointcut\AndPointcut;
 use AOP\Pointcut\AnnotationPointcut;
 use AOP\Pointcut\ArgsPointcut;
 use AOP\Pointcut\AtArgsPointcut;
 use AOP\Pointcut\AtTargetPointcut;
+use AOP\Pointcut\AtThisPointcut;
+use AOP\Pointcut\AtWithincodePointcut;
 use AOP\Pointcut\AtWithinPointcut;
 use AOP\Pointcut\BindingKind;
 use AOP\Pointcut\BindingSpec;
+use AOP\Pointcut\CallPointcut;
+use AOP\Pointcut\CflowPointcut;
 use AOP\Pointcut\ExecutionPointcut;
+use AOP\Pointcut\Expression\Ast\AdviceExecutionNode;
 use AOP\Pointcut\Expression\Ast\AndNode;
 use AOP\Pointcut\Expression\Ast\AnnotationNode;
 use AOP\Pointcut\Expression\Ast\ArgsNode;
 use AOP\Pointcut\Expression\Ast\AtArgsNode;
 use AOP\Pointcut\Expression\Ast\AtTargetNode;
+use AOP\Pointcut\Expression\Ast\AtThisNode;
+use AOP\Pointcut\Expression\Ast\AtWithincodeNode;
 use AOP\Pointcut\Expression\Ast\AtWithinNode;
 use AOP\Pointcut\Expression\Ast\BindingCandidateNode;
+use AOP\Pointcut\Expression\Ast\CallNode;
+use AOP\Pointcut\Expression\Ast\CflowNode;
 use AOP\Pointcut\Expression\Ast\ExecutionNode;
+use AOP\Pointcut\Expression\Ast\FieldPatternNode;
+use AOP\Pointcut\Expression\Ast\GetNode;
+use AOP\Pointcut\Expression\Ast\HandlerNode;
+use AOP\Pointcut\Expression\Ast\IfNode;
+use AOP\Pointcut\Expression\Ast\InitializationNode;
 use AOP\Pointcut\Expression\Ast\NodeInterface;
 use AOP\Pointcut\Expression\Ast\NotNode;
 use AOP\Pointcut\Expression\Ast\OrNode;
 use AOP\Pointcut\Expression\Ast\ParamListNode;
 use AOP\Pointcut\Expression\Ast\ReferenceNode;
 use AOP\Pointcut\Expression\Ast\ServiceNode;
+use AOP\Pointcut\Expression\Ast\SetNode;
 use AOP\Pointcut\Expression\Ast\TargetNode;
 use AOP\Pointcut\Expression\Ast\ThisNode;
 use AOP\Pointcut\Expression\Ast\TypePatternNode;
+use AOP\Pointcut\Expression\Ast\WithincodeNode;
 use AOP\Pointcut\Expression\Ast\WithinNode;
+use AOP\Pointcut\GetPointcut;
+use AOP\Pointcut\HandlerPointcut;
+use AOP\Pointcut\IfPointcut;
+use AOP\Pointcut\InitializationPointcut;
 use AOP\Pointcut\NotPointcut;
 use AOP\Pointcut\OrPointcut;
+use AOP\Pointcut\Pattern\FieldPattern;
+use AOP\Pointcut\Pattern\MethodPattern;
 use AOP\Pointcut\Pattern\ModifierPattern;
 use AOP\Pointcut\Pattern\NamePattern;
 use AOP\Pointcut\Pattern\ParameterPattern;
 use AOP\Pointcut\Pattern\TypePattern;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\ServicePointcut;
+use AOP\Pointcut\SetPointcut;
 use AOP\Pointcut\TargetPointcut;
 use AOP\Pointcut\ThisPointcut;
+use AOP\Pointcut\WithincodePointcut;
 use AOP\Pointcut\WithinPointcut;
 
 /**
@@ -93,6 +118,8 @@ final class PointcutExpressionCompiler
             $node instanceof AndNode => new AndPointcut($this->build($node->left, $names, $aspect, $resolver, $stack), $this->build($node->right, $names, $aspect, $resolver, $stack)),
             $node instanceof OrNode => new OrPointcut($this->build($node->left, $names, $aspect, $resolver, $stack), $this->build($node->right, $names, $aspect, $resolver, $stack)),
             $node instanceof NotNode => new NotPointcut($this->build($node->inner, $names, $aspect, $resolver, $stack)),
+            $node instanceof CflowNode => new CflowPointcut($this->build($node->inner, $names, $aspect, $resolver, $stack), $node->below),
+            $node instanceof IfNode => $this->ifPointcut($node, $aspect),
             $node instanceof ReferenceNode => $this->reference($node, $names, $aspect, $resolver, $stack),
             default => $this->leaf($node, $names),
         };
@@ -117,6 +144,15 @@ final class PointcutExpressionCompiler
             ServiceNode::class => 'service',
             ArgsNode::class => 'argsPointcut',
             AtArgsNode::class => 'atArgs',
+            CallNode::class => 'call',
+            WithincodeNode::class => 'withincode',
+            AtWithincodeNode::class => 'atWithincode',
+            AtThisNode::class => 'atThis',
+            InitializationNode::class => 'initialization',
+            AdviceExecutionNode::class => 'adviceExecution',
+            HandlerNode::class => 'handler',
+            GetNode::class => 'get',
+            SetNode::class => 'set',
         ];
     }
 
@@ -141,6 +177,72 @@ final class PointcutExpressionCompiler
             new NamePattern($node->namePattern),
             ParameterPattern::fromNode($node->params),
         );
+    }
+
+    private function call(CallNode $node): PointcutInterface
+    {
+        return new CallPointcut(MethodPattern::fromNode($node->pattern));
+    }
+
+    private function withincode(WithincodeNode $node): PointcutInterface
+    {
+        return new WithincodePointcut(MethodPattern::fromNode($node->pattern));
+    }
+
+    private function initialization(InitializationNode $node): PointcutInterface
+    {
+        return new InitializationPointcut(new MethodPattern(
+            new ModifierPattern($node->modifier),
+            null,
+            TypePattern::fromNode($node->declaringType),
+            new NamePattern('__construct'),
+            ParameterPattern::fromNode($node->params),
+        ));
+    }
+
+    private function adviceExecution(): PointcutInterface
+    {
+        return new AdviceExecutionPointcut();
+    }
+
+    private function handler(HandlerNode $node): PointcutInterface
+    {
+        return new HandlerPointcut(TypePattern::fromNode($node->type));
+    }
+
+    private function get(GetNode $node): PointcutInterface
+    {
+        return new GetPointcut($this->fieldPattern($node->field));
+    }
+
+    private function set(SetNode $node): PointcutInterface
+    {
+        return new SetPointcut($this->fieldPattern($node->field));
+    }
+
+    private function fieldPattern(FieldPatternNode $node): FieldPattern
+    {
+        return new FieldPattern(
+            $node->modifiers,
+            null === $node->type ? null : TypePattern::fromNode($node->type),
+            TypePattern::fromNode($node->declaringType),
+            new NamePattern($node->namePattern),
+        );
+    }
+
+    /**
+     * The short form `if(method())` calls a method of the aspect declaring the advice; in a named pointcut that is the
+     * aspect declaring the named pointcut.
+     */
+    private function ifPointcut(IfNode $node, string $aspect): PointcutInterface
+    {
+        $class = $node->className ?? $aspect;
+        if ('' === $class) {
+            throw new PointcutSyntaxException(sprintf('if(%s()) needs the declaring aspect class to resolve the method; use if(Class::%s()) or compile it for an aspect.', $node->methodName, $node->methodName));
+        }
+        /* @var class-string $class */
+
+        return new IfPointcut($class, $node->methodName);
     }
 
     private function within(WithinNode $node): PointcutInterface
@@ -191,6 +293,22 @@ final class PointcutExpressionCompiler
     private function atTarget(AtTargetNode $node, array $names): PointcutInterface
     {
         return new AtTargetPointcut($this->subject($node->subject, BindingKind::AT_TARGET, $names));
+    }
+
+    /**
+     * @param array<string, string|null> $names
+     */
+    private function atWithincode(AtWithincodeNode $node, array $names): PointcutInterface
+    {
+        return new AtWithincodePointcut($this->subject($node->subject, BindingKind::AT_WITHINCODE, $names));
+    }
+
+    /**
+     * @param array<string, string|null> $names
+     */
+    private function atThis(AtThisNode $node, array $names): PointcutInterface
+    {
+        return new AtThisPointcut($this->subject($node->subject, BindingKind::AT_THIS, $names));
     }
 
     /**

@@ -225,13 +225,8 @@ final class ParserTest extends TestCase
      */
     public static function unsupported(): iterable
     {
-        yield 'cflow' => ['cflow(execution(* *(..)))', 'cflow'];
-        yield 'call' => ['call(* foo(..))', 'call'];
-        yield 'get' => ['get(Foo)', 'get'];
-        yield 'set' => ['within(A) && set(Foo)', 'set'];
-        yield 'withincode' => ['withincode(* foo(..))', 'withincode'];
-        yield 'if with empty args' => ['if()', 'if'];
-        yield 'cflowbelow' => ['cflowbelow(x)', 'cflowbelow'];
+        yield 'preinitialization' => ['preinitialization(App\\Foo)', 'preinitialization'];
+        yield 'staticinitialization' => ['within(A) && staticinitialization(App\\Foo)', 'staticinitialization'];
         yield 'unknown with args' => ['frobnicate(x)', 'frobnicate'];
     }
 

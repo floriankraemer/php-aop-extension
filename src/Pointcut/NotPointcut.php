@@ -6,7 +6,7 @@ namespace AOP\Pointcut;
 
 use AOP\Exception\BindingException;
 
-final class NotPointcut implements PointcutInterface
+final class NotPointcut implements PointcutInterface, ControlFlowAwareInterface
 {
     public function __construct(private readonly PointcutInterface $inner)
     {
@@ -45,5 +45,10 @@ final class NotPointcut implements PointcutInterface
     public function isCallerSensitive(): bool
     {
         return $this->inner->isCallerSensitive();
+    }
+
+    public function cflowPointcuts(): array
+    {
+        return ControlFlowPointcuts::of($this->inner);
     }
 }
