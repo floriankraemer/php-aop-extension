@@ -6,12 +6,12 @@ namespace AOP\Tests\Unit\Interceptor;
 
 use AOP\Interceptor\MethodInterceptorInterface;
 use AOP\Interceptor\RuntimeGuardInterceptor;
+use AOP\JoinPoint\JoinPointKind;
 use AOP\JoinPoint\MethodInvocation;
-use AOP\JoinPoint\MethodSignature;
 use AOP\Pointcut\Expression\PointcutExpressionCompiler;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\StaticMatchContext;
-use AOP\Tests\Fixtures\Pointcut\Reflect;
+use AOP\Tests\Fixtures\Jp;
 use AOP\Tests\Fixtures\Service\UserService;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -24,7 +24,7 @@ final class RuntimeGuardInterceptorTest extends TestCase
     private function invokeChain(PointcutInterface $pointcut, array $args, ?\Closure $inner = null): mixed
     {
         $target = new UserService();
-        $static = new StaticMatchContext(Reflect::cls(UserService::class));
+        $static = Jp::ctx(UserService::class, 'findUser');
         $guard = new RuntimeGuardInterceptor(
             $pointcut,
             new class($inner) implements MethodInterceptorInterface {
@@ -42,14 +42,7 @@ final class RuntimeGuardInterceptorTest extends TestCase
             $static,
         );
 
-        return (new MethodInvocation(
-            $target,
-            $target,
-            MethodSignature::fromReflection(new \ReflectionMethod(UserService::class, 'findUser')),
-            $args,
-            [$guard],
-            static fn (array $a): string => 'target',
-        ))->proceed();
+        return Jp::invocation($target, 'findUser', $args, [$guard], static fn (array $a): string => 'target')->proceed();
     }
 
     #[Test]
@@ -81,17 +74,17 @@ final class RuntimeGuardInterceptorTest extends TestCase
     }
 
     #[Test]
-    public function receivesProxyTargetMethodAndArguments(): void
+    public function receivesJoinPointStaticContextAndArguments(): void
     {
         $pointcut = new class implements PointcutInterface {
             public ?\AOP\Pointcut\RuntimeMatchContext $ctx = null;
 
-            public function matchesClass(\ReflectionClass $class, StaticMatchContext $ctx): bool
+            public function matchesClass(?\ReflectionClass $class, StaticMatchContext $ctx): bool
             {
                 return true;
             }
 
-            public function matchesMethod(\ReflectionMethod $method, StaticMatchContext $ctx): bool
+            public function matchesMethod(?\ReflectionFunctionAbstract $method, StaticMatchContext $ctx): bool
             {
                 return true;
             }
@@ -112,28 +105,29 @@ final class RuntimeGuardInterceptorTest extends TestCase
             {
                 return [];
             }
+
+            public function isCallerSensitive(): bool
+            {
+                return false;
+            }
         };
 
         $this->invokeChain($pointcut, [3]);
 
         self::assertNotNull($pointcut->ctx);
-        self::assertSame('findUser', $pointcut->ctx->method->getName());
-        self::assertSame([3], $pointcut->ctx->args);
-        self::assertInstanceOf(UserService::class, $pointcut->ctx->target);
-        self::assertNotNull($pointcut->ctx->staticContext);
+        self::assertSame('findUser', $pointcut->ctx->function()?->getName());
+        self::assertSame([3], $pointcut->ctx->args());
+        self::assertInstanceOf(UserService::class, $pointcut->ctx->target());
+        self::assertInstanceOf(UserService::class, $pointcut->ctx->this());
+        self::assertSame(UserService::class, $pointcut->ctx->targetClass()?->getName());
+        self::assertSame('findUser', $pointcut->ctx->staticContext->function?->getName());
+        self::assertSame(JoinPointKind::METHOD_EXECUTION, $pointcut->ctx->joinPoint->getKind());
     }
 
     #[Test]
     public function boundArgumentsSurviveFurtherProceedCalls(): void
     {
-        $invocation = new MethodInvocation(
-            new UserService(),
-            new UserService(),
-            MethodSignature::fromReflection(new \ReflectionMethod(UserService::class, 'findUser')),
-            [1],
-            [],
-            static fn (array $a): null => null,
-        );
+        $invocation = Jp::invocation(new UserService(), 'findUser', [1]);
 
         self::assertSame([], $invocation->getBoundArguments());
         $with = $invocation->withBoundArguments(['a' => 1]);

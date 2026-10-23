@@ -11,10 +11,10 @@ use AOP\Binding\BoundArguments;
 use AOP\Binding\ParameterBinder;
 use AOP\Exception\BindingException;
 use AOP\JoinPoint\MethodInvocation;
-use AOP\JoinPoint\MethodSignature;
 use AOP\Pointcut\Expression\PointcutExpressionCompiler;
 use AOP\Tests\Fixtures\Aspect\BindingAspect;
 use AOP\Tests\Fixtures\Hierarchy\Audit;
+use AOP\Tests\Fixtures\Jp;
 use AOP\Tests\Fixtures\Service\UserService;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -46,16 +46,7 @@ final class ParameterBinderTest extends TestCase
 
     private function joinPoint(): MethodInvocation
     {
-        $target = new UserService();
-
-        return new MethodInvocation(
-            $target,
-            $target,
-            MethodSignature::fromReflection(new \ReflectionMethod(UserService::class, 'findUser')),
-            [1],
-            [],
-            static fn (array $args): mixed => null,
-        );
+        return Jp::invocation(new UserService(), 'findUser', [1]);
     }
 
     #[Test]

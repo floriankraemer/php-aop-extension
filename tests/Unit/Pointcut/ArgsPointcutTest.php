@@ -8,11 +8,10 @@ use AOP\Pointcut\BindingKind;
 use AOP\Pointcut\Expression\PointcutExpressionCompiler;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
-use AOP\Pointcut\StaticMatchContext;
 use AOP\Tests\Fixtures\Hierarchy\Plain;
 use AOP\Tests\Fixtures\Hierarchy\RepositoryInterface;
 use AOP\Tests\Fixtures\Hierarchy\UserRepository;
-use AOP\Tests\Fixtures\Pointcut\Reflect;
+use AOP\Tests\Fixtures\Jp;
 use AOP\Tests\Fixtures\Service\UserService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -33,7 +32,7 @@ final class ArgsPointcutTest extends TestCase
      */
     private function static(PointcutInterface $pc, string $class, string $method): bool
     {
-        $ctx = new StaticMatchContext(Reflect::cls($class));
+        $ctx = Jp::ctx($class, $method);
 
         return $pc->matchesClass($ctx->targetClass, $ctx) && $pc->matchesMethod(new \ReflectionMethod($class, $method), $ctx);
     }
@@ -43,7 +42,7 @@ final class ArgsPointcutTest extends TestCase
      */
     private function runtime(PointcutInterface $pc, array $args, string $method = 'find'): RuntimeMatchContext
     {
-        $ctx = new RuntimeMatchContext(new UserRepository(), new UserRepository(), new \ReflectionMethod(UserRepository::class, $method), $args);
+        $ctx = Jp::runtime(new UserRepository(), $method, $args);
         $pc->matchesRuntime($ctx);
 
         return $ctx;
@@ -55,7 +54,7 @@ final class ArgsPointcutTest extends TestCase
     private function argsMatch(string $expression, array $args, string $method = 'find'): bool
     {
         $pc = $this->pc($expression);
-        $ctx = new RuntimeMatchContext(new UserRepository(), new UserRepository(), new \ReflectionMethod(UserRepository::class, $method), $args);
+        $ctx = Jp::runtime(new UserRepository(), $method, $args);
 
         return $pc->matchesRuntime($ctx);
     }
@@ -225,7 +224,7 @@ final class ArgsPointcutTest extends TestCase
     public function bindsSeveralArguments(): void
     {
         $pc = $this->pc('args(a, int, b)', ['a', 'b']);
-        $ctx = new RuntimeMatchContext(new UserRepository(), new UserRepository(), new \ReflectionMethod(UserRepository::class, 'intThenAny'), ['x', 2, null]);
+        $ctx = Jp::runtime(new UserRepository(), 'intThenAny', ['x', 2, null]);
 
         self::assertTrue($pc->matchesRuntime($ctx));
         self::assertSame(['a' => 'x', 'b' => null], $ctx->bound());
@@ -235,14 +234,14 @@ final class ArgsPointcutTest extends TestCase
     public function bindingTypeRestrictionFiltersAtRuntime(): void
     {
         $pc = $this->pc('args(id)', ['id' => 'int']);
-        $ctx = new RuntimeMatchContext(new UserRepository(), new UserRepository(), new \ReflectionMethod(UserRepository::class, 'find'), ['nope']);
+        $ctx = Jp::runtime(new UserRepository(), 'find', ['nope']);
         self::assertFalse($pc->matchesRuntime($ctx));
 
         $ok = $this->runtime($pc, [5]);
         self::assertSame(['id' => 5], $ok->bound());
 
         $class = $this->pc('args(p)', ['p' => Plain::class]);
-        $ctx = new RuntimeMatchContext(new UserRepository(), new UserRepository(), new \ReflectionMethod(UserRepository::class, 'find'), [new UserRepository()]);
+        $ctx = Jp::runtime(new UserRepository(), 'find', [new UserRepository()]);
         self::assertFalse($class->matchesRuntime($ctx));
     }
 
@@ -250,7 +249,7 @@ final class ArgsPointcutTest extends TestCase
     public function nullableRestrictionAcceptsNull(): void
     {
         $pc = $this->pc('args(p)', ['p' => '?'.Plain::class]);
-        $ctx = new RuntimeMatchContext(new UserRepository(), new UserRepository(), new \ReflectionMethod(UserRepository::class, 'find'), [null]);
+        $ctx = Jp::runtime(new UserRepository(), 'find', [null]);
 
         self::assertTrue($pc->matchesRuntime($ctx));
         self::assertSame(['p' => null], $ctx->bound());

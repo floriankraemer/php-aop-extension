@@ -18,11 +18,12 @@ use AOP\Binding\ParameterBinder;
 use AOP\Interceptor\AroundAdviceInterceptor;
 use AOP\Interceptor\BeforeAdviceInterceptor;
 use AOP\Interceptor\RuntimeGuardInterceptor;
-use AOP\Pointcut\StaticMatchContext;
 use AOP\Tests\Fixtures\Aspect\NamedPointcutAspect;
 use AOP\Tests\Fixtures\Aspect\ProbeAspect;
 use AOP\Tests\Fixtures\Aspect\RecordingAspectA;
 use AOP\Tests\Fixtures\Aspect\RecordingAspectB;
+use AOP\Tests\Fixtures\Jp;
+use AOP\Tests\Fixtures\Pointcut\PassThroughInterceptor;
 use AOP\Tests\Fixtures\Pointcut\Reflect;
 use AOP\Tests\Fixtures\Pointcut\StubPointcut;
 use AOP\Tests\Fixtures\Service\Greeter;
@@ -56,7 +57,7 @@ final class AdvisorChainFactoryTest extends TestCase
     {
         $rc = Reflect::cls($class);
 
-        return array_map(static fn (Advisor $a): string => $a->id, $f->matchedAdvisors($rc, $rc->getMethod($method), new StaticMatchContext($rc)));
+        return array_map(static fn (Advisor $a): string => $a->id, $f->matchedAdvisors($rc, $rc->getMethod($method), Jp::ctx($class, $method)));
     }
 
     #[Test]
@@ -85,7 +86,7 @@ final class AdvisorChainFactoryTest extends TestCase
         $rc = Reflect::cls(\ArrayObject::class);
 
         self::assertSame([], $this->ids($f, \ArrayObject::class, 'count'));
-        self::assertSame([], $f->chain($rc, $rc->getMethod('count'), new StaticMatchContext($rc)));
+        self::assertSame([], $f->chain($rc, $rc->getMethod('count'), Jp::ctx(\ArrayObject::class, 'count')));
     }
 
     #[Test]
@@ -94,7 +95,7 @@ final class AdvisorChainFactoryTest extends TestCase
         $f = $this->factory(RecordingAspectA::class, NamedPointcutAspect::class);
         $rc = Reflect::cls(Greeter::class);
 
-        $chain = $f->chain($rc, $rc->getMethod('greet'), new StaticMatchContext($rc));
+        $chain = $f->chain($rc, $rc->getMethod('greet'), Jp::ctx(Greeter::class, 'greet'));
 
         self::assertCount(7, $chain);
         self::assertInstanceOf(AroundAdviceInterceptor::class, $chain[0]);
@@ -117,8 +118,61 @@ final class AdvisorChainFactoryTest extends TestCase
         );
         $rc = Reflect::cls(Greeter::class);
 
-        $matched = $f->matchedAdvisors($rc, $rc->getMethod('greet'), new StaticMatchContext($rc));
+        $matched = $f->matchedAdvisors($rc, $rc->getMethod('greet'), Jp::ctx(Greeter::class, 'greet'));
 
         self::assertSame(['c'], array_map(static fn (Advisor $a): string => $a->id, $matched));
+    }
+
+    #[Test]
+    public function aProgrammaticInterceptorIsUsedAsIs(): void
+    {
+        $interceptor = new PassThroughInterceptor();
+        $f = new AdvisorChainFactory(
+            new AdvisorRegistry([new Advisor('prog', null, 1, new StubPointcut(), $interceptor)]),
+            new ArrayAspectInstanceResolver([]),
+            new ParameterBinder(),
+        );
+        $rc = Reflect::cls(Greeter::class);
+
+        $chain = $f->chain($rc, $rc->getMethod('greet'), Jp::ctx(Greeter::class, 'greet'));
+
+        self::assertSame([$interceptor], $chain);
+    }
+
+    #[Test]
+    public function aProgrammaticInterceptorWithARuntimePointcutIsGuarded(): void
+    {
+        $f = new AdvisorChainFactory(
+            new AdvisorRegistry([new Advisor('prog', null, 1, new StubPointcut(runtime: true), new PassThroughInterceptor())]),
+            new ArrayAspectInstanceResolver([]),
+            new ParameterBinder(),
+        );
+        $rc = Reflect::cls(Greeter::class);
+
+        $chain = $f->chain($rc, $rc->getMethod('greet'), Jp::ctx(Greeter::class, 'greet'));
+
+        self::assertCount(1, $chain);
+        self::assertInstanceOf(RuntimeGuardInterceptor::class, $chain[0]);
+    }
+
+    #[Test]
+    public function programmaticAndAspectAdvisorsMixInOrder(): void
+    {
+        $aspects = (new AdvisorFactory());
+        $reader = new AspectMetadataReader();
+        $meta = $reader->read(RecordingAspectA::class);
+        $advisors = $aspects->fromMetadata($meta, new MetadataNamedPointcutResolver([$meta]));
+        $first = new PassThroughInterceptor();
+        $last = new PassThroughInterceptor();
+        $advisors[] = new Advisor('early', null, 0, new StubPointcut(), $first);
+        $advisors[] = new Advisor('late', null, 99, new StubPointcut(), $last);
+        $f = new AdvisorChainFactory(new AdvisorRegistry($advisors), new ArrayAspectInstanceResolver([]), new ParameterBinder());
+        $rc = Reflect::cls(Greeter::class);
+
+        $chain = $f->chain($rc, $rc->getMethod('greet'), Jp::ctx(Greeter::class, 'greet'));
+
+        self::assertCount(7, $chain);
+        self::assertSame($first, $chain[0]);
+        self::assertSame($last, $chain[6]);
     }
 }

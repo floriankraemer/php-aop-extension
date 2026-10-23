@@ -63,7 +63,7 @@ final class AdvisorRegistry implements \Countable
     }
 
     /**
-     * The proxy cannot implement an interface method the target already declares under another contract:
+     * The class cannot receive an interface method it already declares under another contract:
      * a public one with a different signature is a fatal error at load, a non-public one would shadow the introduction.
      *
      * @param \ReflectionClass<object> $target
@@ -90,7 +90,7 @@ final class AdvisorRegistry implements \Countable
      */
     public function forAspect(string $class): array
     {
-        return array_values(array_filter($this->advisors, static fn (Advisor $a): bool => $a->advice->aspectClass === $class));
+        return array_values(array_filter($this->advisors, static fn (Advisor $a): bool => $a->advice?->aspectClass === $class));
     }
 
     public function count(): int

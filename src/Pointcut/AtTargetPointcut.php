@@ -7,7 +7,7 @@ namespace AOP\Pointcut;
 use AOP\Pointcut\Pattern\TypePattern;
 
 /**
- * The target's class carries the attribute (the target class is known when weaving, so this is static).
+ * The target's class carries the attribute (the runtime class is known per decision, so this is static).
  */
 final class AtTargetPointcut implements PointcutInterface
 {
@@ -18,18 +18,22 @@ final class AtTargetPointcut implements PointcutInterface
         $this->initSubject($subject);
     }
 
-    public function matchesClass(\ReflectionClass $class, StaticMatchContext $ctx): bool
+    public function matchesClass(?\ReflectionClass $class, StaticMatchContext $ctx): bool
     {
-        return $this->hasAttribute($class);
+        return null !== $class && $this->hasAttribute($class);
     }
 
-    public function matchesMethod(\ReflectionMethod $method, StaticMatchContext $ctx): bool
+    public function matchesMethod(?\ReflectionFunctionAbstract $method, StaticMatchContext $ctx): bool
     {
-        return $this->hasAttribute($ctx->targetClass);
+        $class = JoinPointShape::targetClass($ctx, $method);
+
+        return null !== $class && $this->hasAttribute($class);
     }
 
     public function matchesRuntime(RuntimeMatchContext $ctx): bool
     {
-        return null === $this->binding || $this->bindAttribute($ctx, $ctx->targetClass());
+        $class = JoinPointShape::targetClass($ctx->staticContext, $ctx->function());
+
+        return null === $this->binding || (null !== $class && $this->bindAttribute($ctx, $class));
     }
 }

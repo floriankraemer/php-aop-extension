@@ -23,6 +23,6 @@ final class TrackedIntroductionAspect
     #[Before('execution(* track(..)) && this(AOP\Tests\Fixtures\Introduction\Trackable)')]
     public function before(JoinPointInterface $jp): void
     {
-        Log::add('this(Trackable) '.$jp->getSignature()->methodName);
+        Log::add('this(Trackable) '.$jp->getSignature()->getName());
     }
 }

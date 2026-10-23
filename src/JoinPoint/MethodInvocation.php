@@ -25,9 +25,7 @@ final class MethodInvocation implements ProceedingJoinPointInterface
      * @param \Closure(array<int|string, mixed>): mixed $targetInvoker
      */
     public function __construct(
-        private readonly object $proxy,
-        private readonly object $target,
-        private readonly MethodSignature $signature,
+        private readonly JoinPointData $data,
         private array $args,
         private readonly array $interceptors,
         private readonly \Closure $targetInvoker,
@@ -43,24 +41,49 @@ final class MethodInvocation implements ProceedingJoinPointInterface
         return array_map(static fn (mixed $value): mixed => $value, $this->args);
     }
 
-    public function getThis(): object
+    public function getKind(): JoinPointKind
     {
-        return $this->proxy;
+        return $this->data->kind;
     }
 
-    public function getTarget(): object
+    public function getThis(): ?object
     {
-        return $this->target;
+        return $this->data->thisObject;
     }
 
-    public function getSignature(): MethodSignature
+    public function getTarget(): ?object
     {
-        return $this->signature;
+        return $this->data->target;
+    }
+
+    public function getSignature(): SignatureInterface
+    {
+        return $this->data->signature;
+    }
+
+    public function getStaticPart(): StaticPart
+    {
+        return $this->data->staticPart;
+    }
+
+    public function getEnclosingStaticPart(): ?StaticPart
+    {
+        return $this->data->enclosingStaticPart;
+    }
+
+    public function getSourceLocation(): ?SourceLocation
+    {
+        return $this->data->sourceLocation;
     }
 
     public function toShortString(): string
     {
-        return $this->signature->toShortString();
+        return $this->data->signature->toShortString();
+    }
+
+    public function toLongString(): string
+    {
+        return $this->data->staticPart->toLongString();
     }
 
     /**

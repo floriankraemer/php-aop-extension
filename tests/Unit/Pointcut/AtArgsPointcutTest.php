@@ -8,11 +8,10 @@ use AOP\Pointcut\BindingKind;
 use AOP\Pointcut\Expression\PointcutExpressionCompiler;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
-use AOP\Pointcut\StaticMatchContext;
 use AOP\Tests\Fixtures\Hierarchy\Marker;
 use AOP\Tests\Fixtures\Hierarchy\Plain;
 use AOP\Tests\Fixtures\Hierarchy\UserRepository;
-use AOP\Tests\Fixtures\Pointcut\Reflect;
+use AOP\Tests\Fixtures\Jp;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
@@ -31,14 +30,14 @@ final class AtArgsPointcutTest extends TestCase
      */
     private function ctx(array $args, string $method = 'find'): RuntimeMatchContext
     {
-        return new RuntimeMatchContext(new UserRepository(), new UserRepository(), new \ReflectionMethod(UserRepository::class, $method), $args);
+        return Jp::runtime(new UserRepository(), $method, $args);
     }
 
     #[Test]
     public function isRuntimeAndPrunesByArity(): void
     {
         $pc = $this->pc('@args('.Marker::class.')');
-        $static = new StaticMatchContext(Reflect::cls(UserRepository::class));
+        $static = Jp::ctx(UserRepository::class, 'find');
 
         self::assertTrue($pc->isRuntime());
         self::assertTrue($pc->matchesMethod(new \ReflectionMethod(UserRepository::class, 'find'), $static));

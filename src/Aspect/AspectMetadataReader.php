@@ -101,7 +101,9 @@ final class AspectMetadataReader
         $introductions = [];
         foreach ($aspect->getAttributes(DeclareParents::class) as $attribute) {
             $declaration = $attribute->newInstance();
+            /** @var class-string $interface */
             $interface = ltrim($declaration->interface, '\\');
+            /** @var class-string $impl */
             $impl = ltrim($declaration->defaultImpl, '\\');
             $problem = match (true) {
                 !interface_exists($interface) => sprintf('"%s" is not an interface', $interface),
