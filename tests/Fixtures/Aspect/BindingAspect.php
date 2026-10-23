@@ -11,6 +11,7 @@ use AOP\Attribute\Aspect;
 use AOP\Attribute\Before;
 use AOP\JoinPoint\JoinPointInterface;
 use AOP\JoinPoint\ProceedingJoinPointInterface;
+use AOP\JoinPoint\StaticPart;
 use AOP\Tests\Fixtures\Hierarchy\Audit;
 
 #[Aspect]
@@ -66,6 +67,11 @@ final class BindingAspect
 
     #[Before('execution(* *::*(..))')]
     public function beforeWithProceedingJoinPoint(ProceedingJoinPointInterface $pjp): void
+    {
+    }
+
+    #[Before('execution(* *::*(..)) && args(id, ..)')]
+    public function withStaticPart(StaticPart $part, int $id, JoinPointInterface $jp): void
     {
     }
 

@@ -12,7 +12,6 @@ use AOP\Pointcut\Expression\Ast\ArgsNode;
 use AOP\Pointcut\Expression\Ast\AtArgsNode;
 use AOP\Pointcut\Expression\Ast\AtTargetNode;
 use AOP\Pointcut\Expression\Ast\AtWithinNode;
-use AOP\Pointcut\Expression\Ast\ServiceNode;
 use AOP\Pointcut\Expression\Ast\BindingCandidateNode;
 use AOP\Pointcut\Expression\Ast\ExecutionNode;
 use AOP\Pointcut\Expression\Ast\NodeInterface;
@@ -20,6 +19,7 @@ use AOP\Pointcut\Expression\Ast\NotNode;
 use AOP\Pointcut\Expression\Ast\OrNode;
 use AOP\Pointcut\Expression\Ast\ParamListNode;
 use AOP\Pointcut\Expression\Ast\ReferenceNode;
+use AOP\Pointcut\Expression\Ast\ServiceNode;
 use AOP\Pointcut\Expression\Ast\TargetNode;
 use AOP\Pointcut\Expression\Ast\ThisNode;
 use AOP\Pointcut\Expression\Ast\TypePatternNode;
@@ -111,20 +111,33 @@ final class Parser
         throw $this->unexpected('pointcut designator or reference');
     }
 
+    /**
+     * Designator name => parser of its argument list (between the parentheses). Every name here must also be in
+     * Lexer::DESIGNATORS; add a designator by adding an entry to both.
+     *
+     * @return array<string, \Closure(): NodeInterface>
+     */
+    private function designators(): array
+    {
+        return [
+            'execution' => fn (): NodeInterface => $this->parseExecution(),
+            'within' => fn (): NodeInterface => new WithinNode($this->typePattern($this->expectWord(), false, $this->acceptPlus())),
+            'this' => fn (): NodeInterface => new ThisNode($this->typeOrBinding()),
+            'target' => fn (): NodeInterface => new TargetNode($this->typeOrBinding()),
+            '@annotation' => fn (): NodeInterface => new AnnotationNode($this->typeOrBinding()),
+            '@within' => fn (): NodeInterface => new AtWithinNode($this->typeOrBinding()),
+            '@target' => fn (): NodeInterface => new AtTargetNode($this->typeOrBinding()),
+            'args' => fn (): NodeInterface => new ArgsNode($this->paramList(true)),
+            '@args' => fn (): NodeInterface => new AtArgsNode($this->paramList(true)),
+            'service' => fn (): NodeInterface => new ServiceNode($this->expectWord()->value),
+        ];
+    }
+
     private function parseDesignator(string $name): NodeInterface
     {
-        return match ($name) {
-            'execution' => $this->parseExecution(),
-            'within' => new WithinNode($this->typePattern($this->expectWord(), false, $this->acceptPlus())),
-            'this' => new ThisNode($this->typeOrBinding()),
-            'target' => new TargetNode($this->typeOrBinding()),
-            '@annotation' => new AnnotationNode($this->typeOrBinding()),
-            '@within' => new AtWithinNode($this->typeOrBinding()),
-            '@target' => new AtTargetNode($this->typeOrBinding()),
-            'args' => new ArgsNode($this->paramList(true)),
-            '@args' => new AtArgsNode($this->paramList(true)),
-            default => new ServiceNode($this->expectWord()->value),
-        };
+        $parse = $this->designators()[$name] ?? throw UnsupportedPointcutDesignatorException::forDesignator($name);
+
+        return $parse();
     }
 
     private function parseExecution(): ExecutionNode
@@ -158,16 +171,31 @@ final class Parser
         } elseif ($plus) {
             throw PointcutSyntaxException::at('"+" is not allowed on a method name pattern', $plusPosition, $this->expression);
         }
-        if (1 !== preg_match('/^[A-Za-z0-9_*]+$/', $word->value)) {
-            throw PointcutSyntaxException::at(sprintf('Invalid method name pattern "%s"', $word->value), $word->position, $this->expression);
-        }
+        $name = $this->memberName($word, null === $declaringType);
 
         $this->expect(TokenType::LParen, '"("');
 
         $params = $this->paramList(false);
         $this->expect(TokenType::RParen, '")"');
 
-        return new ExecutionNode($modifier, $returnPattern, $declaringType, $word->value, $params);
+        return new ExecutionNode($modifier, $returnPattern, $declaringType, $name, $params);
+    }
+
+    /**
+     * A method name pattern. Without a declaring type the pattern names a function, so it may be namespaced
+     * (`App\Util\fmt*`, `str_*`).
+     */
+    private function memberName(Token $word, bool $allowNamespace): string
+    {
+        $segment = '[A-Za-z0-9_*]+';
+        $valid = $allowNamespace
+            ? 1 === preg_match('/^\\\\?'.$segment.'(\\\\'.$segment.')*$/', $word->value)
+            : 1 === preg_match('/^'.$segment.'$/', $word->value);
+        if (!$valid) {
+            throw PointcutSyntaxException::at(sprintf('Invalid method name pattern "%s"', $word->value), $word->position, $this->expression);
+        }
+
+        return ltrim($word->value, '\\');
     }
 
     private function parseReference(Token $word): ReferenceNode

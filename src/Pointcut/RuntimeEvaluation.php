@@ -13,11 +13,10 @@ final class RuntimeEvaluation
 {
     public static function matches(PointcutInterface $pointcut, RuntimeMatchContext $ctx): bool
     {
-        // Without a weave-time context, service() and interface-strategy information is unavailable; the weaver passes the real one.
-        $static = $ctx->staticContext ?? new StaticMatchContext($ctx->targetClass());
+        $static = $ctx->staticContext;
 
         return $pointcut->matchesClass($static->targetClass, $static)
-            && $pointcut->matchesMethod($ctx->method, $static)
+            && $pointcut->matchesMethod($static->function, $static)
             && (!$pointcut->isRuntime() || $pointcut->matchesRuntime($ctx));
     }
 }

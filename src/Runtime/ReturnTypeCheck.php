@@ -10,16 +10,19 @@ namespace AOP\Runtime;
 final class ReturnTypeCheck
 {
     /**
-     * `static` accepts the proxy and the target: an interface proxy receives the raw target from `proceed()` and wraps it afterwards.
+     * `static` means the called class: the class of `$thisObject` for instance methods, `$calledClass` for static ones.
+     * `self` means `$declaringClass`.
+     *
+     * @param class-string|null $calledClass `static::class` of a static method; ignored when `$thisObject` is given
      */
-    public static function accepts(?\ReflectionType $type, mixed $value, object $proxy, object $target, string $declaringClass): bool
+    public static function accepts(?\ReflectionType $type, mixed $value, ?object $thisObject, string $declaringClass, ?string $calledClass = null): bool
     {
         if (null === $type) {
             return true;
         }
         if ($type instanceof \ReflectionUnionType) {
             foreach ($type->getTypes() as $member) {
-                if (self::accepts($member, $value, $proxy, $target, $declaringClass)) {
+                if (self::accepts($member, $value, $thisObject, $declaringClass, $calledClass)) {
                     return true;
                 }
             }
@@ -28,7 +31,7 @@ final class ReturnTypeCheck
         }
         if ($type instanceof \ReflectionIntersectionType) {
             foreach ($type->getTypes() as $member) {
-                if (!self::accepts($member, $value, $proxy, $target, $declaringClass)) {
+                if (!self::accepts($member, $value, $thisObject, $declaringClass, $calledClass)) {
                     return false;
                 }
             }
@@ -57,7 +60,7 @@ final class ReturnTypeCheck
             'iterable' => is_iterable($value),
             'callable' => is_callable($value),
             'object' => is_object($value),
-            'static' => $value instanceof $proxy || $value instanceof $target,
+            'static' => null !== ($called = null === $thisObject ? $calledClass : $thisObject::class) && $value instanceof $called,
             'self' => $value instanceof $declaringClass,
             default => $value instanceof ($type->getName()),
         };

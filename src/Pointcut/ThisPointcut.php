@@ -5,12 +5,10 @@ declare(strict_types=1);
 namespace AOP\Pointcut;
 
 use AOP\Pointcut\Pattern\TypePattern;
-use AOP\Proxy\ProxyStrategy;
 
 /**
- * Subclass proxy: the proxy is a target subclass, so the whole target hierarchy counts.
- * Interface proxy: only the implemented interfaces count.
- * Either way the proxy also implements the introduced interfaces.
+ * The executing object (for call kinds, field accesses and handlers: the object whose code contains the join point)
+ * is of the type. Static code and functions have no `this`, so they never match.
  */
 final class ThisPointcut implements PointcutInterface
 {
@@ -21,23 +19,38 @@ final class ThisPointcut implements PointcutInterface
         $this->initSubject($subject);
     }
 
-    public function matchesClass(\ReflectionClass $class, StaticMatchContext $ctx): bool
+    public function matchesClass(?\ReflectionClass $class, StaticMatchContext $ctx): bool
     {
-        return $this->test($class, $ctx);
+        if (!JoinPointShape::isCode($ctx->kind)) {
+            return true; // decided per caller in matchesMethod()
+        }
+
+        return null !== $class && $this->test($class, $ctx);
     }
 
-    public function matchesMethod(\ReflectionMethod $method, StaticMatchContext $ctx): bool
+    public function matchesMethod(?\ReflectionFunctionAbstract $method, StaticMatchContext $ctx): bool
     {
-        return $this->test($ctx->targetClass, $ctx);
+        $class = JoinPointShape::thisClass($ctx, $method);
+
+        return null !== $class && $this->test($class, $ctx);
     }
 
     public function matchesRuntime(RuntimeMatchContext $ctx): bool
     {
+        $this_ = $ctx->this();
+        if (null === $this_) {
+            return false;
+        }
         if (null !== $this->binding) {
-            $ctx->bind($this->binding->name, $ctx->proxy);
+            $ctx->bind($this->binding->name, $this_);
         }
 
         return true;
+    }
+
+    public function isCallerSensitive(): bool
+    {
+        return true; // reads the caller's object for call kinds
     }
 
     /**
@@ -48,23 +61,17 @@ final class ThisPointcut implements PointcutInterface
         if (null === $this->subjectType) {
             return true;
         }
-        // The proxy is an instance of each introduced interface and of its parents, like the implemented interfaces below.
-        foreach ($ctx->introducedInterfaces as $interface) {
-            foreach ([$interface, ...(class_implements($interface) ?: [])] as $name) {
-                if ($this->subjectType->matches($name)) {
-                    return true;
+        if (JoinPointShape::isCode($ctx->kind)) {
+            // The class also implements the introduced interfaces and their parents.
+            foreach ($ctx->introducedInterfaces as $interface) {
+                foreach ([$interface, ...(class_implements($interface) ?: [])] as $name) {
+                    if ($this->subjectType->matches($name)) {
+                        return true;
+                    }
                 }
             }
         }
-        if (ProxyStrategy::SUBCLASS === $ctx->strategy) {
-            return $this->subjectType->matchesType($class);
-        }
-        foreach ($class->getInterfaceNames() as $interface) {
-            if ($this->subjectType->matches($interface)) {
-                return true;
-            }
-        }
 
-        return false;
+        return $this->subjectType->matchesType($class);
     }
 }

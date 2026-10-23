@@ -13,7 +13,7 @@ use AOP\JoinPoint\JoinPointInterface;
 final readonly class BindingPlan
 {
     /**
-     * @param list<array{0: 'jp'|'returning'|'throwing'|'bound', 1?: string}> $slots
+     * @param list<array{0: 'jp'|'static_part'|'returning'|'throwing'|'bound', 1?: string}> $slots
      */
     public function __construct(
         private string $adviceId,
@@ -32,6 +32,7 @@ final readonly class BindingPlan
         foreach ($this->slots as $slot) {
             $values[] = match ($slot[0]) {
                 'jp' => $joinPoint,
+                'static_part' => $joinPoint->getStaticPart(),
                 'returning' => $returnValue,
                 'throwing' => $thrown,
                 'bound' => array_key_exists($slot[1] ?? '', $bound)

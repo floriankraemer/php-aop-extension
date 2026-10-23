@@ -4,80 +4,71 @@ declare(strict_types=1);
 
 namespace AOP\Tests\Unit\Runtime;
 
-use AOP\Proxy\ProxyFactory;
 use AOP\Runtime\AopContext;
-use AOP\Tests\Fixtures\Aspect\TargetsAspect;
-use AOP\Tests\Fixtures\Targets\ContextProbe;
-use AOP\Tests\Fixtures\Targets\ContextProbeInterface;
+use AOP\Tests\Fixtures\Jp;
+use AOP\Tests\Fixtures\Service\Greeter;
+use AOP\Tests\Fixtures\Targets\KindShapes;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
 final class AopContextTest extends TestCase
 {
-    protected function setUp(): void
-    {
-        ContextProbe::$seen = [];
-    }
-
-    private function proxy(ContextProbe $target): ContextProbeInterface
-    {
-        $proxy = ProxyFactory::fromAspects([new TargetsAspect()])->createProxy($target);
-        self::assertInstanceOf(ContextProbeInterface::class, $proxy);
-
-        return $proxy;
-    }
-
     #[Test]
     public function isNullOutsideAnAdvisedCall(): void
     {
-        self::assertNull(AopContext::currentProxy());
+        self::assertNull(AopContext::currentJoinPoint());
+        self::assertNull(AopContext::currentObject());
     }
 
     #[Test]
-    public function isTheProxyInsideAnAdvisedCallAndNullAfterwards(): void
+    public function exposesTheInnermostJoinPointAndItsObject(): void
     {
-        $proxy = $this->proxy(new ContextProbe());
+        $outer = new Greeter();
+        $inner = new KindShapes();
+        $outerJp = Jp::invocation($outer, 'greet', ['x']);
+        $innerJp = Jp::invocation($inner, 'inc', [1]);
 
-        $proxy->probe();
+        AopContext::push($outerJp);
+        try {
+            self::assertSame($outerJp, AopContext::currentJoinPoint());
+            self::assertSame($outer, AopContext::currentObject());
 
-        self::assertSame([$proxy, $proxy], ContextProbe::$seen);
-        self::assertNull(AopContext::currentProxy());
-    }
-
-    #[Test]
-    public function nestedInvocationThroughAnotherProxyRestoresTheOuterProxy(): void
-    {
-        $inner = $this->proxy(new ContextProbe());
-        $outer = $this->proxy(new ContextProbe($inner));
-
-        $outer->probe();
-
-        self::assertSame([$outer, $inner, $inner, $outer], ContextProbe::$seen);
-        self::assertNull(AopContext::currentProxy());
-    }
-
-    #[Test]
-    public function isRestoredAfterAnException(): void
-    {
-        $inner = $this->proxy(new ContextProbe(null, true));
-        $outer = $this->proxy(new ContextProbe(new class($inner) implements ContextProbeInterface {
-            public function __construct(private readonly ContextProbeInterface $inner)
-            {
+            AopContext::push($innerJp);
+            try {
+                self::assertSame($innerJp, AopContext::currentJoinPoint());
+                self::assertSame($inner, AopContext::currentObject());
+            } finally {
+                AopContext::pop();
             }
 
-            public function probe(): void
-            {
-                try {
-                    $this->inner->probe();
-                } catch (\LogicException) {
-                    ContextProbe::$seen[] = AopContext::currentProxy();
-                }
-            }
-        }));
+            self::assertSame($outerJp, AopContext::currentJoinPoint(), 'popping restores the outer join point');
+            self::assertSame($outer, AopContext::currentObject());
+        } finally {
+            AopContext::pop();
+        }
 
-        $outer->probe();
+        self::assertNull(AopContext::currentJoinPoint());
+    }
 
-        self::assertSame([$outer, $inner, $inner, $outer, $outer], ContextProbe::$seen);
-        self::assertNull(AopContext::currentProxy());
+    #[Test]
+    public function staticCodeHasNoCurrentObject(): void
+    {
+        $joinPoint = Jp::invocation(new KindShapes(), 'make');
+
+        AopContext::push($joinPoint);
+        try {
+            self::assertSame($joinPoint, AopContext::currentJoinPoint());
+            self::assertNull(AopContext::currentObject());
+        } finally {
+            AopContext::pop();
+        }
+    }
+
+    #[Test]
+    public function popOnAnEmptyStackIsHarmless(): void
+    {
+        AopContext::pop();
+
+        self::assertNull(AopContext::currentJoinPoint());
     }
 }

@@ -12,7 +12,6 @@ use AOP\Pointcut\Expression\Ast\ArgsNode;
 use AOP\Pointcut\Expression\Ast\AtArgsNode;
 use AOP\Pointcut\Expression\Ast\AtTargetNode;
 use AOP\Pointcut\Expression\Ast\AtWithinNode;
-use AOP\Pointcut\Expression\Ast\ServiceNode;
 use AOP\Pointcut\Expression\Ast\BindingCandidateNode;
 use AOP\Pointcut\Expression\Ast\ExecutionNode;
 use AOP\Pointcut\Expression\Ast\NodeInterface;
@@ -20,6 +19,7 @@ use AOP\Pointcut\Expression\Ast\NotNode;
 use AOP\Pointcut\Expression\Ast\OrNode;
 use AOP\Pointcut\Expression\Ast\ParamListNode;
 use AOP\Pointcut\Expression\Ast\ReferenceNode;
+use AOP\Pointcut\Expression\Ast\ServiceNode;
 use AOP\Pointcut\Expression\Ast\TargetNode;
 use AOP\Pointcut\Expression\Ast\ThisNode;
 use AOP\Pointcut\Expression\Ast\TypePatternNode;
@@ -80,6 +80,19 @@ final class ParserTest extends TestCase
                 self::t('int', true),
                 self::t('string'),
             ])),
+        ];
+        yield 'execution: namespaced function' => [
+            'execution(* App\Util\fmt*(..))',
+            new ExecutionNode(null, null, null, 'App\Util\fmt*', self::pl([], true)),
+        ];
+        yield 'execution: leading backslash on function' => [
+            'execution(string \App\Util\fmt(string))',
+            new ExecutionNode(null, self::t('string'), null, 'App\Util\fmt', self::pl([self::t('string')])),
+        ];
+        yield 'execution: internal function glob' => ['execution(* str_*(..))', new ExecutionNode(null, null, null, 'str_*', self::pl([], true))];
+        yield 'execution: constructor' => [
+            'execution(* App\Service\User::__construct(..))',
+            new ExecutionNode(null, null, self::t('App\Service\User'), '__construct', self::pl([], true)),
         ];
         yield 'execution: method named like a modifier' => [
             'execution(* public(..))',
@@ -180,10 +193,12 @@ final class ParserTest extends TestCase
         yield 'trailing backslash' => ['within(App\Foo\)', 7];
         yield 'within nullable' => ['within(?Foo)', 7];
         yield 'plus on name' => ['execution(* foo+(..))', 15];
-        yield 'qualified method name' => ['execution(* App\foo(..))', 12];
+        yield 'qualified method name with declaring type' => ['execution(* Foo::App\foo(..))', 17];
+        yield 'function name with empty segment' => ['execution(* App\\\\foo(..))', 12];
+        yield 'function name with trailing backslash' => ['execution(* App\foo\(..))', 12];
         yield 'missing return pattern' => ['execution(foo(..))', 13];
         yield 'empty this' => ['this()', 5];
-        yield 'service empty' => ['service()', 5];
+        yield 'service empty' => ['service()', 8];
         yield 'execution missing params' => ['execution(* foo)', 15];
         yield 'bare word' => ['foo', 0];
         yield 'reference with args' => ['Foo::bar(x)', 9];

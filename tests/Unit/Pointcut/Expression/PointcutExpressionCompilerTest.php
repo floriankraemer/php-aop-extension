@@ -6,13 +6,13 @@ namespace AOP\Tests\Unit\Pointcut\Expression;
 
 use AOP\Exception\PointcutSyntaxException;
 use AOP\Exception\UnsupportedPointcutDesignatorException;
+use AOP\JoinPoint\JoinPointKind;
 use AOP\Pointcut\AndPointcut;
 use AOP\Pointcut\AnnotationPointcut;
 use AOP\Pointcut\ArgsPointcut;
 use AOP\Pointcut\AtArgsPointcut;
 use AOP\Pointcut\AtTargetPointcut;
 use AOP\Pointcut\AtWithinPointcut;
-use AOP\Pointcut\ServicePointcut;
 use AOP\Pointcut\BindingKind;
 use AOP\Pointcut\BindingSpec;
 use AOP\Pointcut\ExecutionPointcut;
@@ -21,14 +21,16 @@ use AOP\Pointcut\Expression\PointcutExpressionCompiler;
 use AOP\Pointcut\NotPointcut;
 use AOP\Pointcut\OrPointcut;
 use AOP\Pointcut\PointcutInterface;
-use AOP\Pointcut\RuntimeMatchContext;
+use AOP\Pointcut\ServicePointcut;
 use AOP\Pointcut\StaticMatchContext;
 use AOP\Pointcut\TargetPointcut;
 use AOP\Pointcut\ThisPointcut;
 use AOP\Pointcut\WithinPointcut;
+use AOP\Tests\Fixtures\Functions\ConstructedService;
 use AOP\Tests\Fixtures\Hierarchy\Audit;
 use AOP\Tests\Fixtures\Hierarchy\Plain;
 use AOP\Tests\Fixtures\Hierarchy\UserRepository;
+use AOP\Tests\Fixtures\Jp;
 use AOP\Tests\Fixtures\Pointcut\Reflect;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -104,7 +106,7 @@ final class PointcutExpressionCompilerTest extends TestCase
     {
         $p = $this->compile('execution(public ?object '.UserRepository::class.'::find(int))');
         $class = Reflect::cls(UserRepository::class);
-        $ctx = new StaticMatchContext($class);
+        $ctx = Jp::ctx(UserRepository::class, 'find');
 
         self::assertTrue($p->matchesMethod($class->getMethod('find'), $ctx));
         self::assertFalse($p->matchesMethod($class->getMethod('noParams'), $ctx));
@@ -117,7 +119,7 @@ final class PointcutExpressionCompilerTest extends TestCase
 
         self::assertInstanceOf(OrPointcut::class, $p);
         $plain = Reflect::cls(Plain::class);
-        self::assertTrue($p->matchesMethod($plain->getMethod('find'), new StaticMatchContext($plain)));
+        self::assertTrue($p->matchesMethod($plain->getMethod('find'), Jp::ctx($plain->getName())));
     }
 
     #[Test]
@@ -140,8 +142,8 @@ final class PointcutExpressionCompilerTest extends TestCase
         $p = $this->compile('within(Plain)');
         $plain = Reflect::cls(Plain::class);
 
-        self::assertFalse($p->matchesMethod($plain->getMethod('find'), new StaticMatchContext($plain)));
-        self::assertTrue($this->compile('within('.Plain::class.')')->matchesMethod($plain->getMethod('find'), new StaticMatchContext($plain)));
+        self::assertFalse($p->matchesMethod($plain->getMethod('find'), Jp::ctx($plain->getName())));
+        self::assertTrue($this->compile('within('.Plain::class.')')->matchesMethod($plain->getMethod('find'), Jp::ctx($plain->getName())));
     }
 
     #[Test]
@@ -179,8 +181,8 @@ final class PointcutExpressionCompilerTest extends TestCase
 
         self::assertSame(Audit::class, $p->bindings()['audit']->typeRestriction);
         $class = Reflect::cls(UserRepository::class);
-        self::assertTrue($p->matchesMethod($class->getMethod('audited'), new StaticMatchContext($class)));
-        self::assertFalse($p->matchesMethod($class->getMethod('find'), new StaticMatchContext($class)));
+        self::assertTrue($p->matchesMethod($class->getMethod('audited'), Jp::ctx($class->getName())));
+        self::assertFalse($p->matchesMethod($class->getMethod('find'), Jp::ctx($class->getName())));
     }
 
     #[Test]
@@ -236,7 +238,7 @@ final class PointcutExpressionCompilerTest extends TestCase
         $plain = Reflect::cls(Plain::class);
 
         self::assertInstanceOf(WithinPointcut::class, $p);
-        self::assertTrue($p->matchesMethod($plain->getMethod('find'), new StaticMatchContext($plain)));
+        self::assertTrue($p->matchesMethod($plain->getMethod('find'), Jp::ctx($plain->getName())));
         self::assertSame([[null, 'services', 'App\Aspect']], $resolver->calls); // @phpstan-ignore-line
     }
 
@@ -335,9 +337,62 @@ final class PointcutExpressionCompilerTest extends TestCase
     {
         $p = $this->compile('target(t) && within('.UserRepository::class.')', ['t']);
         $target = new UserRepository();
-        $ctx = new RuntimeMatchContext(new \stdClass(), $target, new \ReflectionMethod($target, 'find'), []);
+        $ctx = Jp::runtime($target, 'find');
 
         self::assertTrue($p->matchesRuntime($ctx));
         self::assertSame($target, $ctx->bound()['t']);
+    }
+
+    #[Test]
+    public function compilesFunctionExecutionPatterns(): void
+    {
+        require_once __DIR__.'/../../../Fixtures/Functions/functions.php';
+        $fmt = new \ReflectionFunction('AOP\Tests\Fixtures\Functions\fmt');
+        $internal = new \ReflectionFunction('str_replace');
+        $fmtCtx = new StaticMatchContext(JoinPointKind::FUNCTION_EXECUTION, null, $fmt);
+        $internalCtx = new StaticMatchContext(JoinPointKind::FUNCTION_EXECUTION, null, $internal);
+
+        $namespaced = $this->compile('execution(* AOP\Tests\Fixtures\Functions\fmt*(..))');
+        self::assertTrue($namespaced->matchesClass(null, $fmtCtx) && $namespaced->matchesMethod($fmt, $fmtCtx));
+        self::assertFalse($namespaced->matchesMethod($internal, $internalCtx));
+
+        $prefix = $this->compile('execution(* str_*(..))');
+        self::assertTrue($prefix->matchesMethod($internal, $internalCtx));
+        self::assertFalse($prefix->matchesMethod($fmt, $fmtCtx));
+
+        $typed = $this->compile('execution(string AOP\Tests\Fixtures\Functions\fmt(string))');
+        self::assertTrue($typed->matchesMethod($fmt, $fmtCtx));
+        self::assertFalse($this->compile('execution(int AOP\Tests\Fixtures\Functions\fmt(string))')->matchesMethod($fmt, $fmtCtx));
+
+        $all = $this->compile('execution(* *(..))');
+        self::assertTrue($all->matchesMethod($fmt, $fmtCtx));
+        self::assertTrue($all->matchesMethod($internal, $internalCtx));
+    }
+
+    #[Test]
+    public function compilesConstructorExecutionPatterns(): void
+    {
+        $constructor = new \ReflectionMethod(ConstructedService::class, '__construct');
+        $ctx = Jp::ctx(ConstructedService::class, '__construct', JoinPointKind::CONSTRUCTOR_EXECUTION);
+        $class = Reflect::cls(ConstructedService::class);
+
+        foreach (['execution(* '.ConstructedService::class.'::__construct(..))', 'execution(public * '.ConstructedService::class.'::__construct(string))', 'execution(* '.ConstructedService::class.'::*(..))'] as $expression) {
+            $pointcut = $this->compile($expression);
+            self::assertTrue($pointcut->matchesClass($class, $ctx) && $pointcut->matchesMethod($constructor, $ctx), $expression);
+        }
+        self::assertFalse($this->compile('execution(* '.ConstructedService::class.'::build(..))')->matchesMethod($constructor, $ctx));
+        self::assertFalse($this->compile('execution(* '.UserRepository::class.'::__construct(..))')->matchesClass($class, $ctx));
+    }
+
+    #[Test]
+    public function callerSensitivityOfCompiledExpressions(): void
+    {
+        self::assertFalse($this->compile('execution(* *(..))')->isCallerSensitive());
+        self::assertFalse($this->compile('target(Foo) && args(..)')->isCallerSensitive());
+        self::assertTrue($this->compile('within(App\\*)')->isCallerSensitive());
+        self::assertTrue($this->compile('execution(* *(..)) && within(App\\*)')->isCallerSensitive());
+        self::assertTrue($this->compile('execution(* *(..)) || this(App\\Foo)')->isCallerSensitive());
+        self::assertTrue($this->compile('!@within(App\\Foo)')->isCallerSensitive());
+        self::assertFalse($this->compile('!execution(* *(..)) && service(a.*)')->isCallerSensitive());
     }
 }

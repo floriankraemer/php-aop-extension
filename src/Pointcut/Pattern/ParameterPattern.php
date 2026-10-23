@@ -35,7 +35,7 @@ final class ParameterPattern
         return new self($params, $node->trailingEllipsis);
     }
 
-    public function matches(\ReflectionMethod $method): bool
+    public function matches(\ReflectionFunctionAbstract $method): bool
     {
         $count = $method->getNumberOfParameters();
         if ($this->trailingEllipsis ? $count < count($this->params) : $count !== count($this->params)) {

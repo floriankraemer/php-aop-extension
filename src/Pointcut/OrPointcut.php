@@ -22,12 +22,12 @@ final class OrPointcut implements PointcutInterface
         }
     }
 
-    public function matchesClass(\ReflectionClass $class, StaticMatchContext $ctx): bool
+    public function matchesClass(?\ReflectionClass $class, StaticMatchContext $ctx): bool
     {
         return $this->left->matchesClass($class, $ctx) || $this->right->matchesClass($class, $ctx);
     }
 
-    public function matchesMethod(\ReflectionMethod $method, StaticMatchContext $ctx): bool
+    public function matchesMethod(?\ReflectionFunctionAbstract $method, StaticMatchContext $ctx): bool
     {
         return $this->left->matchesMethod($method, $ctx) || $this->right->matchesMethod($method, $ctx);
     }
@@ -46,5 +46,10 @@ final class OrPointcut implements PointcutInterface
     public function bindings(): array
     {
         return [...$this->left->bindings(), ...$this->right->bindings()];
+    }
+
+    public function isCallerSensitive(): bool
+    {
+        return $this->left->isCallerSensitive() || $this->right->isCallerSensitive();
     }
 }

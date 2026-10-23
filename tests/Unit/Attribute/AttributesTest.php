@@ -12,8 +12,6 @@ use AOP\Attribute\Aspect;
 use AOP\Attribute\Before;
 use AOP\Attribute\Order;
 use AOP\Attribute\Pointcut;
-use AOP\Attribute\Proxyable;
-use AOP\Proxy\ProxyStrategy;
 use AOP\Tests\Fixtures\Aspect\AttributeFixtureAspect;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -33,12 +31,6 @@ final class AttributesTest extends TestCase
     public function orderAttributeCarriesValue(): void
     {
         self::assertSame(10, $this->classAttribute(Order::class)->value);
-    }
-
-    #[Test]
-    public function proxyableAttributeCarriesStrategy(): void
-    {
-        self::assertSame(ProxyStrategy::INTERFACE, $this->classAttribute(Proxyable::class)->strategy);
     }
 
     #[Test]
@@ -85,7 +77,6 @@ final class AttributesTest extends TestCase
     {
         yield 'aspect' => [Aspect::class, \Attribute::TARGET_CLASS];
         yield 'order' => [Order::class, \Attribute::TARGET_CLASS];
-        yield 'proxyable' => [Proxyable::class, \Attribute::TARGET_CLASS];
         yield 'pointcut' => [Pointcut::class, \Attribute::TARGET_METHOD];
         yield 'before' => [Before::class, \Attribute::TARGET_METHOD];
         yield 'after' => [After::class, \Attribute::TARGET_METHOD];

@@ -12,12 +12,12 @@ final class ServicePointcut implements PointcutInterface
     {
     }
 
-    public function matchesClass(\ReflectionClass $class, StaticMatchContext $ctx): bool
+    public function matchesClass(?\ReflectionClass $class, StaticMatchContext $ctx): bool
     {
         return null !== $ctx->serviceName && $this->pattern->matches($ctx->serviceName);
     }
 
-    public function matchesMethod(\ReflectionMethod $method, StaticMatchContext $ctx): bool
+    public function matchesMethod(?\ReflectionFunctionAbstract $method, StaticMatchContext $ctx): bool
     {
         return $this->matchesClass($ctx->targetClass, $ctx);
     }
@@ -35,5 +35,10 @@ final class ServicePointcut implements PointcutInterface
     public function bindings(): array
     {
         return [];
+    }
+
+    public function isCallerSensitive(): bool
+    {
+        return false;
     }
 }
