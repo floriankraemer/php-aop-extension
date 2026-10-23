@@ -1,0 +1,102 @@
+<?php
+
+declare(strict_types=1);
+
+namespace AOP\Tests\Unit\Runtime;
+
+use AOP\Advisor\Advisor;
+use AOP\Exception\AspectDefinitionException;
+use AOP\JoinPoint\JoinPointKind;
+use AOP\Runtime\AdvisorOrdering;
+use AOP\Tests\Fixtures\Log;
+use AOP\Tests\Fixtures\Runtime\Aspect\OrderedByInterfaceAspect;
+use AOP\Tests\Fixtures\Runtime\Aspect\PrecA;
+use AOP\Tests\Fixtures\Runtime\Aspect\PrecB;
+use AOP\Tests\Fixtures\Runtime\Aspect\PrecC;
+use AOP\Tests\Fixtures\Runtime\KindPointcut;
+use AOP\Tests\Fixtures\Runtime\TargetService;
+use AOP\Tests\Fixtures\Runtime\Trace;
+use AOP\Weaver;
+use PHPUnit\Framework\Attributes\Test;
+
+final class OrderingTest extends RuntimeTestCase
+{
+    /**
+     * @return list<string>
+     */
+    private function weaveAndCall(Weaver $weaver): array
+    {
+        $weaver->enable();
+        $this->engine->call(new TargetService(), 'pub', ['x']);
+
+        return array_values(array_diff(Log::$entries, ['pub']));
+    }
+
+    #[Test]
+    public function orderAttributesDecideWithoutDeclarations(): void
+    {
+        self::assertSame(['PrecA', 'PrecC'], $this->weaveAndCall(Weaver::fromAspects([new PrecC(), new PrecA()], $this->engine)));
+    }
+
+    #[Test]
+    public function declarePrecedenceOverridesOrderAndStarMeansEverythingElse(): void
+    {
+        // PrecB declares "PrecC, *, PrecA": C first, A last, B (the star) between, although #[Order] says A, B, C.
+        self::assertSame(['PrecC', 'PrecB', 'PrecA'], $this->weaveAndCall(Weaver::fromAspects([new PrecA(), new PrecB(), new PrecC()], $this->engine)));
+    }
+
+    #[Test]
+    public function declarationsOnlyRelateTheAspectsTheyName(): void
+    {
+        $sorted = AdvisorOrdering::sort($this->advisors(['X' => 1, 'Y' => 2, 'Z' => 3]), ['Z, X']);
+
+        self::assertSame(['Y', 'Z', 'X'], array_map(static fn (Advisor $a): string => $a->id, $sorted));
+    }
+
+    #[Test]
+    public function contradictingDeclarationsAreRejected(): void
+    {
+        $this->expectException(AspectDefinitionException::class);
+        AdvisorOrdering::sort($this->advisors(['X' => 1, 'Y' => 2]), ['X, Y', 'Y, X']);
+    }
+
+    #[Test]
+    public function theOrderedInterfaceOverridesTheOrderAttribute(): void
+    {
+        $result = $this->weaveAndCall(Weaver::fromAspects([new PrecA(), new OrderedByInterfaceAspect(0), new PrecC()], $this->engine));
+
+        self::assertSame(['ordered:0', 'PrecA', 'PrecC'], $result);
+    }
+
+    #[Test]
+    public function theOrderedInterfaceCanAlsoPlaceAnAspectLast(): void
+    {
+        $result = $this->weaveAndCall(Weaver::fromAspects([new PrecA(), new OrderedByInterfaceAspect(50), new PrecC()], $this->engine));
+
+        self::assertSame(['PrecA', 'PrecC', 'ordered:50'], $result);
+    }
+
+    #[Test]
+    public function programmaticAdvisorsInterleaveByOrder(): void
+    {
+        $weaver = Weaver::fromAspects([new PrecA(), new PrecC()], $this->engine);
+        $weaver->addAdvisor(new Advisor('mid', null, 2, new KindPointcut([JoinPointKind::METHOD_EXECUTION], 'pub'), new Trace('mid')));
+
+        self::assertSame(['PrecA', 'mid>', 'PrecC', 'mid<'], $this->weaveAndCall($weaver));
+    }
+
+    /**
+     * @param array<string, int> $orders id => order
+     *
+     * @return list<Advisor>
+     */
+    private function advisors(array $orders): array
+    {
+        $advisors = [];
+        foreach ($orders as $id => $order) {
+            $advisors[] = new Advisor($id, null, $order, new KindPointcut([]), new Trace($id));
+        }
+
+        return $advisors;
+    }
+}
