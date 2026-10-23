@@ -645,6 +645,17 @@ because the JIT's IR compiler itself reports uninitialised reads).
 `TEST_PHP_ARGS="-q -d zend_extension=$(php -r 'echo ini_get("extension_dir");')/opcache.so -d opcache.enable_cli=1"`
 (8.5: only `-d opcache.enable_cli=1`, opcache is built in).
 
+**Fields on 8.4/8.5** (`ext/aop_fields.c`; semantics in "Engine notes (stream G)", "Fields on PHP 8.4 / 8.5"). The
+property handler signatures did not change; `EG(fake_scope)` became `const` in 8.5 (`AOP_FAKE_SCOPE_T`), and
+`zend_property_info.hooks`, `ZEND_ACC_VIRTUAL`, `ZEND_ACC_PPP_SET_MASK`, `zend_asymmetric_property_has_set_access()`
+and `zend_lazy_object_*` are used under `AOP_HAVE_PROPERTY_HOOKS`/`AOP_HAVE_LAZY_OBJECTS` (`AOP_PROP_IS_HOOKED()`).
+`zend_lazy_object_get_instance()` is not exported; `zend_lazy_object_init()` on an initialized proxy returns the
+instance without side effects and is used instead. The `ZEND_NEW` handler is unchanged in 8.4/8.5. On 8.4+
+`opcache.jit=off` still configures the JIT (the default `jit_buffer_size` is 64M), so aop's JIT notice and PHP's
+warning appear: tests that need opcache without JIT use `opcache.jit=disable` (`122-opcache.phpt`). The extension builds without warnings with `-Wall -Wextra` on 8.3, 8.4 and 8.5 (the dummy
+constructor frame is pushed through a pointer to `zend_pass_function` set in MINIT; a direct cast triggers GCC's
+`-Warray-bounds`, as `zend_pass_function` is only a `zend_internal_function`).
+
 ## Engine notes (stream G)
 
 The experimental join points of §6 as implemented by `ext/` for PHP 8.3 (`ext/aop_fields.c`, `ext/aop_catch.c`,
@@ -791,3 +802,54 @@ handlers chain to handlers installed before them; both are installed only with `
 - `php_aop.h`: globals block "stream G", `aop_jp`, `aop_original_native_fn` and the prototypes above.
 - `aop.c`: MINIT/MSHUTDOWN/RINIT/RSHUTDOWN calls into `aop_g.h`, a post-deactivate function, `setIntroductions()`
   and `fieldInterceptionAvailable()`, the phpinfo row.
+
+### Fields on PHP 8.4 / 8.5
+
+Verified against php-8.4.27 and php-8.5.12 (`zend_std_read_property`/`write_property`/`get_property_ptr_ptr`,
+`zend_get_property_offset`, `zend_objects_clone_obj`, `zend_lazy_object_*`, `ZEND_NEW`; 8.4 and 8.5 are identical
+here but for 8.5's `clone with`). Tests: `ext/tests/210-fields-property-hooks.phpt`, `211-fields-lazy-objects.phpt`,
+`212-fields-clone-with.phpt` (8.5), and `205-lazy-objects.phpt`.
+
+- **Property hooks: one join point around the hooked access.** `$o->p` on a hooked property is a `field-get`,
+  `$o->p = v` a `field-set`; the hook body runs inside `OriginalCall` (the original handler calls it; hook bodies are
+  never method join points, see "Compat notes (stream H)"). A dispatcher that does not proceed skips the hook. The
+  accesses a hook makes to *other* properties are join points as usual (caller `function` = `$p::get`/`$p::set`).
+  Accesses to the property's **backing value** from inside its own hooks (`$this->p` in `p`'s hooks, also reached
+  through `parent::$p::get()`/`set()`, and through an initialized lazy proxy) are **no join points**, mirroring the
+  engine's `zend_should_call_hook()`. Virtual properties are join points like any other; an access that fails anyway
+  (reading a virtual property without `get`, writing one without `set`, writing without set visibility) is none.
+  - Compound assignments (`$o->p += 1`, `$o->p++`) are a `field-get` and a `field-set`, each around one hook call.
+  - Write fetches (`$o->p->q = 1`, `$o->p[] = 1`, `&$o->p`): the engine reads a hooked property for writing through
+    `read_property`, so that read is the `field-get` (not a notification): the dispatcher's result is the value the
+    access works on. As without advice, a non-object result is `Error: Indirect modification of C::$p is not
+    allowed`, so `$o->obj->q = 1` works and `$o->arr[] = 1` fails. Properties with a by-reference `&get` hook have
+    no join point on write fetches (the reference cannot pass through `OriginalCall`); plain reads of them are
+    `field-get`s returning a copy.
+  - `strict_types`: an advised write is checked against the `set` hook's `$value` parameter type (which may be wider
+    than the property type), strictly when the access is in a `strict_types` file; the `TypeError` message names the
+    property (`Cannot assign float to property C::$p of type string|int`), not the hook parameter.
+  - Runtime cache: hooked properties use slot 1 (offset plus "simple read/write/get" bits) and slot 2 (property info)
+    like plain ones. Slot 0 stays cleared for wrapped objects, so the VM's hook fast paths (`ZEND_FETCH_OBJ_R` "simple
+    get", which calls the hook without `read_property`; simple read/write of the backing slot) never apply to them;
+    the known limitation of a primed opline (above) extends to those paths.
+- **Asymmetric visibility.** 8.4 makes `public readonly` implicitly `protected(set)`: a child class may initialize a
+  parent's readonly property, which is a `field-set` join point (scope = the declaring class). Writes and write
+  fetches without set visibility (`private(set)`, `protected(set)` from outside) fail anyway and are no join points,
+  like readonly violations. 8.4 reports `&$o->ro` as `Cannot indirectly modify readonly property` (8.3: `Cannot
+  modify ...`); that message is PHP's.
+- **Lazy objects.** Objects made by `ReflectionClass::newLazyGhost()`/`newLazyProxy()` are not created by `new`, so
+  they are not wrapped (like `newInstanceWithoutConstructor()`). A wrapped object reset with `resetAsLazyGhost()` /
+  `resetAsLazyProxy()` stays wrapped: its accesses are join points while it is lazy, asking the matcher or
+  dispatching never initializes it (`$this` is the uninitialized object), and the original handler initializes it
+  when the dispatcher proceeds; the initializer's own accesses are join points. A proxy forwards accesses to its
+  real instance through `zend_std_*` directly, so they are one join point on the proxy (`$this` = proxy) and never
+  reach the instance's handlers; a real instance created by `new` in the factory is wrapped, so the accesses its
+  constructor makes are join points. Readonly/visibility checks look at the real instance of an initialized proxy;
+  on an uninitialized lazy object the values are unknown, so such writes are join points and fail inside
+  `OriginalCall` if they fail. Clones: an uninitialized ghost is initialized and then cloned like any wrapped object
+  (the clone is wrapped before `__clone()`); a proxy is cloned by the engine (`zend_lazy_object_clone()`) and the new
+  proxy is wrapped, but the engine clones the real instance with `zend_objects_clone_obj()`, so that instance (and its
+  `__clone()`) is not covered.
+- **8.5 `clone($o, [...])`** writes the listed properties through `write_property` with the calling scope: each is a
+  `field-set` on the (wrapped) clone, `caller` null (the internal `clone()` frame). Readonly properties are writable
+  there as in `__clone()`.

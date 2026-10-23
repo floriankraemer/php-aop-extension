@@ -36,7 +36,7 @@ var_dump(readV($covered));
 echo "a fresh opline is covered:\n";
 var_dump((fn ($o) => $o->v)($covered));
 ?>
---EXPECT--
+--EXPECTF--
 covered:
   > field-get Plain::v() from {main}@18
   < 'v'
@@ -55,6 +55,6 @@ known limitation: an opline primed by an uncovered object of the same class:
   > field-set Plain::v('again') from {main}@29
 string(5) "again"
 a fresh opline is covered:
-  > field-get Plain::v() from {closure}@32
+  > field-get Plain::v() from {closure%S}@32
   < 'again'
 string(5) "again"

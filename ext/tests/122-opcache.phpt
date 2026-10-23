@@ -8,7 +8,7 @@ if (!function_exists('opcache_get_status') || !@opcache_get_status(false)) die('
 ?>
 --INI--
 opcache.enable_cli=1
-opcache.jit=off
+opcache.jit=disable
 --FILE--
 <?php
 require __DIR__.'/100-helper.inc';
