@@ -50,10 +50,12 @@ Work happens on branch `initial-implementation`; each stream works in its own lo
 
 - Docker check of the merged engine on PHP 8.4.27/8.5.12 × NTS/ZTS (glibc, amd64): builds, but 4 phpt fail on every 8.4/8.5 cell (`102-fields-readonly-typed`, `105-fields-coverage`, `107-fields-guards`, `205-lazy-objects`) and `aop_fields.c` has `-Wdiscarded-qualifiers` warnings. Stream G had only built on 8.3. Started stream L to fix it.
 
+- Valgrind (8.3.6 NTS, `USE_ZEND_ALLOC=0`) over the merged engine: 40 passed plain and 45 with opcache, 0 failed, 0 leaked.
+
 ## Still to do
 - Fix the remaining findings of stream I: Spring `ControlFlowPointcut` matches call kinds and is never TRACKed; `execution(Base::__construct(..))` matches subclass constructors (constructors do not override in AspectJ); method patterns reject `private`/`static`/`final` modifiers; `RegexpMethodPointcut` silently ignores delimited patterns; `||` branches binding different names are not rejected; docblocks still say "bean"; `AdvisorAdapterInterface::getInterceptor()` naming. (Not a bug: `execution(* Base::run(..))` matching an override of `run` is AspectJ semantics.)
 - Document the INI settings (`aop.enable`, `aop.disable_inlining`, `aop.weave_autoload`) in README/docs.
-- Merge L (fields on 8.4/8.5) and re-run the Docker matrix; valgrind on the merged engine.
+- Merge L (fields on 8.4/8.5) and re-run the Docker matrix.
 - Patch the docs: the experimental features (fields, handler, introductions, ctor-less initialization) now work; add examples.
 - Before the first tag: move the CHANGELOG `Unreleased` entries into a version section (release notes come from it).
 - E2E: re-run after G (ctor-less initialization, fields, handlers, introductions end to end through the Weaver); valgrind run of the phpunit e2e suite.
