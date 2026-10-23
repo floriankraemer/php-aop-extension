@@ -17,6 +17,7 @@ Work happens on branch `initial-implementation`; each stream works in its own lo
 | G | C experimental: field get/set, handler(), ctor-less initialization, introductions | opus | running |
 | H | PHP 8.4/8.5 compatibility, test-all on 8.3/8.4/8.5 × NTS/ZTS, opcache inlining, JIT notice | opus | done, merged |
 | I | Docs + examples | haiku | done, merged (G features to be patched after G) |
+| K | Fix stream I's findings (ControlFlowPointcut, ctor matching, modifiers, regexp, `||` bindings, naming) | sonnet | running |
 | J | Final integration and verification | coordinator | pending |
 
 ## Log
