@@ -130,6 +130,13 @@ jobs:
             vs: vs17
     steps:
       - uses: actions/checkout@v7
+        with:
+          path: repo
+
+      # The builder has no working-directory input: it expects config.w32 at the workspace root.
+      - name: Put the extension at the workspace root
+        shell: pwsh
+        run: Copy-Item -Recurse repo/ext/* .
 
       # Builds, runs the phpt suite (run-tests) and uploads its own artifact.
       - name: Build and test extension
