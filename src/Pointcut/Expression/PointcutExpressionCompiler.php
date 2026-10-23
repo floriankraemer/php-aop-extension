@@ -6,6 +6,7 @@ namespace AOP\Pointcut\Expression;
 
 use AOP\Exception\BindingException;
 use AOP\Exception\PointcutSyntaxException;
+use AOP\Exception\UnsupportedPointcutDesignatorException;
 use AOP\Pointcut\AdviceExecutionPointcut;
 use AOP\Pointcut\AndPointcut;
 use AOP\Pointcut\AnnotationPointcut;
@@ -81,8 +82,9 @@ final class PointcutExpressionCompiler
      *                                                             which becomes the binding's type restriction.
      *
      * @throws PointcutSyntaxException
-     * @throws BindingException        when the branches of a `||` bind different names (whichever branch matches, every
-     *                                 bound advice parameter needs a value) or a binding sits under `!`
+     * @throws UnsupportedPointcutDesignatorException
+     * @throws BindingException                       when the branches of a `||` bind different names (whichever branch matches, every
+     *                                                bound advice parameter needs a value) or a binding sits under `!`
      */
     public function compile(
         string $expression,

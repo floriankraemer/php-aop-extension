@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AOP\Advisor\Api;
 
 use AOP\Advice\AdviceType;
+use AOP\Advice\Api\MethodInterceptorInterface as SpringMethodInterceptor;
 use AOP\Interceptor\MethodInterceptorInterface;
 
 /**
@@ -13,8 +14,8 @@ use AOP\Interceptor\MethodInterceptorInterface;
 final readonly class ClosureAdvisorAdapter implements TypedAdvisorAdapterInterface
 {
     /**
-     * @param \Closure(object): bool                       $supports
-     * @param \Closure(object): MethodInterceptorInterface $interceptor
+     * @param \Closure(object): bool                                                 $supports
+     * @param \Closure(object): (MethodInterceptorInterface|SpringMethodInterceptor) $interceptor engine-level interceptor (preferred), or a Spring-style one that the registry wraps
      */
     public function __construct(
         private \Closure $supports,
@@ -28,7 +29,7 @@ final readonly class ClosureAdvisorAdapter implements TypedAdvisorAdapterInterfa
         return ($this->supports)($advice);
     }
 
-    public function getInterceptor(object $advice): MethodInterceptorInterface
+    public function getInterceptor(object $advice): MethodInterceptorInterface|SpringMethodInterceptor
     {
         return ($this->interceptor)($advice);
     }

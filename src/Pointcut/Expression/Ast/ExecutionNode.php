@@ -7,9 +7,9 @@ namespace AOP\Pointcut\Expression\Ast;
 final readonly class ExecutionNode implements NodeInterface
 {
     /**
-     * @param list<string> $modifiers `public`, `!static`, ... (see ModifierPattern)
-     * @param TypePatternNode|null      $returnPattern null means `*`
-     * @param TypePatternNode|null      $declaringType null means any
+     * @param list<string>         $modifiers     `public`, `!static`, ... (see ModifierPattern)
+     * @param TypePatternNode|null $returnPattern null means `*`
+     * @param TypePatternNode|null $declaringType null means any
      */
     public function __construct(
         public array $modifiers,

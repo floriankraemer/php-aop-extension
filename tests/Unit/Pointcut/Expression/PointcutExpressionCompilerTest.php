@@ -209,7 +209,7 @@ final class PointcutExpressionCompilerTest extends TestCase
     #[Test]
     public function orBranchesBindingDifferentNamesAreRejected(): void
     {
-        $this->expectException(\AOP\Exception\BindingException::class);
+        $this->expectException(BindingException::class);
         $this->expectExceptionMessage('id');
 
         $this->compile('execution(* '.UserRepository::class.'::find(..)) || args(id)', ['id' => 'int']);
@@ -226,7 +226,7 @@ final class PointcutExpressionCompilerTest extends TestCase
     #[Test]
     public function bindingInsideNotIsRejected(): void
     {
-        $this->expectException(\AOP\Exception\BindingException::class);
+        $this->expectException(BindingException::class);
 
         $this->compile('!target(b)', ['b']);
     }

@@ -23,7 +23,7 @@ abstract class ModsSubject
     {
     }
 
-    private function priv(): void
+    private function priv(): void // @phpstan-ignore method.unused
     {
     }
 
@@ -31,7 +31,7 @@ abstract class ModsSubject
     {
     }
 
-    private static function privStat(): void
+    private static function privStat(): void // @phpstan-ignore method.unused
     {
     }
 
@@ -43,7 +43,7 @@ abstract class ModsSubject
 
     public static int $counter = 0;
     public int $plain = 0;
-    private static string $secret = '';
+    private static string $secret = ''; // @phpstan-ignore property.onlyWritten
 }
 
 function modsFunction(): void
@@ -153,8 +153,9 @@ final class MethodModifiersTest extends TestCase
     #[Test]
     public function aMethodMayStillBeNamedLikeAModifier(): void
     {
-        self::assertNotNull(Shadow::compile('execution(* *::static(..))'));
-        self::assertNotNull(Shadow::compile('execution(public * final(..))'));
+        Shadow::compile('execution(* *::static(..))');
+        Shadow::compile('execution(public * final(..))');
+        $this->addToAssertionCount(1);
     }
 
     /**

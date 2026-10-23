@@ -87,9 +87,15 @@ item 500
 | `RegexpMethodPointcut` | The whole `Class::method` name, against a regular expression. | `new RegexpMethodPointcut(['.*Catalog::save'])` |
 | `AttributeMatchingPointcut` | Classes or methods that carry an attribute. | `new AttributeMatchingPointcut(Audited::class, null)` |
 
-`RegexpMethodPointcut` takes no delimiters.
-The expression must match the entire name, so `.*Catalog::save` matches `App\Catalog::save`, and `/Catalog::save/` never matches.
-A pattern with delimiters fails without an error message.
+`RegexpMethodPointcut` takes two kinds of pattern.
+
+- A bare expression must match the entire name and is anchored for you: `.*Catalog::save` matches `App\Catalog::save`, and `Catalog::save` alone does not.
+- A fully delimited PCRE with optional flags is used as written, so it matches anywhere in the name: `/Catalog::save/i` matches `App\Catalog::save`.
+  A pattern counts as delimited when it starts with a delimiter (not alphanumeric, not a backslash) and ends with the closing delimiter and modifier letters only.
+  If you want an anchored match, anchor it: `/^App\\Catalog::save$/`.
+
+A pattern that does not compile throws an `\InvalidArgumentException` that names the pattern.
+Patterns that start with `(`, `[`, `.` and so on and are not delimited, such as `(get|set)Balance`, are still bare expressions.
 
 `NameMatchMethodPointcut` has no class filter.
 The name `find` matches every class that has a `find()` method.
@@ -120,14 +126,14 @@ $onlyCatalogFind = (new ComposablePointcut(new NameMatchMethodPointcut('find')))
 
 `AOP\Pointcut\Api\ControlFlowPointcut` is the Spring form of `cflow()`.
 It takes a class, an optional method name with `*` wildcards, and a flag for "below".
-Two things differ from the `cflow()` designator in this build.
+Like the other Spring pointcuts it advises method and function executions only, never call join points.
+It is control-flow aware the same way `cflow()` is: the engine tracks the executions that make up the flow, so it works without any other advice on the entry method.
+`ComposablePointcut`, `Pointcuts::union()`/`intersection()` and `ExpressionPointcut` pass this on, so a `ControlFlowPointcut` inside a composition works too.
 
-- The engine does not register the entry point of a `ControlFlowPointcut` as a join point of the flow.
-  So it only works when other advice also advises the entry point.
-  Prefer the `cflow()` designator, which needs no other advice.
-- It matches call join points as well as executions, so advice runs at the call site and again inside the method.
-
-Both are listed in [limitations.md](limitations.md#known-issues).
+```php
+// Advises every execution inside Pipeline::outer(), the entry method included. Use "below" to leave the entry out.
+new DefaultPointcutAdvisor(new ControlFlowPointcut(Pipeline::class, 'outer'), $advice);
+```
 
 ## Advice interfaces
 
@@ -227,8 +233,14 @@ Register an adapter for a type of your own.
 An adapter has two methods.
 
 - `supportsAdvice(object $advice): bool` says whether the adapter handles the object.
-- `getInterceptor(object $advice): AOP\Interceptor\MethodInterceptorInterface` builds the interceptor.
-  Wrap a Spring-style interceptor in `InterceptorBridge`.
+- `getInterceptor(object $advice)` builds the interceptor. It returns the engine-level `AOP\Interceptor\MethodInterceptorInterface`
+  (`invoke(MethodInvocation)`), or a Spring-style `AOP\Advice\Api\MethodInterceptorInterface` (`invoke(ProceedingJoinPointInterface)`),
+  which the registry wraps in `InterceptorBridge` for you.
+  The two interfaces have the same name. Declare the return type as `EngineInterceptor|SpringInterceptor` if you return either.
+  An adapter that returns something else gets a `LogicException` that names the adapter and the two types.
+
+`AdvisorAdapterRegistry::registerAdvisorAdapter()` (or `register()`) adds the adapter.
+Adapters you register are asked before the default ones, in registration order.
 
 [`examples/24-advisor-adapters.php`](../examples/24-advisor-adapters.php) adds a `Retry` advice type.
 Its output shows two failed attempts before the success:

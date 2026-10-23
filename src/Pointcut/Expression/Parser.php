@@ -204,7 +204,7 @@ final class Parser
      * The leading modifiers of a method, constructor or field pattern: known words, each optionally negated with `!`.
      * A word that is clearly meant as a modifier but is not one is reported as an unknown modifier.
      *
-     * @param list<string>                         $known
+     * @param list<string>                      $known
      * @param 'method'|'initialization'|'field' $context
      *
      * @return list<string>

@@ -51,7 +51,7 @@ final class Jp
         return new EnclosingContext(new \ReflectionClass($class), null === $method ? null : new \ReflectionMethod($class, $method));
     }
 
-    public static function data(object $target, string $method, JoinPointKind $kind = JoinPointKind::METHOD_EXECUTION, ?object $thisObject = null): JoinPointData
+    public static function data(object $target, string $method, JoinPointKind $kind = JoinPointKind::METHOD_EXECUTION, ?object $thisObject = null, bool $outermost = true): JoinPointData
     {
         $signature = MethodSignature::fromReflection(new \ReflectionMethod($target, $method));
         $reflection = $signature->method;
@@ -63,6 +63,7 @@ final class Jp
             $isStatic ? null : $target,
             $signature,
             new StaticPart($kind, $signature),
+            outermost: $outermost,
         );
     }
 
