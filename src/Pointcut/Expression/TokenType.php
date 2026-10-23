@@ -20,5 +20,7 @@ enum TokenType
     case Keyword;
     /** Pattern or identifier: [A-Za-z0-9_*\\]+, or the raw token inside service(). */
     case Word;
+    /** `$name` (the name may contain `*`), the property of a field pattern. */
+    case Variable;
     case Eof;
 }

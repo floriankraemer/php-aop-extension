@@ -29,4 +29,12 @@ final class ModifierPattern
             default => true,
         };
     }
+
+    /**
+     * Does the pattern accept a public member (an implicit constructor is public)?
+     */
+    public function allowsPublic(): bool
+    {
+        return null === $this->modifier || 'public' === $this->modifier;
+    }
 }

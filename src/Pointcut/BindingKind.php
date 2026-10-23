@@ -13,4 +13,6 @@ enum BindingKind: string
     case WITHIN = 'within';
     case AT_TARGET = 'at_target';
     case AT_ARGS = 'at_args';
+    case AT_THIS = 'at_this';
+    case AT_WITHINCODE = 'at_withincode';
 }

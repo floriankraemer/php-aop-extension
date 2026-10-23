@@ -11,6 +11,9 @@ final class Lexer
     public const DESIGNATORS = [
         'execution', 'within', 'this', 'target', 'args', 'service',
         '@annotation', '@within', '@target', '@args',
+        'call', 'withincode', '@withincode', '@this', 'cflow', 'cflowbelow', 'if', 'initialization',
+        'adviceexecution', 'handler', 'get', 'set',
+        'preinitialization', 'staticinitialization',
     ];
 
     /**
@@ -51,6 +54,9 @@ final class Lexer
                 };
                 $tokens[] = new Token($type, $pair, $i);
                 $i += 2;
+            } elseif (1 === preg_match('/\G\$[A-Za-z0-9_*]+/', $expression, $m, 0, $i)) {
+                $tokens[] = new Token(TokenType::Variable, $m[0], $i);
+                $i += strlen($m[0]);
             } elseif (1 === preg_match('/\G@?[A-Za-z0-9_*\\\\]+/', $expression, $m, 0, $i)) {
                 $word = $m[0];
                 $isKeyword = in_array($word, self::DESIGNATORS, true) && '(' === $this->nextNonSpace($expression, $i + strlen($word));

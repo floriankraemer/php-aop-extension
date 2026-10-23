@@ -56,4 +56,12 @@ final class ParameterPattern
 
         return true;
     }
+
+    /**
+     * Does the pattern accept a member without parameters (an implicit constructor)?
+     */
+    public function matchesNoParameters(): bool
+    {
+        return $this->trailingEllipsis || [] === $this->params;
+    }
 }

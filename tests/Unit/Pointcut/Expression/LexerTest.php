@@ -52,6 +52,26 @@ final class LexerTest extends TestCase
             [TokenType::Word, 'App\Aspect\Common'], [TokenType::DoubleColon, '::'], [TokenType::Word, 'layer'],
             [TokenType::LParen, '('], [TokenType::RParen, ')'], [TokenType::Eof, ''],
         ]];
+        yield 'field pattern' => ['get(public ?string App\Dto+::$na*)', [
+            [TokenType::Keyword, 'get'], [TokenType::LParen, '('], [TokenType::Word, 'public'], [TokenType::Question, '?'],
+            [TokenType::Word, 'string'], [TokenType::Word, 'App\Dto'], [TokenType::Plus, '+'], [TokenType::DoubleColon, '::'],
+            [TokenType::Variable, '$na*'], [TokenType::RParen, ')'], [TokenType::Eof, ''],
+        ]];
+        yield 'new keywords' => ['call(x) cflow(x) cflowbelow(x) if(x) handler(x) set(x) @this(x) @withincode(x) withincode(x)', [
+            [TokenType::Keyword, 'call'], [TokenType::LParen, '('], [TokenType::Word, 'x'], [TokenType::RParen, ')'],
+            [TokenType::Keyword, 'cflow'], [TokenType::LParen, '('], [TokenType::Word, 'x'], [TokenType::RParen, ')'],
+            [TokenType::Keyword, 'cflowbelow'], [TokenType::LParen, '('], [TokenType::Word, 'x'], [TokenType::RParen, ')'],
+            [TokenType::Keyword, 'if'], [TokenType::LParen, '('], [TokenType::Word, 'x'], [TokenType::RParen, ')'],
+            [TokenType::Keyword, 'handler'], [TokenType::LParen, '('], [TokenType::Word, 'x'], [TokenType::RParen, ')'],
+            [TokenType::Keyword, 'set'], [TokenType::LParen, '('], [TokenType::Word, 'x'], [TokenType::RParen, ')'],
+            [TokenType::Keyword, '@this'], [TokenType::LParen, '('], [TokenType::Word, 'x'], [TokenType::RParen, ')'],
+            [TokenType::Keyword, '@withincode'], [TokenType::LParen, '('], [TokenType::Word, 'x'], [TokenType::RParen, ')'],
+            [TokenType::Keyword, 'withincode'], [TokenType::LParen, '('], [TokenType::Word, 'x'], [TokenType::RParen, ')'],
+            [TokenType::Eof, ''],
+        ]];
+        yield 'new designator names are words without parenthesis' => ['get set if', [
+            [TokenType::Word, 'get'], [TokenType::Word, 'set'], [TokenType::Word, 'if'], [TokenType::Eof, ''],
+        ]];
         yield 'empty' => ['  ', [[TokenType::Eof, '']]];
     }
 
@@ -99,6 +119,7 @@ final class LexerTest extends TestCase
         yield 'single pipe' => ['a | b', 2];
         yield 'single colon' => ['a:b', 1];
         yield 'single dot' => ['a.b', 1];
-        yield 'dollar' => ['args($x)', 5];
+        yield 'lone dollar' => ['args($)', 5];
+        yield 'hash' => ['args(#x)', 5];
     }
 }

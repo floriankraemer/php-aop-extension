@@ -6,35 +6,44 @@ namespace AOP\Pointcut\Expression;
 
 use AOP\Exception\PointcutSyntaxException;
 use AOP\Exception\UnsupportedPointcutDesignatorException;
+use AOP\Pointcut\Expression\Ast\AdviceExecutionNode;
 use AOP\Pointcut\Expression\Ast\AndNode;
 use AOP\Pointcut\Expression\Ast\AnnotationNode;
 use AOP\Pointcut\Expression\Ast\ArgsNode;
 use AOP\Pointcut\Expression\Ast\AtArgsNode;
 use AOP\Pointcut\Expression\Ast\AtTargetNode;
+use AOP\Pointcut\Expression\Ast\AtThisNode;
+use AOP\Pointcut\Expression\Ast\AtWithincodeNode;
 use AOP\Pointcut\Expression\Ast\AtWithinNode;
 use AOP\Pointcut\Expression\Ast\BindingCandidateNode;
+use AOP\Pointcut\Expression\Ast\CallNode;
+use AOP\Pointcut\Expression\Ast\CflowNode;
 use AOP\Pointcut\Expression\Ast\ExecutionNode;
+use AOP\Pointcut\Expression\Ast\FieldPatternNode;
+use AOP\Pointcut\Expression\Ast\GetNode;
+use AOP\Pointcut\Expression\Ast\HandlerNode;
+use AOP\Pointcut\Expression\Ast\IfNode;
+use AOP\Pointcut\Expression\Ast\InitializationNode;
 use AOP\Pointcut\Expression\Ast\NodeInterface;
 use AOP\Pointcut\Expression\Ast\NotNode;
 use AOP\Pointcut\Expression\Ast\OrNode;
 use AOP\Pointcut\Expression\Ast\ParamListNode;
 use AOP\Pointcut\Expression\Ast\ReferenceNode;
 use AOP\Pointcut\Expression\Ast\ServiceNode;
+use AOP\Pointcut\Expression\Ast\SetNode;
 use AOP\Pointcut\Expression\Ast\TargetNode;
 use AOP\Pointcut\Expression\Ast\ThisNode;
 use AOP\Pointcut\Expression\Ast\TypePatternNode;
 use AOP\Pointcut\Expression\Ast\WildcardParamNode;
+use AOP\Pointcut\Expression\Ast\WithincodeNode;
 use AOP\Pointcut\Expression\Ast\WithinNode;
 
 /**
- * Recursive-descent parser for the pointcut expression language (see plan §2.2).
+ * Recursive-descent parser for the pointcut expression language (grammar: docs/internals/contract.md, "Pointcut notes (stream E)").
  */
 final class Parser
 {
-    private const UNSUPPORTED = [
-        'call', 'cflow', 'cflowbelow', 'get', 'set', 'withincode', 'if', 'initialization',
-        'preinitialization', 'staticinitialization', 'handler', 'adviceexecution',
-    ];
+    private const FIELD_MODIFIERS = ['public', 'protected', 'private', 'static', 'readonly'];
 
     /** @var list<Token> */
     private array $tokens = [];
@@ -130,6 +139,20 @@ final class Parser
             'args' => fn (): NodeInterface => new ArgsNode($this->paramList(true)),
             '@args' => fn (): NodeInterface => new AtArgsNode($this->paramList(true)),
             'service' => fn (): NodeInterface => new ServiceNode($this->expectWord()->value),
+            'call' => fn (): NodeInterface => new CallNode($this->parseExecution()),
+            'withincode' => fn (): NodeInterface => new WithincodeNode($this->parseExecution()),
+            '@withincode' => fn (): NodeInterface => new AtWithincodeNode($this->typeOrBinding()),
+            '@this' => fn (): NodeInterface => new AtThisNode($this->typeOrBinding()),
+            'cflow' => fn (): NodeInterface => new CflowNode($this->parseOr(), false),
+            'cflowbelow' => fn (): NodeInterface => new CflowNode($this->parseOr(), true),
+            'if' => fn (): NodeInterface => $this->parseIf(),
+            'initialization' => fn (): NodeInterface => $this->parseInitialization(),
+            'adviceexecution' => fn (): NodeInterface => new AdviceExecutionNode(),
+            'handler' => fn (): NodeInterface => new HandlerNode($this->typePattern($this->expectWord(), false, $this->acceptPlus())),
+            'get' => fn (): NodeInterface => new GetNode($this->parseField()),
+            'set' => fn (): NodeInterface => new SetNode($this->parseField()),
+            'preinitialization' => fn (): never => throw new UnsupportedPointcutDesignatorException('Unsupported pointcut designator "preinitialization": PHP has no pre-initialization join point. Constructor arguments are evaluated by the caller before the constructor is entered, and there is no separate phase before a parent constructor runs. Use execution(Type::__construct(..)) with before or around advice, or initialization(Type+).'),
+            'staticinitialization' => fn (): never => throw new UnsupportedPointcutDesignatorException('Unsupported pointcut designator "staticinitialization": PHP has no static initialization join point. Classes are linked without running any class initializer (there are no static initializer blocks), so there is nothing to intercept when a class is loaded.'),
         ];
     }
 
@@ -153,12 +176,16 @@ final class Parser
             $this->advance();
         }
 
-        $nullable = null !== $this->accept(TokenType::Question);
-        $returnWord = $this->expectWord();
-        $returnPlus = $this->acceptPlus();
-        $returnPattern = '*' === $returnWord->value && !$nullable && !$returnPlus
-            ? null
-            : $this->typePattern($returnWord, $nullable, $returnPlus);
+        // A constructor pattern (`Type::__construct(..)`) may omit the return type, which constructors do not have.
+        $returnPattern = null;
+        if (!$this->isConstructorPatternStart()) {
+            $nullable = null !== $this->accept(TokenType::Question);
+            $returnWord = $this->expectWord();
+            $returnPlus = $this->acceptPlus();
+            $returnPattern = '*' === $returnWord->value && !$nullable && !$returnPlus
+                ? null
+                : $this->typePattern($returnWord, $nullable, $returnPlus);
+        }
 
         // Two-token lookahead: pattern followed by `::` is the declaring type, followed by `(` the name.
         $word = $this->expectWord();
@@ -179,6 +206,110 @@ final class Parser
         $this->expect(TokenType::RParen, '")"');
 
         return new ExecutionNode($modifier, $returnPattern, $declaringType, $name, $params);
+    }
+
+    /**
+     * `Type[+]::__construct(` follows: a constructor pattern without return type.
+     */
+    private function isConstructorPatternStart(): bool
+    {
+        if (TokenType::Word !== $this->current()->type) {
+            return false;
+        }
+        $next = TokenType::Plus === $this->peek(1)->type ? 2 : 1;
+
+        return TokenType::DoubleColon === $this->peek($next)->type
+            && '__construct' === $this->peek($next + 1)->value
+            && TokenType::LParen === $this->peek($next + 2)->type;
+    }
+
+    /**
+     * `if(Class::method())` or `if(method())`.
+     */
+    private function parseIf(): IfNode
+    {
+        $first = $this->expectWord();
+        $className = null;
+        if (null !== $this->accept(TokenType::DoubleColon)) {
+            $className = $this->className($first);
+            $first = $this->expectWord();
+        }
+        $method = $this->identifier($first);
+        $this->expect(TokenType::LParen, '"("');
+        $this->expect(TokenType::RParen, '")"');
+
+        return new IfNode($className, $method);
+    }
+
+    /**
+     * `Type::__construct(params)` or the shorthand `Type` / `Type+` (any constructor).
+     */
+    private function parseInitialization(): InitializationNode
+    {
+        $modifier = null;
+        $current = $this->current();
+        if (
+            TokenType::Word === $current->type
+            && ('public' === $current->value || 'protected' === $current->value)
+            && in_array($this->peek(1)->type, [TokenType::Word, TokenType::Keyword], true)
+        ) {
+            $modifier = $current->value;
+            $this->advance();
+        }
+
+        $word = $this->expectWord();
+        $plus = $this->acceptPlus();
+        $declaringType = $this->typePattern($word, false, $plus);
+        if (null === $this->accept(TokenType::DoubleColon)) {
+            if (null !== $modifier) {
+                throw PointcutSyntaxException::at(sprintf('A modifier needs a full constructor pattern, expected "%s::__construct(..)"', $word->value), $word->position, $this->expression);
+            }
+
+            return new InitializationNode(null, $declaringType, new ParamListNode([], true));
+        }
+        $name = $this->expectWord();
+        if ('__construct' !== $name->value) {
+            throw PointcutSyntaxException::at(sprintf('initialization() takes a constructor pattern, expected "__construct" but found "%s"', $name->value), $name->position, $this->expression);
+        }
+        $this->expect(TokenType::LParen, '"("');
+        $params = $this->paramList(false);
+        $this->expect(TokenType::RParen, '")"');
+
+        return new InitializationNode($modifier, $declaringType, $params);
+    }
+
+    /**
+     * `[modifiers] [type] Declaring\Type[+]::$name`.
+     */
+    private function parseField(): FieldPatternNode
+    {
+        $modifiers = [];
+        while (
+            TokenType::Word === $this->current()->type
+            && in_array($this->current()->value, self::FIELD_MODIFIERS, true)
+            && in_array($this->peek(1)->type, [TokenType::Word, TokenType::Keyword, TokenType::Question], true)
+        ) {
+            $modifiers[] = $this->current()->value;
+            $this->advance();
+        }
+
+        $nullable = null !== $this->accept(TokenType::Question);
+        $first = $this->expectWord();
+        $plus = $this->acceptPlus();
+        if (!$nullable && TokenType::DoubleColon === $this->current()->type) {
+            $type = null;
+            $declaringType = $this->typePattern($first, false, $plus);
+        } else {
+            $type = '*' === $first->value && !$nullable && !$plus ? null : $this->typePattern($first, $nullable, $plus);
+            $declaring = $this->expectWord();
+            $declaringType = $this->typePattern($declaring, false, $this->acceptPlus());
+        }
+        $this->expect(TokenType::DoubleColon, '"::"');
+
+        $variable = $this->expect(TokenType::Variable, 'property name such as "$name"');
+        $name = substr($variable->value, 1);
+
+        return new FieldPatternNode($modifiers, $type, $declaringType, $name);
     }
 
     /**
@@ -216,7 +347,7 @@ final class Parser
             throw PointcutSyntaxException::at(sprintf('Unexpected "%s", expected pointcut designator or reference', $word->value), $word->position, $this->expression);
         }
 
-        if (in_array($word->value, self::UNSUPPORTED, true) || TokenType::RParen !== $this->peek(2)->type) {
+        if (TokenType::RParen !== $this->peek(2)->type) {
             throw UnsupportedPointcutDesignatorException::forDesignator($word->value);
         }
 
