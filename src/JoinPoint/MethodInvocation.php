@@ -5,12 +5,13 @@ declare(strict_types=1);
 namespace AOP\JoinPoint;
 
 use AOP\Interceptor\MethodInterceptorInterface;
+use AOP\Pointcut\OutermostAwareInterface;
 
 /**
  * Each proceed() call hands the next interceptor its own copy positioned one step further along the chain,
  * so an interceptor may call proceed() several times.
  */
-final class MethodInvocation implements ProceedingJoinPointInterface
+final class MethodInvocation implements ProceedingJoinPointInterface, OutermostAwareInterface
 {
     private int $index = 0;
 
@@ -39,6 +40,11 @@ final class MethodInvocation implements ProceedingJoinPointInterface
     public function getArgs(): array
     {
         return array_map(static fn (mixed $value): mixed => $value, $this->args);
+    }
+
+    public function isOutermost(): bool
+    {
+        return $this->data->outermost;
     }
 
     public function getKind(): JoinPointKind
