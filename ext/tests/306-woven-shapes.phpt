@@ -31,7 +31,7 @@ function typed(): int { return 1; }
 
 $mode = 'proceed';
 \AOP\Engine::register(
-    static fn (array $jp): int => $jp['internal'] ? 0 : \AOP\Engine::ADVISE,
+    static fn (array $jp): int => ($jp['internal'] || 'exception-handler' === $jp['kind']) ? 0 : \AOP\Engine::ADVISE,
     static function (array $jp, ?object $self, array $args, \AOP\OriginalCall $original) use (&$mode): mixed {
         echo '> ', ($jp['class'] ?? ''), '::', $jp['name'], ' ', json_encode($args), " [{$mode}]\n";
         return 'proceed' === $mode ? $original($args) : null;

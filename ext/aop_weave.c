@@ -10,6 +10,15 @@
  *   never        if (\AOP\Internal\intercept()) \AOP\Internal\result();
  *   generator    if (\AOP\Internal\intercept()) return yield from \AOP\Internal\result();
  *
+ * Every catch block gets a call in front as well (the exception-handler join point, caught() is in aop_catch.c):
+ *
+ *   catch (A | B $e) { \AOP\Internal\caught($e, [A::class, B::class]); ... }
+ *   catch (A) { ... }   becomes catch (A $<unnameable>) { caught($<unnameable>, [A::class]); unset($<unnameable>); ... }
+ *
+ * The class list lets caught() pick the class that caught the exception; ::class makes the compiler resolve
+ * the names against the namespace and imports. The synthesized variable has a name no source can write as
+ * $name, and is unset again so get_defined_vars() does not show it.
+ *
  * intercept() and result() are in aop_hook.c. The decision whether a call is advised stays a run time
  * matter (aop_decide()), so the woven form of a file does not depend on the registered rules and opcache
  * can cache it.
@@ -83,6 +92,74 @@ static zend_ast *aop_make_prologue(aop_shape shape)
 			break;
 	}
 	return zend_ast_create_list(1, ZEND_AST_IF, zend_ast_create(ZEND_AST_IF_ELEM, cond, then));
+}
+/* }}} */
+
+/* {{{ catch blocks */
+static zend_ast *aop_catch_var(const char *name)
+{
+	zval zv;
+
+	ZVAL_STR(&zv, zend_string_init(name, strlen(name), 0));
+	return zend_ast_create(ZEND_AST_VAR, zend_ast_create_zval(&zv));
+}
+
+/* [A::class, B::class] for the names of a catch clause. */
+static zend_ast *aop_catch_class_list(zend_ast_list *names)
+{
+	zend_ast *array = zend_ast_create_list(0, ZEND_AST_ARRAY);
+	uint32_t i;
+
+	array->attr = ZEND_ARRAY_SYNTAX_SHORT;
+	for (i = 0; i < names->children; i++) {
+		zend_ast *name = names->child[i];
+		zval zv;
+
+		ZVAL_COPY(&zv, zend_ast_get_zval(name));
+		name = zend_ast_create_zval_ex(&zv, name->attr);
+		array = zend_ast_list_add(array,
+			zend_ast_create(ZEND_AST_ARRAY_ELEM, zend_ast_create(ZEND_AST_CLASS_NAME, name), NULL));
+	}
+	return array;
+}
+
+#define AOP_CATCH_ANON_VAR "aop caught"
+
+static void aop_weave_catch(zend_ast *catch_ast)
+{
+	zend_ast_list *body, *woven;
+	zend_ast *names = catch_ast->child[0], *var = catch_ast->child[1], *args, *call;
+	const char *var_name;
+	uint32_t i;
+
+	if (!catch_ast->child[2] || !names || !zend_ast_is_list(names)) {
+		return;
+	}
+	body = zend_ast_get_list(catch_ast->child[2]);
+	if (var) {
+		var_name = Z_STRVAL_P(zend_ast_get_zval(var));
+	} else {
+		zval zv;
+		var_name = AOP_CATCH_ANON_VAR;
+		ZVAL_STR(&zv, zend_string_init(var_name, strlen(var_name), 0));
+		catch_ast->child[1] = zend_ast_create_zval(&zv);
+	}
+
+	call = aop_fq_call(ZEND_STRL("AOP\\Internal\\caught"));
+	args = zend_ast_list_add(call->child[1], aop_catch_var(var_name));
+	call->child[1] = zend_ast_list_add(args, aop_catch_class_list(zend_ast_get_list(names)));
+	aop_ast_set_lineno(call, catch_ast->lineno);
+
+	woven = zend_ast_get_list(zend_ast_create_list(1, ZEND_AST_STMT_LIST, call));
+	if (!var) {
+		woven = zend_ast_get_list(zend_ast_list_add((zend_ast *) woven,
+			zend_ast_create(ZEND_AST_UNSET, aop_catch_var(var_name))));
+	}
+	for (i = 0; i < body->children; i++) {
+		woven = zend_ast_get_list(zend_ast_list_add((zend_ast *) woven, body->child[i]));
+	}
+	woven->lineno = body->lineno;
+	catch_ast->child[2] = (zend_ast *) woven;
 }
 /* }}} */
 
@@ -210,6 +287,9 @@ static void aop_weave_walk(zend_ast *ast, bool *in_aop_ns)
 			aop_weave_walk(decl->child[i], in_aop_ns);
 		}
 		return;
+	}
+	if (ast->kind == ZEND_AST_CATCH && !*in_aop_ns) {
+		aop_weave_catch(ast);
 	}
 	if (zend_ast_is_list(ast)) {
 		aop_weave_walk_stmts(zend_ast_get_list(ast), in_aop_ns);

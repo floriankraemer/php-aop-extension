@@ -20,7 +20,7 @@ class Svc
 
 $mode = 'proceed';
 \AOP\Engine::register(
-    static fn (array $jp): int => $jp['internal'] ? 0 : \AOP\Engine::ADVISE,
+    static fn (array $jp): int => ($jp['internal'] || 'exception-handler' === $jp['kind']) ? 0 : \AOP\Engine::ADVISE,
     static function (array $jp, ?object $self, array $args, \AOP\OriginalCall $original) use (&$mode): mixed {
         echo '> ', $jp['name'], ' [', $mode, "]\n";
         switch ($mode) {

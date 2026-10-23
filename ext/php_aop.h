@@ -143,5 +143,6 @@ void aop_woven_rshutdown(void);
 /* The woven backend's runtime half (AOP\Internal\intercept(), AOP\Internal\result()); declared by aop_arginfo.h too. */
 ZEND_FUNCTION(AOP_Internal_intercept);
 ZEND_FUNCTION(AOP_Internal_result);
+ZEND_FUNCTION(AOP_Internal_caught);
 
 #endif /* PHP_AOP_H */

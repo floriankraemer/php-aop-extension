@@ -1,10 +1,15 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: 18744751d7b18d961aad00aafccdaa9c25233683 */
+ * Stub hash: 2c9a5198e1f96ee674c6763de0ce4c7e4d186f33 */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_AOP_Internal_intercept, 0, 0, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_AOP_Internal_result, 0, 0, IS_MIXED, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_AOP_Internal_caught, 0, 2, IS_VOID, 0)
+	ZEND_ARG_OBJ_INFO(0, exception, Throwable, 0)
+	ZEND_ARG_TYPE_INFO(0, classes, IS_ARRAY, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_class_AOP_Engine___construct, 0, 0, 0)
@@ -37,6 +42,7 @@ ZEND_END_ARG_INFO()
 
 ZEND_FUNCTION(AOP_Internal_intercept);
 ZEND_FUNCTION(AOP_Internal_result);
+ZEND_FUNCTION(AOP_Internal_caught);
 ZEND_METHOD(AOP_Engine, __construct);
 ZEND_METHOD(AOP_Engine, register);
 ZEND_METHOD(AOP_Engine, unregister);
@@ -51,6 +57,7 @@ ZEND_METHOD(AOP_OriginalCall, __invoke);
 static const zend_function_entry ext_functions[] = {
 	ZEND_NS_FALIAS("AOP\\Internal", intercept, AOP_Internal_intercept, arginfo_AOP_Internal_intercept)
 	ZEND_NS_FALIAS("AOP\\Internal", result, AOP_Internal_result, arginfo_AOP_Internal_result)
+	ZEND_NS_FALIAS("AOP\\Internal", caught, AOP_Internal_caught, arginfo_AOP_Internal_caught)
 	ZEND_FE_END
 };
 
