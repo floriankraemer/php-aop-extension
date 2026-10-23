@@ -1,0 +1,52 @@
+{
+    "name": "floriankraemer/php-aop-extension",
+    "description": "Native aspect-oriented programming for PHP: a Zend engine extension that weaves Spring/AspectJ-style aspects into private, protected, static and final methods, constructors and functions without proxies.",
+    "type": "php-ext",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Florian Krämer"
+        }
+    ],
+    "require": {
+        "php": ">=8.3"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.95",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^12.0"
+    },
+    "suggest": {
+        "ext-aop": "The engine part; without it aspects are read but nothing is woven."
+    },
+    "autoload": {
+        "psr-4": {
+            "AOP\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "AOP\\Tests\\": "tests/"
+        }
+    },
+    "php-ext": {
+        "extension-name": "aop",
+        "build-path": "ext",
+        "configure-options": []
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "scripts": {
+        "test": "phpunit",
+        "stan": "phpstan analyse --memory-limit=1G",
+        "cs": "php-cs-fixer fix --dry-run --diff",
+        "cs-fix": "php-cs-fixer fix",
+        "check": [
+            "@cs",
+            "@stan",
+            "@test"
+        ]
+    }
+}

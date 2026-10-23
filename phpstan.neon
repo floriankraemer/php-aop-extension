@@ -1,0 +1,11 @@
+parameters:
+    level: max
+    phpVersion:
+        min: 80300
+        max: 80599
+    paths:
+        - src
+        - tests
+    scanFiles:
+        # Signatures of the classes the C extension registers (AOP\Engine, AOP\OriginalCall).
+        - ext/aop.stub.php
