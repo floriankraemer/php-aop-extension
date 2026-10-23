@@ -7,6 +7,7 @@ aop
 if (!extension_loaded('Zend OPcache')) die('skip opcache not loaded');
 ?>
 --INI--
+opcache.enable=1
 opcache.enable_cli=1
 opcache.optimization_level=0x7FFEBFFF
 aop.disable_inlining=0
