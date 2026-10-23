@@ -19,6 +19,7 @@ Work happens on branch `claude/stoic-goodall-rplkuy`; each stream works in its o
 | I | Docs + examples | haiku | done, merged (G features to be patched after G) |
 | K | Fix stream I's findings (ControlFlowPointcut, ctor matching, modifiers, regexp, `||` bindings, naming) | sonnet | done, merged |
 | L | Fix field interception on PHP 8.4/8.5 (4 phpt fail there, `const` warnings); hooked properties, lazy objects | opus | running |
+| M | Docs for fields/handler/initialization/introductions, INI settings, CHANGELOG, examples 27–30 | haiku | running |
 | J | Final integration and verification | coordinator | pending |
 
 ## Log
