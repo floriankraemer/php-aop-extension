@@ -87,11 +87,18 @@ make -j"$(nproc 2>/dev/null || echo 2)"
 # --- phpt ------------------------------------------------------------------
 log "phpt"
 export NO_INTERACTION=1 REPORT_EXIT_STATUS=1 TEST_PHP_ARGS="-q"
-if ! make test; then
-    echo "phpt failures:" >&2
-    find tests -name '*.diff' -exec sh -c 'echo "--- $1"; cat "$1"' _ {} \; >&2 || true
-    exit 1
-fi
+for pass in plain opcache; do
+    if [ "$pass" = "opcache" ]; then
+        TEST_PHP_ARGS="-q $("$SRC/scripts/opcache-args.sh" php)"
+        export TEST_PHP_ARGS
+    fi
+    log "phpt ($pass)"
+    if ! make test; then
+        echo "phpt failures ($pass):" >&2
+        find tests -name '*.diff' -exec sh -c 'echo "--- $1"; cat "$1"' _ {} \; >&2 || true
+        exit 1
+    fi
+done
 
 if [ "$MODE" = "dist" ]; then
     log "package"
