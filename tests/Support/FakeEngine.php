@@ -60,9 +60,9 @@ final class FakeEngine implements EngineBridgeInterface
     /**
      * Calls a method as if from $caller (keys class, scope, function, file, line, object; null = internal caller).
      *
-     * @param object|class-string               $target an instance, or a class name for static methods
-     * @param array<int|string, mixed>          $args   raw arguments as C passes them (contract §3)
-     * @param array<string, mixed>|null         $caller
+     * @param object|class-string       $target an instance, or a class name for static methods
+     * @param array<int|string, mixed>  $args   raw arguments as C passes them (contract §3)
+     * @param array<string, mixed>|null $caller
      */
     public function call(object|string $target, string $method, array $args = [], ?array $caller = null): mixed
     {
@@ -103,9 +103,9 @@ final class FakeEngine implements EngineBridgeInterface
     }
 
     /**
-     * @param array<string, mixed>                    $descriptor
-     * @param array<int|string, mixed>                $args
-     * @param array<string, mixed>|null               $caller
+     * @param array<string, mixed>                      $descriptor
+     * @param array<int|string, mixed>                  $args
+     * @param array<string, mixed>|null                 $caller
      * @param \Closure(array<int|string, mixed>): mixed $original
      */
     private function intercept(array $descriptor, ?object $object, array $args, ?array $caller, \Closure $original, string $key): mixed
@@ -117,7 +117,7 @@ final class FakeEngine implements EngineBridgeInterface
         $decision = $this->decide($descriptor + ['caller' => null], $key);
         if (0 !== ($decision & self::CALLER_SENSITIVE)) {
             $staticCaller = null === $caller ? null : array_intersect_key($caller, array_flip(['class', 'scope', 'function', 'file']));
-            $decision = $this->decide($descriptor + ['caller' => $staticCaller], $key.'@'.($caller['scope'] ?? '').'::'.($caller['function'] ?? '')) & ~self::CALLER_SENSITIVE;
+            $decision = $this->decide($descriptor + ['caller' => $staticCaller], $key.'@'.self::str($caller['scope'] ?? null).'::'.self::str($caller['function'] ?? null)) & ~self::CALLER_SENSITIVE;
         }
 
         if (0 === ($decision & (self::ADVISE | self::TRACK))) {
@@ -144,5 +144,10 @@ final class FakeEngine implements EngineBridgeInterface
         ++$this->matcherCalls;
 
         return $this->decisions[$key] = ($this->matcher)($descriptor);
+    }
+
+    private static function str(mixed $value): string
+    {
+        return is_string($value) ? $value : '';
     }
 }
