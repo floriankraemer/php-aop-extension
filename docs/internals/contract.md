@@ -58,7 +58,7 @@ aspect never kills unrelated code paths silently.
 
 Called for every join point whose decision is non-zero, with the advised frame still on the stack
 (so `debug_backtrace()` and exception traces show the advised function).
-Receives the full descriptor, `$this` (null for static methods, functions, ctor-less `initialization`), the raw
+Receives the full descriptor, `$this` (null for static methods and functions; the new object for ctor-less `initialization`; the enclosing code's `$this` for `exception-handler`), the raw
 argument array (§3) and an `OriginalCall`. Its return value becomes the result of the call; an exception thrown
 by it propagates to the caller exactly like one thrown by the original code.
 The PHP side type-hints the original as `callable` (tests pass a `\Closure`; see `tests/Support/FakeEngine.php`).
@@ -298,6 +298,7 @@ Every mutating Weaver call after `enable()` calls `EngineBridgeInterface::reset(
   concrete (class, property, kind). Objects created before `Engine::register()`, or created without `new`/`clone`
   (`unserialize`, `newInstanceWithoutConstructor`), are not covered.
 - **Handlers**: `exception-handler` is before-only: the dispatcher's return value is ignored, `OriginalCall` is a no-op.
+  An exception thrown by the dispatcher replaces the caught one (AspectJ: it propagates from the handler).
 - **Introductions**: `Engine::setIntroductions(list<array{typePattern: string, interface: class-string, defaultImpl: class-string}>)`
   must be called before the target class is compiled. Classes compiled afterwards get `implements <interface>`,
   and every interface method the class does not declare delegates to a lazily created `defaultImpl` instance.
@@ -355,7 +356,7 @@ Decisions the sections above leave open, as implemented by `ext/` for PHP 8.3 (t
   is callable (`$original($args)`, `Closure::fromCallable($original)`). Argument errors are the engine's
   (`Cannot use positional argument after named argument`, `Unknown named parameter $x`, `ArgumentCountError`).
   It does not reference the function: user and internal functions/methods live for the whole request.
-- `setIntroductions()` only stores a copy of the rules; `fieldInterceptionAvailable()` returns false (stream G).
+- `setIntroductions()` and `fieldInterceptionAvailable()`: see "Engine notes (stream G)".
 - Version-specific code (frame layout, frame teardown) is confined to `ext/aop_hook.c`. The generated
   `aop_arginfo.h` uses typed class constants (8.3+). It was generated from a copy of `aop.stub.php` without the
   generic `@param` docblocks, which the 8.3 `gen_stub.php` cannot parse.
@@ -374,3 +375,150 @@ Known limitations:
   suspended until the matcher returns.
 - Observer end handlers are called for advised user frames (`zend_observer_fcall_end`), but this is not covered
   by the tests (no observer extension available in the test setup).
+
+## Engine notes (stream G)
+
+The experimental join points of §6 as implemented by `ext/` for PHP 8.3 (`ext/aop_fields.c`, `ext/aop_catch.c`,
+`ext/aop_ast.c`; tests: `ext/tests/1*.phpt`). They use the decision protocol of §1.1 and the dispatcher call of §1.2
+(`aop_decide_jp()` / `aop_dispatch_jp()` in `ext/aop_engine.c`), with their own decision tables, which `reset()` and
+`unregister()` clear like the others. Nothing here is active while no pair is registered or while the matcher runs,
+and code in `AOP\` (the enclosing frame, or for internal frames the nearest user frame below) never produces these
+join points. A matcher exception is the usual warning, worded `... for field-get Class::$prop; the join point is not
+intercepted` (`exception-handler catch(Class)`, `initialization Class`). The `ZEND_NEW` and `ZEND_CATCH` user opcode
+handlers chain to handlers installed before them; both are installed only with `aop.enable=1`.
+`fieldInterceptionAvailable()` returns true when the hooks are installed.
+
+### Fields (`field-get`, `field-set`)
+
+- **Which objects.** On `new C` (`ZEND_NEW`) the class probe `{kind: field-get, class: C, scope: null, name: '*',
+  static: false, internal, caller: null}` is asked once per class (cached; any non-zero answer counts; the
+  `CALLER_SENSITIVE` bit is ignored and never asked per caller). Then the object gets a per-class copy of the
+  standard handlers with `read_property`, `write_property`, `get_property_ptr_ptr` and `clone_obj` wrapped (freed in
+  post-deactivate, after the last object). Only classes whose objects use the standard handlers are probed: user
+  classes and subclasses of internal classes that keep them (`stdClass`); never `Throwable`s, `Closure`,
+  `ArrayObject`, `DateTime` and other internal classes with handlers of their own, nor their subclasses.
+  **Not covered**: objects created before `register()` or while the probe answered 0 (after `reset()` only new
+  objects are probed again), created without `new` (`unserialize`, `newInstanceWithoutConstructor`, `PDO`
+  fetch-object, internal code), by `new` in `AOP\` code or in the matcher. Clones of wrapped objects are wrapped
+  before `__clone()` runs (its accesses are covered); clones of other objects are not. A wrapped object stays
+  wrapped after `reset()`/`unregister()`; each access asks again or passes through.
+- **Descriptor.** `class`: runtime class; `scope`: declaring class of the property as resolved from the accessing
+  scope (a parent's private property when accessed from the parent), null for undeclared names (dynamic
+  properties, names served by `__get`/`__set`); `name`: property name; `static`: false; `internal`: the declaring
+  class is internal; `caller`: the user frame containing the access (`line` = line of the access), null when an
+  internal function accesses the property (`ReflectionProperty::getValue()`, ...). Decisions are
+  cached per (runtime class, property info, name, kind), then per caller as in §1.1. `field-set`: `value` and
+  `$args[0]` are the raw value (no coercion yet); `field-get`: `$args` is `[]`. `$this` is the object.
+- **Accesses and their join points** (VM handlers verified in 8.3.6):
+
+  | Access | Join points |
+  |---|---|
+  | `$o->p`, `$o?->p`, `$o->p ?? x`, by-value argument | `field-get`; the dispatcher's result is the value |
+  | `$o->p = v`, `[$o->a, $o->b] = ...` | `field-set`; the dispatcher's result is ignored; the expression's value is the assigned value |
+  | `$o->p += v` (all compound operators), `$o->p++`, `--$o->p` | `field-get` then `field-set` with the new value (`get_property_ptr_ptr` returns NULL, so the VM reads and writes through the handlers) |
+  | write fetches: `$o->p[] = v`, `$o->p['k'] .= v`, `$o->p->q = v`, `$r = &$o->p`, `$o->p = &$v`, `foreach ($o->p as &$v)`, by-reference argument | `field-get` only, as a notification: the dispatcher's result is ignored (its `OriginalCall` reads in `isset` mode, no warning) and the access then works on the property itself |
+  | `isset`/`empty`/`unset($o->p)`, `property_exists()`, static properties, `get_object_vars()`, `foreach ($o as ...)`, `(array)`, `var_dump()`, `serialize()`, `json_encode()` | none (other handlers) |
+
+- **Runtime cache.** The VM's property fast paths (`ZEND_FETCH_OBJ_*`, `ZEND_ASSIGN_OBJ`, `zend_fetch_property_address()`)
+  skip the handlers only when slot 0 of the opline's cache equals the object's class. The wrappers run the original
+  handlers with a private cache and then store only slot 2 (the typed property info, which the VM reads after
+  `get_property_ptr_ptr`/`read_property` for typed references and auto-vivification checks) and clear slots 0 and 1,
+  so no opline is ever primed for a wrapped object. Consequences: every access to a wrapped object goes through the
+  handlers. **Known limitation**: an opline whose cache an uncovered object of the same class primed (e.g. a getter
+  first called on an object created before `register()`) keeps bypassing the handlers for that class until an
+  object of another class passes it (`ext/tests/105-fields-coverage.phpt`).
+- **Visibility, readonly, types.** Accessibility is checked first (`zend_get_property_info()` from the accessing
+  scope): an inaccessible declared property is no join point, the original handler raises the error or calls
+  `__get`/`__set`. Readonly: initialization in the declaring scope and re-initialization in `__clone()` are
+  `field-set` join points; a write that fails anyway (initialized, or from another scope) and a write fetch of a
+  readonly property that fails are no join points. Typed properties: the original write coerces or throws the
+  `TypeError` inside `OriginalCall`, with the typing mode of the file containing the access (`strict_types=1` is
+  checked explicitly, since the write itself runs from an internal frame). Reading an uninitialized typed property
+  throws inside `OriginalCall`.
+- **Magic.** Undeclared names are join points; `__get`/`__set` run inside the original access, and accesses they
+  make are join points themselves (PHP's recursion guard applies as usual).
+- **OriginalCall.** `field-get`: `__invoke([])` (arguments ignored) reads with the accessing scope
+  (`EG(fake_scope)`) and mode, returns a copy of the value. `field-set`: `__invoke([$value])` writes with the
+  accessing scope and returns null; `ArgumentCountError` without a value. It references the object and may be
+  called later or repeatedly. The dispatcher's exceptions propagate from the access; a set that never proceeds
+  writes nothing.
+
+### `initialization`
+
+- Emitted by the `ZEND_NEW` handler for classes without a constructor (`ce->constructor == NULL`; classes with an
+  inherited constructor get `constructor-execution`), right after the object is created (and wrapped), before the
+  arguments of `new C(...)` are evaluated. Not for abstract classes, interfaces, enums (the original raises the
+  error), `AOP\` classes, `new` in `AOP\` code.
+- Descriptor: `class`/`scope` = C, `name` `__construct`, `static` false, `internal` = C is internal (`new stdClass`
+  is a join point), `caller` = the frame executing `new`. `$this` = the new object, `$args` = `[]`, `OriginalCall`
+  a no-op returning null, the result is ignored. A dispatcher exception aborts `new`: the object is released
+  without calling its destructor (like a failed constructor) and the exception propagates.
+
+### `exception-handler`
+
+- Emitted by the `ZEND_CATCH` handler for the catch clause that catches the in-flight exception (the original
+  matching is replicated: exact class or `instanceof`; a clause whose class is not loaded never matches). A
+  multi-catch `catch (A | B $e)` is one `ZEND_CATCH` per class, so `name` is the class of the matching
+  alternative. `try`/`finally` without a matching catch is no join point; `exit()` is never one.
+- Descriptor: `class` = runtime class of the enclosing code (null in functions and top-level code), `scope` =
+  its declaring class, `name` = caught class (as declared), `static` = enclosing method is static, `internal`
+  false, `caller` = the enclosing frame (`line` = line of the `catch`), `exception` = the exception. `$this` = the
+  enclosing `$this`, `$args` = `[$exception]`. Decisions are cached per (enclosing code, runtime class, catch
+  class), then per caller. The dispatcher runs with no exception pending.
+- Before-only: return value ignored, `OriginalCall` a no-op. **An exception from the dispatcher** (or from an error
+  handler turning the matcher warning into one) **replaces the caught exception** (AspectJ: an exception thrown by
+  before advice at a handler join point propagates from it): it is raised at the `catch` clause, so no clause of
+  the same `try` catches it, that `try`'s `finally` runs, and outer `try` blocks may catch it. The caught exception
+  is released, not attached as `previous`.
+
+### Introductions (`Engine::setIntroductions()`)
+
+- **Decision: compile-time AST weaving** through a `zend_ast_process` hook (chained), not link-time weaving: the
+  result is ordinary compiled code, identical with and without opcache, and the methods get real signatures.
+  `setIntroductions()` validates every rule (`ValueError` for missing/empty keys and for an `interface` that is not
+  an interface; the interface is loaded, autoloading allowed; `defaultImpl` is loaded lazily on first use) and
+  renders each interface method once. It replaces the previous rules; `[]` stops weaving. Only files (and `eval`
+  code) compiled afterwards are woven. With `aop.enable=0` the rules are validated but nothing is woven.
+- **Classes**: every class declaration (top level, conditional, inside function bodies; not interfaces, traits,
+  enums, anonymous classes) whose fully qualified name matches a `typePattern`: the syntax of
+  `AOP\Pointcut\Pattern\TypePattern` (`*` within one segment, `*` / `**` as whole segments; case-sensitive; a
+  leading `\` is ignored; a trailing `+` is ignored: subtypes are unknown at compile time).
+- **implements**: `\Interface` is appended unless the implements list already names it (resolved through the file's
+  namespace and `use` imports) or an earlier rule added it.
+- **Methods**: for every interface method (also inherited from parent interfaces; except `__construct`) that the
+  class body does not declare, a public method with the interface's signature is added (parameter and return
+  types fully qualified, `self` → the interface; defaults copied from the interface: literals via `var_export`,
+  constant expressions re-exported with fully qualified names, an unqualified namespaced constant resolved when
+  `setIntroductions()` runs; by-reference and variadic parameters; internal interfaces use the arginfo default text).
+  The body forwards every parameter to `\AOP\Internal\introductionDelegate($this, 'Impl')->m(...)` (`void`: no
+  return value; static methods: `\Impl::m(...)`). If the class has a parent, it first checks
+  `\AOP\Internal\introductionInherited(__CLASS__, 'm')` and calls `parent::m(...)` when the parent has a concrete
+  `m()`, so inherited implementations win (the parent is unknown at compile time). Generated nodes carry the line of
+  the class declaration. They are ordinary methods (`method-execution` join points).
+- **Delegates**: one `defaultImpl` instance per (object, implementation class), created on first use with no
+  constructor arguments (a non-public constructor is an `Error`), held with weak keys: released with the object. A
+  delegate that references its object keeps both alive until the end of the request. Clones get a fresh delegate.
+  Several rules with the same `defaultImpl` share the instance.
+- **Internal helpers** (registered by the extension, in `AOP\` so never intercepted, not in `aop.stub.php`):
+  `AOP\Internal\introductionDelegate(object $self, string $impl): object`,
+  `AOP\Internal\introductionInherited(string $class, string $method): bool`.
+- **Opcache**: nothing is looked up while a file compiles (opcache swaps `EG(class_table)` during compilation, and
+  autoloading there is unsafe); all inputs come from `setIntroductions()`. The woven file is cached like any other:
+  later requests use it even with different or no rules, so changing the rules needs an opcache reset
+  (`ext/tests/122-opcache.phpt`).
+- **Limitations**: a method a class gets from a trait is shadowed by the delegate (traits are unknown at compile
+  time); a `static` return type fails unless the delegate's method returns the object (it returns the delegate);
+  a `final` parent method of the same name is a fatal inheritance error; a woven class implements an interface, so
+  it is no longer early-bound (it cannot be used before its declaration in the same file); parameter attributes are
+  not copied; incompatible existing methods give the usual inheritance errors.
+
+### Shared code (for streams touching `ext/aop.c`, `ext/aop_engine.c`, `ext/php_aop.h`)
+
+- `aop_engine.c`: the matcher call was split into `aop_invoke_matcher()` (call, guard) and the reporters
+  `aop_report_matcher_exception_ex()` / `aop_report_matcher_exception()` (stream A's message is unchanged); the
+  dispatcher call into `aop_call_dispatcher()`; `OriginalCall` gained a native mode
+  (`aop_original_call_new_native()`); new block "stream G: generic join points" (`aop_decide_jp()`,
+  `aop_dispatch_jp()`, `aop_current_code_in_aop_ns()`); `jp_decisions`/`jp_caller_decisions` in rinit/reset/rshutdown.
+- `php_aop.h`: globals block "stream G", `aop_jp`, `aop_original_native_fn` and the prototypes above.
+- `aop.c`: MINIT/MSHUTDOWN/RINIT/RSHUTDOWN calls into `aop_g.h`, a post-deactivate function, `setIntroductions()`
+  and `fieldInterceptionAvailable()`, the phpinfo row.
