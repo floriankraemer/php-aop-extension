@@ -176,13 +176,13 @@ final class JournalAspect
     #[Around('execution(* AopE2E\FinalService::*(..))')]
     public function finalClass(ProceedingJoinPointInterface $pjp): mixed
     {
-        return $pjp->proceed().' (advised)';
+        return (string) $pjp->proceed().' (advised)';
     }
 
     #[Around('execution(* AopE2E\shout(..))')]
     public function func(ProceedingJoinPointInterface $pjp): mixed
     {
-        return $pjp->proceed([$pjp->getArgs()[0].'?']);
+        return $pjp->proceed([(string) $pjp->getArgs()[0].'?']);
     }
 
     #[Before('execution(* str_repeat(..))')]
@@ -222,7 +222,7 @@ final class PerTargetAspect
     {
         ++$this->calls;
 
-        return $pjp->proceed().'#'.$this->calls;
+        return (string) $pjp->proceed().'#'.$this->calls;
     }
 }
 
