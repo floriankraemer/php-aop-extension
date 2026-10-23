@@ -39,10 +39,13 @@ $(EXT_SO): $(wildcard $(EXT_DIR)/*.c $(EXT_DIR)/*.h $(EXT_DIR)/config.m4)
 
 .PHONY: test-ext
 test-ext: ext ## Run the phpt suite against the built extension
-	cd $(EXT_DIR) && NO_INTERACTION=1 REPORT_EXIT_STATUS=1 TEST_PHP_EXECUTABLE=$$(command -v $(PHP)) $(MAKE) test
+	@# phpize's `make test` copies the system php.ini into tmp-php.ini; a JIT enabled there (setup-php does) makes aop
+	@# print its JIT notice in every test with opcache on. Tests that cover the JIT enable it in their --INI-- section.
+	cd $(EXT_DIR) && NO_INTERACTION=1 REPORT_EXIT_STATUS=1 TEST_PHP_EXECUTABLE=$$(command -v $(PHP)) \
+		TEST_PHP_ARGS="-q -d opcache.jit=disable" $(MAKE) test
 	@# Second pass with opcache enabled: its optimizer (function inlining, constant folding) changes what reaches the engine.
 	cd $(EXT_DIR) && NO_INTERACTION=1 REPORT_EXIT_STATUS=1 TEST_PHP_EXECUTABLE=$$(command -v $(PHP)) \
-		TEST_PHP_ARGS="-q $$(../scripts/opcache-args.sh $(PHP))" $(MAKE) test
+		TEST_PHP_ARGS="-q -d opcache.jit=disable $$(../scripts/opcache-args.sh $(PHP))" $(MAKE) test
 
 vendor/autoload.php: composer.json
 	$(COMPOSER) install --no-interaction --no-progress

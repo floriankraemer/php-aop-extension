@@ -131,6 +131,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The builder has no working-directory input, and with config.w32 in a subdirectory it moves the sources
+      # into its build directory but still reads config.w32 from the workspace root. Make the workspace the
+      # extension; .git stays so the builder accepts the checkout instead of checking out the repo again.
+      - name: Make ext/ the workspace root
+        shell: pwsh
+        run: |
+          Get-ChildItem -Force | Where-Object { $_.Name -notin '.git', 'ext' } | Remove-Item -Recurse -Force
+          Get-ChildItem -Force ext | Move-Item -Destination .
+          Remove-Item ext
+
       # Builds, runs the phpt suite (run-tests) and uploads its own artifact.
       - name: Build and test extension
         uses: php/php-windows-builder/extension@v1
@@ -138,6 +148,8 @@ jobs:
           php-version: ${{ matrix.php }}
           arch: ${{ matrix.arch }}
           ts: ${{ matrix.ts }}
+          # The builder only derives configure options from PIE metadata in composer.json, which ext/ has none of.
+          args: --enable-aop=shared
           run-tests: "true"
 
       # Re-publish under the PIE asset name with the validated version

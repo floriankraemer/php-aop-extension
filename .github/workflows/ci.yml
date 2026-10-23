@@ -133,10 +133,24 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The builder has no working-directory input, and with config.w32 in a subdirectory it moves the sources
+      # into its build directory but still reads config.w32 from the workspace root. Make the workspace the
+      # extension; .git stays so the builder accepts the checkout instead of checking out the repo again.
+      - name: Make ext/ the workspace root
+        shell: pwsh
+        run: |
+          Get-ChildItem -Force | Where-Object { $_.Name -notin '.git', 'ext' } | Remove-Item -Recurse -Force
+          Get-ChildItem -Force ext | Move-Item -Destination .
+          Remove-Item ext
+
       - name: Build and test extension
         uses: php/php-windows-builder/extension@v1
         with:
           php-version: ${{ matrix.php }}
           arch: x64
           ts: nts
+          # The builder only derives configure options from PIE metadata in composer.json, which ext/ has none of.
+          args: --enable-aop=shared
+          # The builder names files after the ref, and a branch name with "/" makes that an invalid path.
+          extension-ref: ${{ github.sha }}
           run-tests: "true"
