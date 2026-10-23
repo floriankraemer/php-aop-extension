@@ -2,6 +2,8 @@
 exception-handler: descriptor, inheritance, multi-catch, finally, non-matching clauses, nested and rethrown exceptions
 --EXTENSIONS--
 aop
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 require __DIR__.'/100-helper.inc';

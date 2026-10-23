@@ -2,6 +2,8 @@
 Fields: field-get/field-set descriptors, OriginalCall semantics, substituted and skipped accesses
 --EXTENSIONS--
 aop
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 require __DIR__.'/100-helper.inc';

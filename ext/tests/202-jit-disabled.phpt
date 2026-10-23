@@ -1,5 +1,5 @@
 --TEST--
-JIT: overriding zend_execute_ex disables the opcache JIT; PHP warns, aop adds a notice, phpinfo() says so
+JIT: aop.interception=hook overrides zend_execute_ex, which disables the opcache JIT; PHP warns, aop adds a notice, phpinfo() says so
 --EXTENSIONS--
 aop
 --SKIPIF--
@@ -8,6 +8,7 @@ if (!extension_loaded('Zend OPcache')) die('skip opcache not loaded');
 if (ini_get('opcache.jit') === false) die('skip opcache built without JIT');
 ?>
 --INI--
+aop.interception=hook
 opcache.enable=1
 opcache.enable_cli=1
 opcache.jit=tracing
@@ -20,10 +21,10 @@ var_dump($jit['enabled'], $jit['on']);
 ob_start();
 phpinfo(INFO_MODULES);
 $info = ob_get_clean();
-var_dump(str_contains($info, 'opcache JIT => disabled: aop overrides zend_execute_ex() (set aop.enable=0 to use the JIT)'));
+var_dump(str_contains($info, 'opcache JIT => disabled: aop.interception=hook overrides zend_execute_ex() (use aop.interception=woven to keep the JIT)'));
 ?>
 --EXPECTF--
-%ANotice: aop: the opcache JIT is disabled because aop interception overrides zend_execute_ex(); set aop.enable=0 to use the JIT in Unknown on line 0
+%ANotice: aop: the opcache JIT is disabled because aop.interception=hook overrides zend_execute_ex(); set aop.interception=woven to keep the JIT in Unknown on line 0
 %Abool(false)
 bool(false)
 bool(true)

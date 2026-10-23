@@ -2,6 +2,8 @@
 exception-handler: an exception from the dispatcher replaces the caught one (sibling catches skipped, finally runs); matcher exceptions; AOP\ code and generators
 --EXTENSIONS--
 aop
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 namespace AOP\Runtime {

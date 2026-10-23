@@ -2,6 +2,8 @@
 Fields: clones keep the wrapped handlers, accesses in __clone are covered, deferred OriginalCall keeps the object alive
 --EXTENSIONS--
 aop
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 require __DIR__.'/100-helper.inc';

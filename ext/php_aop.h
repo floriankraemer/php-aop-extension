@@ -23,6 +23,10 @@ ZEND_BEGIN_MODULE_GLOBALS(aop)
 	bool disable_inlining;
 	/* INI aop.weave_autoload (PHP_INI_ALL): intercept calls made while a class is being autoloaded. */
 	bool weave_autoload;
+	/* Woven backend: the advice result AOP\Internal\intercept() hands to AOP\Internal\result(); UNDEF when none. */
+	zval woven_result;
+	/* Woven backend: generators OriginalCall created and that have not started yet (weak keys), see aop_engine.c. */
+	HashTable *bypassed_generators;
 	/* A matcher/dispatcher pair is registered. */
 	bool registered;
 	/* > 0 while the matcher runs: every call passes through (re-entrancy guard). */
@@ -68,7 +72,24 @@ ZEND_EXTERN_MODULE_GLOBALS(aop)
 /* aop.c */
 extern zend_class_entry *aop_engine_ce;
 extern zend_class_entry *aop_original_call_ce;
+/* Process wide: interception is installed (either backend). Set in the post-startup callback. */
 extern bool aop_hooks_installed;
+
+/* INI aop.interception, and the backend it resolved to once opcache's INI exists (aop_hook.c). */
+typedef enum {
+	AOP_SETTING_WOVEN,
+	AOP_SETTING_HOOK,
+	AOP_SETTING_AUTO
+} aop_interception_setting_t;
+
+typedef enum {
+	AOP_MODE_NONE,  /* aop.enable=0 */
+	AOP_MODE_HOOK,  /* zend_execute_ex / user opcode handlers: all features, no JIT */
+	AOP_MODE_WOVEN  /* compile-time prologues: JIT compatible, no field join points */
+} aop_mode_t;
+
+extern aop_interception_setting_t aop_interception_setting;
+extern aop_mode_t aop_interception_mode;
 
 /* aop_engine.c: decisions, descriptors, dispatch, OriginalCall */
 void aop_engine_minit(void);
@@ -84,6 +105,7 @@ bool aop_caller_in_aop_ns(zend_execute_data *ex);
 zend_long aop_decide(zend_function *func, zend_class_entry *called, zend_execute_data *caller);
 void aop_dispatch(zend_execute_data *ex, zend_function *func, zend_class_entry *called,
 		zend_object *this_obj, zval *args, zval *retval);
+void aop_bypassed_generators_free(void);
 
 /* {{{ stream G: generic join points (aop_engine.c) */
 typedef struct {
@@ -111,10 +133,15 @@ bool aop_current_code_in_aop_ns(void);
 /* }}} */
 
 /* aop_hook.c: the zend_execute_ex / zend_execute_internal hooks (engine-version specific code) */
-void aop_hook_install(void);
 void aop_hook_uninstall(void);
 void aop_compile_hooks_install(void);
-void aop_jit_notice_install(void);
+void aop_post_startup_install(void);
 bool aop_jit_requested(void);
+void aop_woven_rinit(void);
+void aop_woven_rshutdown(void);
+
+/* The woven backend's runtime half (AOP\Internal\intercept(), AOP\Internal\result()); declared by aop_arginfo.h too. */
+ZEND_FUNCTION(AOP_Internal_intercept);
+ZEND_FUNCTION(AOP_Internal_result);
 
 #endif /* PHP_AOP_H */

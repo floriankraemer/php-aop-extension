@@ -18,7 +18,8 @@ var_dump(\AOP\Engine::isRegistered());
 var_dump(\AOP\Engine::isRegistered());
 \AOP\Engine::unregister();
 
-var_dump(\AOP\Engine::fieldInterceptionAvailable());
+// Fields need the hook backend; the woven backend (the default) cannot offer them.
+var_dump(\AOP\Engine::fieldInterceptionAvailable() === ('hook' === ini_get('aop.interception')));
 interface I {}
 class Impl implements I {}
 \AOP\Engine::setIntroductions([['typePattern' => 'Foo*', 'interface' => 'I', 'defaultImpl' => 'Impl']]);

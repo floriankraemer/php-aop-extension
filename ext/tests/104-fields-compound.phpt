@@ -2,6 +2,8 @@
 Fields: compound assignments and increments are a get and a set; write fetches (arrays, references, nested) are get-only
 --EXTENSIONS--
 aop
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 require __DIR__.'/100-helper.inc';

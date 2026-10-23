@@ -4,6 +4,8 @@ PHP 8.4+ fields: wrapped objects reset as lazy ghosts/proxies; advice does not i
 aop
 --SKIPIF--
 <?php if (PHP_VERSION_ID < 80400) die('skip PHP 8.4+ (lazy objects)'); ?>
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 require __DIR__.'/100-helper.inc';

@@ -2,6 +2,8 @@
 Fields: __get/__set, dynamic properties, accesses from inside the class and from __get itself
 --EXTENSIONS--
 aop
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 require __DIR__.'/100-helper.inc';
