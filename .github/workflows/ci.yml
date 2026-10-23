@@ -151,4 +151,6 @@ jobs:
           ts: nts
           # The builder only derives configure options from PIE metadata in composer.json, which ext/ has none of.
           args: --enable-aop=shared
+          # The builder names files after the ref, and a branch name with "/" makes that an invalid path.
+          extension-ref: ${{ github.sha }}
           run-tests: "true"
