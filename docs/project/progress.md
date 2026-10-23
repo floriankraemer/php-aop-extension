@@ -18,6 +18,7 @@ Work happens on branch `claude/stoic-goodall-rplkuy`; each stream works in its o
 | H | PHP 8.4/8.5 compatibility, test-all on 8.3/8.4/8.5 × NTS/ZTS, opcache inlining, JIT notice | opus | done, merged |
 | I | Docs + examples | haiku | done, merged (G features to be patched after G) |
 | K | Fix stream I's findings (ControlFlowPointcut, ctor matching, modifiers, regexp, `||` bindings, naming) | sonnet | running |
+| L | Fix field interception on PHP 8.4/8.5 (4 phpt fail there, `const` warnings); hooked properties, lazy objects | opus | running |
 | J | Final integration and verification | coordinator | pending |
 
 ## Log
@@ -47,10 +48,12 @@ Work happens on branch `claude/stoic-goodall-rplkuy`; each stream works in its o
 
 - Merged stream G (`1284cec`, `a7e1bf2`, `c81ee9a`): field get/set via a `ZEND_NEW` opcode handler and per-class wrapped object handlers (reads, writes, compound assignments; isset/unset/static properties/`get_properties` users not covered), ctor-less `initialization`, `exception-handler` via `ZEND_CATCH` (before-only; a dispatcher exception replaces the caught one), introductions by compile-time AST weaving (`zend_ast_process`) with lazily created default implementations. Contract section "Engine notes (stream G)". Merge conflicts with H resolved (both kept). After the merge on 8.3: phpt 40 plain / 46 with opcache, 0 failures; e2e 21/21 (ctor-less `#[Configurable]` now passes against the real engine); unit 1146.
 
+- Docker check of the merged engine on PHP 8.4.27/8.5.12 × NTS/ZTS (glibc, amd64): builds, but 4 phpt fail on every 8.4/8.5 cell (`102-fields-readonly-typed`, `105-fields-coverage`, `107-fields-guards`, `205-lazy-objects`) and `aop_fields.c` has `-Wdiscarded-qualifiers` warnings. Stream G had only built on 8.3. Started stream L to fix it.
+
 ## Still to do
 - Fix the remaining findings of stream I: Spring `ControlFlowPointcut` matches call kinds and is never TRACKed; `execution(Base::__construct(..))` matches subclass constructors (constructors do not override in AspectJ); method patterns reject `private`/`static`/`final` modifiers; `RegexpMethodPointcut` silently ignores delimited patterns; `||` branches binding different names are not rejected; docblocks still say "bean"; `AdvisorAdapterInterface::getInterceptor()` naming. (Not a bug: `execution(* Base::run(..))` matching an override of `run` is AspectJ semantics.)
 - Document the INI settings (`aop.enable`, `aop.disable_inlining`, `aop.weave_autoload`) in README/docs.
-- Verify G's code on PHP 8.4/8.5 (G built only on 8.3) and run valgrind on the merged engine.
+- Merge L (fields on 8.4/8.5) and re-run the Docker matrix; valgrind on the merged engine.
 - Patch the docs: the experimental features (fields, handler, introductions, ctor-less initialization) now work; add examples.
 - Before the first tag: move the CHANGELOG `Unreleased` entries into a version section (release notes come from it).
 - E2E: re-run after G (ctor-less initialization, fields, handlers, introductions end to end through the Weaver); valgrind run of the phpunit e2e suite.
