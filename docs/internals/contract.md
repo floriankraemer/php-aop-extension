@@ -458,3 +458,54 @@ AST: `CallNode`/`WithincodeNode` wrap an `ExecutionNode`; `AtThisNode`, `AtWithi
 
 `src/Pointcut/**`, `tests/Unit/Pointcut/**`, `tests/Fixtures/Pointcut/**`, this section. `src/Binding/**` and `src/Exception/**` are untouched
 (`BindingKind` gained `AT_THIS` and `AT_WITHINCODE`; `ParameterBinder` only reads binding names).
+## Spring API integration (stream F)
+
+Stream F adds the programmatic (Spring AOP API) layer on top of §4/§5. Everything it produces is an `AOP\Advisor\Advisor`
+(programmatic: `$interceptor` set, `$advice` null) or, for configuration aspects, an `Advisor` with an `AdviceDefinition`
+plus the aspect metadata/instances. Nothing in it needs the engine; the Weaver only has to register what it produces.
+
+### 8.1 Public API (namespaces under `AOP\`)
+
+- `Pointcut\Api`: `ClassFilterInterface::matches(\ReflectionClass)`, `MethodMatcherInterface` (`matches(fn, ?class)`, `isRuntime()`,
+  `matchesRuntime(fn, ?class, array $args)`), `ApiPointcut(ClassFilter, MethodMatcher, ?list<JoinPointKind> $kinds)` (adapter to
+  `PointcutInterface`; matches only method/function executions unless `$kinds` says otherwise), `StaticMethodMatcherPointcut` /
+  `DynamicMethodMatcherPointcut` (abstract; implement `matches()` / `matchesArguments()`), `ComposablePointcut` (`union`/`intersection`),
+  `Pointcuts` (`union`, `intersection`, `matches(pointcut, fn, ?class, args, ?target, controlFlow)`), `RegexpMethodPointcut`,
+  `NameMatchMethodPointcut`, `AttributeMatchingPointcut`, `ControlFlowPointcut`, `ExpressionPointcut`, constants `TruePointcut::INSTANCE`,
+  `TrueClassFilter::INSTANCE`, `TrueMethodMatcher::INSTANCE`.
+- `Advice\Api`: `AdviceInterface`, `MethodInterceptorInterface::invoke(ProceedingJoinPointInterface)`, `MethodBeforeAdviceInterface::before(JoinPointInterface)`,
+  `AfterReturningAdviceInterface::afterReturning(mixed, JoinPointInterface)`, `AfterAdviceInterface`, `ThrowsAdviceInterface` (marker; handlers are
+  public methods named `afterThrowing*`, one exception type each, most specific type wins), `IntroductionInterceptorInterface`,
+  `DelegatingIntroductionInterceptor(object $delegate, ?list<class-string> $interfaces)`; engine bridges in `Advice\Api\Interceptor\*`.
+- `Advisor\Api`: `AdvisorAdapterInterface` (`supportsAdvice`, `getInterceptor`), `TypedAdvisorAdapterInterface` (+ `adviceType`), `ClosureAdvisorAdapter`,
+  `AdvisorAdapterRegistry` (`registerAdvisorAdapter`, `supports`, `getInterceptor`, `adviceType`), `DefaultPointcutAdvisor(PointcutInterface|string, object $advice, int $order = PHP_INT_MAX, ?string $id = null, AdvisorAdapterRegistry = new)`,
+  `RegexpMethodPointcutAdvisor`, `NameMatchMethodPointcutAdvisor`, `DefaultIntroductionAdvisor`. **Every advisor class has `toAdvisor(): Advisor`**; the Weaver consumes
+  `$weaver->addAdvisor($api->toAdvisor())`. The advisor id is the caller's id or `<advice class>#<n>`.
+- `TargetSource`: `TargetSourceInterface`, `SingletonTargetSource`, `HotSwappableTargetSource` (`swap()`), `PrototypeTargetSource`, `PoolingTargetSource` (`stats(): PoolStats`,
+  `PoolExhaustedException`), `FiberLocalTargetSource`, `TargetSourceStandIn::create(class, source): array{0: object, 1: Advisor}`.
+- `Config`: `ConfigLoader::load(array $config, ?callable $aspectFactory = null, ?AdvisorAdapterRegistry = null): ConfigResult` (array shape documented on the class),
+  `ConfigResult::{metadata(): list<AspectMetadata>, aspectInstances(): array<class-string, object|\Closure>, aspectAdvisors(), programmaticAdvisors(), advisors(), namedPointcutResolver()}`,
+  `ConfigurationException`.
+- `Attribute\Configurable(autowire, preConstruction, service)`, `Configurable\ConfigurableAspect(callable(object, Configurable): void $configurer, int $order = PHP_INT_MIN)::toAdvisor(string $id = 'configurable')`.
+
+### 8.2 What the Weaver must provide or call
+
+1. **Programmatic advisors**: `addAdvisor(Advisor)` / `removeAdvisor(string $id)` as in §5. Advisors are built once and reused; `Advisor::$pointcut` may be runtime
+   (`ControlFlowPointcut`, `DynamicMethodMatcherPointcut`): the Weaver builds chains with `AdvisorChainFactory::chainFor(..., $controlFlow)`, passing the runtime's `ControlFlowInterface`
+   (`ControlFlowPointcut` reads `RuntimeMatchContext::$controlFlow->stack()`; with `EmptyControlFlow` it never matches).
+2. **Per-instance advisors**: `Weaver::advised(object $instance): Runtime\AdvisedInstance` must offer `addAdvisor(Advisor)` (and `removeAdvisor(string $id)`), applying the advisor to
+   method executions whose `JoinPointInterface::getThis()` is that very object. `TargetSourceStandIn` relies on it: its advisor's pointcut is runtime, matches exactly `$standIn`
+   by identity (weakly held), and must be sorted last (order `PHP_INT_MAX`, id prefix `~~`, so every other advisor wraps it). The engine must dispatch method executions of the
+   stand-in's class (the matcher answers `ADVISE` for that class, as for any class with advisors); the stand-in's own code never runs.
+3. **Configuration aspects**: `Weaver::fromConfig(array $config, ?callable $aspectFactory = null)` (and `addConfig(ConfigResult)`) should call `ConfigLoader::load()` and then, for the result:
+   - register each `AspectMetadata` of `metadata()` exactly as `addAspect()` does for attribute aspects (advisors via `AdvisorFactory::fromMetadata`, introductions via
+     `AdvisorFactory::introductionsFromMetadata`, named pointcuts via a `MetadataNamedPointcutResolver` that includes `metadata()`), or simply `addAdvisor()` every `$result->advisors()`;
+   - give the `AspectInstanceResolverInterface` the instances: `new ArrayAspectInstanceResolver($result->aspectInstances())` merged with the attribute aspects (closure entries = pertarget/perthis factories).
+     `removeAspect(class)` must also drop these advisors (they carry `AdviceDefinition::$aspectClass`).
+4. **`#[Configurable]`**: `$weaver->addAdvisor((new ConfigurableAspect($configurer))->toAdvisor())`. It matches `constructor-execution` (and `initialization`) of classes with the attribute
+   (nearest attribute up the class hierarchy). Requirements on the runtime:
+   - `constructor-execution` is dispatched for `parent::__construct()` too (§2 says so), each time with the same object as `getThis()`; the aspect counts running constructors per object to find the outermost one
+     because **the join point model does not expose the descriptor's `outermost` flag** (gap: if `JoinPointInterface`/`JoinPointData` gains it, `ConfigurableInterceptor` could use it instead of the counter);
+   - `initialization` join points (constructor-less classes) must pass the new object as `getThis()`; §1.2 lists `$this` as null for "ctor-less `initialization`", in which case the object is skipped silently (gap to settle between C and D).
+5. Introductions from `DefaultIntroductionAdvisor` run through the normal chain (delegating the introduced interface methods). For true interface introduction the Weaver still has to call
+   `Engine::setIntroductions()` (§6) with `introducedInterfaces()`; F does not do that.
