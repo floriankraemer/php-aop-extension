@@ -4,6 +4,8 @@ PHP 8.4+: advice on lazy ghosts and proxies does not initialize them; proceeding
 aop
 --SKIPIF--
 <?php if (PHP_VERSION_ID < 80400) die('skip PHP 8.4+ (lazy objects)'); ?>
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 require __DIR__.'/000-helper.inc';

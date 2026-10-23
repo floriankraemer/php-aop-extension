@@ -7,5 +7,5 @@ PHP_ARG_ENABLE([aop],
 
 if test "$PHP_AOP" != "no"; then
   dnl Every stream appends its own translation units here.
-  PHP_NEW_EXTENSION(aop, aop.c aop_engine.c aop_hook.c aop_fields.c aop_catch.c aop_ast.c, $ext_shared,, -DZEND_ENABLE_STATIC_TSRMLS_CACHE=1)
+  PHP_NEW_EXTENSION(aop, aop.c aop_engine.c aop_hook.c aop_fields.c aop_catch.c aop_ast.c aop_weave.c, $ext_shared,, -DZEND_ENABLE_STATIC_TSRMLS_CACHE=1)
 fi

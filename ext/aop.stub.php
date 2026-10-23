@@ -53,3 +53,14 @@ final class OriginalCall
      */
     public function __invoke(array $args): mixed {}
 }
+
+namespace AOP\Internal;
+
+/**
+ * Runtime half of the woven backend (aop.interception=woven); only the prologues woven at compile time call it.
+ * Returns true when the call of the enclosing function was dispatched to the advice.
+ */
+function intercept(): bool {}
+
+/** The advice result for the enclosing function, after intercept() returned true. */
+function result(): mixed {}

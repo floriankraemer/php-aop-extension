@@ -2,6 +2,8 @@
 Fields: an advised set keeps the typing mode of the accessing file; internal callers (Reflection) are coercive and have caller null
 --EXTENSIONS--
 aop
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 declare(strict_types=1);

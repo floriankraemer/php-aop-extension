@@ -7,6 +7,7 @@ aop
 if (!function_exists('opcache_get_status') || !@opcache_get_status(false)) die('skip opcache not active');
 ?>
 --INI--
+aop.interception=hook
 opcache.enable_cli=1
 opcache.jit=disable
 --FILE--

@@ -2,6 +2,8 @@
 Raw arguments: variadics, named arguments, omitted defaults, extra arguments
 --EXTENSIONS--
 aop
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 require __DIR__.'/000-helper.inc';

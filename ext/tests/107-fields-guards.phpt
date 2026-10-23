@@ -2,6 +2,8 @@
 Fields: matcher guard, AOP\ code, reset()/unregister(), matcher and dispatcher exceptions, CALLER_SENSITIVE
 --EXTENSIONS--
 aop
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 namespace AOP\Runtime {
