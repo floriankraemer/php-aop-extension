@@ -130,13 +130,16 @@ jobs:
             vs: vs17
     steps:
       - uses: actions/checkout@v7
-        with:
-          path: repo
 
-      # The builder has no working-directory input: it expects config.w32 at the workspace root.
-      - name: Put the extension at the workspace root
+      # The builder has no working-directory input, and with config.w32 in a subdirectory it moves the sources
+      # into its build directory but still reads config.w32 from the workspace root. Make the workspace the
+      # extension; .git stays so the builder accepts the checkout instead of checking out the repo again.
+      - name: Make ext/ the workspace root
         shell: pwsh
-        run: Copy-Item -Recurse repo/ext/* .
+        run: |
+          Get-ChildItem -Force | Where-Object { $_.Name -notin '.git', 'ext' } | Remove-Item -Recurse -Force
+          Get-ChildItem -Force ext | Move-Item -Destination .
+          Remove-Item ext
 
       # Builds, runs the phpt suite (run-tests) and uploads its own artifact.
       - name: Build and test extension
