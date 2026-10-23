@@ -7,6 +7,8 @@ namespace AOP\Pointcut\Api;
 use AOP\Exception\PointcutSyntaxException;
 use AOP\Pointcut\Expression\NamedPointcutResolverInterface;
 use AOP\Pointcut\Expression\PointcutExpressionCompiler;
+use AOP\Pointcut\ControlFlowAwareInterface;
+use AOP\Pointcut\ControlFlowPointcuts;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
 use AOP\Pointcut\StaticMatchContext;
@@ -15,7 +17,7 @@ use AOP\Pointcut\StaticMatchContext;
  * A pointcut written as an expression string, e.g. `execution(* App\Service\**::*(..)) && !within(App\Legacy\*)`
  * (Spring's AspectJExpressionPointcut). Compiled once, eagerly.
  */
-final class ExpressionPointcut implements PointcutInterface
+final class ExpressionPointcut implements PointcutInterface, ControlFlowAwareInterface
 {
     private readonly PointcutInterface $compiled;
 
@@ -67,5 +69,10 @@ final class ExpressionPointcut implements PointcutInterface
     public function isCallerSensitive(): bool
     {
         return $this->compiled->isCallerSensitive();
+    }
+
+    public function cflowPointcuts(): array
+    {
+        return ControlFlowPointcuts::of($this->compiled);
     }
 }

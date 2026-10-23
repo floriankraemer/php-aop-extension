@@ -6,6 +6,9 @@ namespace AOP\Tests\E2E;
 
 use AOP\Advisor\Api\DefaultPointcutAdvisor;
 use AOP\Attribute\Configurable;
+use AOP\Pointcut\Api\ControlFlowPointcut;
+use AOP\Pointcut\Api\ExpressionPointcut;
+use AOP\Pointcut\Api\Pointcuts;
 use AOP\TargetSource\HotSwappableTargetSource;
 use AOP\Weaver;
 use AopE2E\CallAspect;
@@ -84,6 +87,40 @@ final class IntegrationTest extends EngineTestCase
 
         (new Driver())->inner(new Pipeline());
 
+        self::assertSame(['spring:inner'], Journal::$entries);
+    }
+
+    #[Test]
+    public function aSpringControlFlowPointcutWorksWithoutAnyAdvisorOnTheEntryMethod(): void
+    {
+        $weaver = $this->weave([]);
+        $weaver->addAdvisor((new DefaultPointcutAdvisor(new ControlFlowPointcut(Pipeline::class, 'outer'), new SpringBefore(), 1, 'flow'))->toAdvisor());
+        $driver = new Driver();
+
+        // Outside the flow of Pipeline::outer() nothing runs (and calls are no join points of a Spring pointcut).
+        $driver->inner(new Pipeline());
+        self::assertSame([], Journal::$entries);
+
+        // Inside it every execution is advised exactly once: outer() itself and the inner() it calls.
+        $driver->outer(new Pipeline());
+        self::assertSame(['spring:outer', 'spring:inner'], Journal::$entries);
+    }
+
+    #[Test]
+    public function aSpringControlFlowPointcutIntersectedWithAnExpression(): void
+    {
+        $weaver = $this->weave([]);
+        $pointcut = Pointcuts::intersection(
+            new ExpressionPointcut('execution(* AopE2E\\Pipeline::inner(..))'),
+            new ControlFlowPointcut(Pipeline::class, 'outer'),
+        );
+        $weaver->addAdvisor((new DefaultPointcutAdvisor($pointcut, new SpringBefore(), 1, 'flow'))->toAdvisor());
+        $driver = new Driver();
+
+        $driver->inner(new Pipeline());
+        self::assertSame([], Journal::$entries);
+
+        $driver->outer(new Pipeline());
         self::assertSame(['spring:inner'], Journal::$entries);
     }
 
