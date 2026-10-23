@@ -148,6 +148,8 @@ jobs:
           php-version: ${{ matrix.php }}
           arch: ${{ matrix.arch }}
           ts: ${{ matrix.ts }}
+          # The builder only derives configure options from PIE metadata in composer.json, which ext/ has none of.
+          args: --enable-aop=shared
           run-tests: "true"
 
       # Re-publish under the PIE asset name with the validated version
