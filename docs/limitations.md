@@ -127,22 +127,13 @@ The rest of the documentation does not depend on them.
 These are defects or deviations from AspectJ and Spring that were found while writing these pages.
 Each one lists how it shows up, and a workaround where there is one.
 
-### Advising everything can crash the process
+### Class loading is not woven
 
-A pattern that matches internal functions crashes PHP on the first advised call, in this build.
+Calls made while PHP autoloads a class are not intercepted, so a broad pattern such as `execution(* *(..))` does not advise the autoloader or the internal functions it calls.
+The runtime loads its own classes lazily during dispatch; weaving the autoloader would re-enter the dispatcher.
+Set `aop.weave_autoload=1` (any INI level) to weave class loading anyway, with an aspect that cannot recurse into itself.
 
-The crash needs a pattern that matches internal functions, such as `execution(* *(..))` on an aspect method.
-Do not run such an aspect without a restriction.
-
-
-The crash is a segmentation fault.
-The cause is re-entry: the engine advises an internal call that the runtime makes while it loads one of its own classes during dispatch, and each level loads again.
-The same aspect runs fine when every `AOP\` class is loaded before `enable()`, and when the weave is restricted with `include()`.
-
-Workarounds:
-
-- Restrict the weave: `$weaver->include('App\*')`.
-- Make sure the pattern does not match internal functions, for example by starting it with a namespace.
+Runaway recursion through advised code raises PHP's `Maximum call stack size` `Error` (PHP 8.3+ stack limit) instead of crashing.
 
 ### `execution()` matches constructors of subclasses
 

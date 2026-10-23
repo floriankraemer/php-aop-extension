@@ -16,7 +16,7 @@ Work happens on branch `initial-implementation`; each stream works in its own lo
 | F | Spring API layer: pointcut/advice/advisor APIs, adapters, target sources, array config, #[Configurable] | sonnet | done, merged |
 | G | C experimental: field get/set, handler(), ctor-less initialization, introductions | opus | running |
 | H | PHP 8.4/8.5 compatibility, test-all on 8.3/8.4/8.5 × NTS/ZTS, opcache inlining, JIT notice | opus | done, merged |
-| I | Docs + examples | haiku | running (G features documented as experimental, patched after G) |
+| I | Docs + examples | haiku | done, merged (G features to be patched after G) |
 | J | Final integration and verification | coordinator | pending |
 
 ## Log
@@ -41,7 +41,12 @@ Work happens on branch `initial-implementation`; each stream works in its own lo
 - Merged stream H (`05896c8`): `ext/aop_compat.h`; phpt green on 8.3.36/8.4.27/8.5.12 × NTS/ZTS in Docker (0 warnings with `-Wall -Wextra`), valgrind clean on 8.4 and 8.5 (natively built CLIs). No engine structure differences affecting the hooks between 8.3 and 8.5. Frameless calls are not emitted while the hook is installed; property hooks pass through; lazy objects are not initialised by advice. New INI `aop.disable_inlining` (default 1) stops opcache from inlining functions so they stay advisable. Startup notice and phpinfo rows explain that the JIT is off while aop is active (`aop.enable=0` keeps it).
 - phpt now runs a second pass with opcache enabled (`scripts/opcache-args.sh`, used by `make test-ext` and `scripts/container-build.sh`, so CI and release builds get it too). Locally on 8.3: 24 pass plain, 29 pass with opcache, 0 failures; e2e 20/21.
 
+- Merged stream I (`20df1e9`): README, `docs/` user guide (concepts, pointcuts, advice, weaver, spring-api, target-sources, configuration, spring-mapping, limitations, building), 26 runnable examples in `examples/` whose output is checked. While writing them it found bugs (below).
+- Fixed a segfault found by stream I: `execution(* *(..))` advised the internal functions the Composer autoloader calls while the runtime autoloaded its own classes, recursing until the C stack overflowed. The engine now skips interception while a class is being autoloaded (INI `aop.weave_autoload`, default 0) and passes through when the PHP 8.3+ stack limit is reached, so runaway recursion raises PHP's stack `Error`. Tests 026, 027.
+
 ## Still to do
+- Fix the remaining findings of stream I: Spring `ControlFlowPointcut` matches call kinds and is never TRACKed; `execution(Base::__construct(..))` matches subclass constructors (constructors do not override in AspectJ); method patterns reject `private`/`static`/`final` modifiers; `RegexpMethodPointcut` silently ignores delimited patterns; `||` branches binding different names are not rejected; docblocks still say "bean"; `AdvisorAdapterInterface::getInterceptor()` naming. (Not a bug: `execution(* Base::run(..))` matching an override of `run` is AspectJ semantics.)
+- Document the INI settings (`aop.enable`, `aop.disable_inlining`, `aop.weave_autoload`) in README/docs.
 - Merge G and H.
 - Before the first tag: move the CHANGELOG `Unreleased` entries into a version section (release notes come from it).
 - E2E: re-run after G (ctor-less initialization, fields, handlers, introductions end to end through the Weaver); valgrind run of the phpunit e2e suite.

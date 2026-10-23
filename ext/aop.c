@@ -26,6 +26,7 @@ bool aop_hooks_installed = false;
 PHP_INI_BEGIN()
 	STD_PHP_INI_BOOLEAN("aop.enable", "1", PHP_INI_SYSTEM, OnUpdateBool, enable, zend_aop_globals, aop_globals)
 	STD_PHP_INI_BOOLEAN("aop.disable_inlining", "1", PHP_INI_SYSTEM, OnUpdateBool, disable_inlining, zend_aop_globals, aop_globals)
+	STD_PHP_INI_BOOLEAN("aop.weave_autoload", "0", PHP_INI_ALL, OnUpdateBool, weave_autoload, zend_aop_globals, aop_globals)
 PHP_INI_END()
 
 /* {{{ AOP\Engine */

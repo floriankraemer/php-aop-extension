@@ -206,7 +206,7 @@ The most relevant points:
 - Functions that inspect their caller's frame, such as `compact()`, fail when advised.
 - Functions that return by reference, closures and arrow functions are not advised.
 - The `AOP\` namespace is never woven.
-- Some patterns have known issues. A pattern that matches every function can crash PHP; restrict the weave with `include()`.
+- Class loading is not woven (`aop.weave_autoload=1` changes that).
 
 ## Documentation
 

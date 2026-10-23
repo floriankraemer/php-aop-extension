@@ -65,6 +65,17 @@ static zend_always_inline zend_function *aop_join_point(zend_execute_data *ex,
 	if (fn_flags & (ZEND_ACC_RETURN_REFERENCE | ZEND_ACC_CALL_VIA_TRAMPOLINE)) {
 		return NULL;
 	}
+	/* Class loading is not woven by default: the runtime itself autoloads its classes lazily, so advising
+	 * the autoloader (and the internal functions it calls) would re-enter the dispatcher without end. */
+	if (!AOP_G(weave_autoload) && EG(in_autoload) && zend_hash_num_elements(EG(in_autoload)) > 0) {
+		return NULL;
+	}
+#ifdef ZEND_CHECK_STACK_LIMIT
+	/* Let the engine raise its "Maximum call stack size reached" error instead of recursing in C. */
+	if (UNEXPECTED(zend_call_stack_overflowed(EG(stack_limit)))) {
+		return NULL;
+	}
+#endif
 	if (fn_flags & ZEND_ACC_CLOSURE) {
 		if (!(fn_flags & ZEND_ACC_FAKE_CLOSURE)) {
 			return NULL;
