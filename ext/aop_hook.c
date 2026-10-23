@@ -2,10 +2,12 @@
  * aop extension: the zend_execute_ex / zend_execute_internal hooks.
  *
  * This is the only file that relies on the VM's frame layout and teardown sequence, so it is where
- * PHP version differences go. Verified against PHP-8.3.6:
+ * PHP version differences go. Verified against PHP-8.3.6, 8.4.27 and 8.5.12 (see aop_compat.h):
  *   - i_init_func_execute_data() / zend_copy_extra_args()  (Zend/zend_execute.c)
  *   - ZEND_DO_FCALL and the ZEND_CALL_TOP branch of zend_leave_helper  (Zend/zend_vm_def.h)
  *   - zend_call_function()  (Zend/zend_execute_API.c)
+ * It also holds the compile-time side: the zend_extension op_array handler behind aop.disable_inlining and
+ * the JIT startup notice.
  */
 #ifdef HAVE_CONFIG_H
 # include "config.h"
@@ -15,11 +17,10 @@
 #include "zend_closures.h"
 #include "zend_execute.h"
 #include "zend_observer.h"
+#include "zend_extensions.h"
+#include "SAPI.h"
 #include "php_aop.h"
-
-#if PHP_VERSION_ID < 80300
-# error "the aop extension requires PHP 8.3 or newer"
-#endif
+#include "aop_compat.h"
 
 static void (*aop_prev_execute_ex)(zend_execute_data *execute_data) = NULL;
 static void (*aop_prev_execute_internal)(zend_execute_data *execute_data, zval *return_value) = NULL;
@@ -75,6 +76,9 @@ static zend_always_inline zend_function *aop_join_point(zend_execute_data *ex,
 	}
 	if (!func->common.function_name) {
 		return NULL; /* top-level, include or eval code */
+	}
+	if (aop_is_property_hook(func)) {
+		return NULL; /* 8.4+ property hook body: a field access, not a method */
 	}
 
 	if (func->common.scope) {
@@ -341,5 +345,98 @@ void aop_hook_uninstall(void)
 {
 	zend_execute_ex = aop_prev_execute_ex;
 	zend_execute_internal = aop_prev_execute_internal;
+}
+/* }}} */
+
+/* {{{ compile time: opcache inlining (aop.disable_inlining) */
+/*
+ * Called by pass_two() for every op_array compiled with ZEND_COMPILE_HANDLE_OP_ARRAY, which is the default
+ * and which opcache sets for the scripts it caches; it runs before opcache's optimizer. Every named
+ * function and method gets AOP_ACC_NO_INLINE, so optimizer pass 16 never replaces a call by the constant
+ * the callee returns. Flagging all of them (not just those whose compiled body is `return <const>;`) also
+ * covers bodies that only become a constant during optimization (e.g. after constant propagation).
+ */
+static void aop_op_array_handler(zend_op_array *op_array)
+{
+	if (op_array->function_name
+			&& !(op_array->fn_flags & ZEND_ACC_CLOSURE)
+			&& !aop_is_property_hook((zend_function *) op_array)) {
+		op_array->fn_flags |= AOP_ACC_NO_INLINE;
+	}
+}
+
+static zend_extension aop_zend_extension = {
+	.name = "aop",
+	.version = PHP_AOP_VERSION,
+	.author = "aop",
+	.URL = NULL,
+	.copyright = NULL,
+	/* no startup: an extension without one is not listed by `php -v` */
+	.op_array_handler = aop_op_array_handler,
+	.api_no_check = NULL,
+	.build_id_check = NULL,
+	.handle = NULL,
+	.resource_number = -1,
+};
+
+/* Registers the extension's zend_extension half (MINIT, before any script is compiled). */
+void aop_compile_hooks_install(void)
+{
+	zend_register_extension(&aop_zend_extension, NULL);
+}
+/* }}} */
+
+/* {{{ JIT */
+/*
+ * True when opcache would start the JIT for this SAPI if zend_execute_ex were not overridden: the same
+ * condition as accel_post_startup() (JIT_G(enabled) && JIT_G(buffer_size)) for opcache.enable(_cli).
+ * Reads the registered INI entries, so it is only meaningful after opcache's startup.
+ */
+bool aop_jit_requested(void)
+{
+	bool exists = false;
+	const char *mode = zend_ini_string_ex(ZEND_STRL("opcache.jit"), 0, &exists);
+
+	if (!exists || !mode || strcasecmp(mode, "disable") == 0) {
+		return false;
+	}
+	if (zend_ini_long(ZEND_STRL("opcache.jit_buffer_size"), 0) <= 0) {
+		return false;
+	}
+	if (!zend_ini_long(ZEND_STRL("opcache.enable"), 0)) {
+		return false;
+	}
+	if (strcmp(sapi_module.name, "cli") == 0 || strcmp(sapi_module.name, "phpdbg") == 0) {
+		return zend_ini_long(ZEND_STRL("opcache.enable_cli"), 0) != 0;
+	}
+	return true;
+}
+
+static zend_result (*aop_prev_post_startup)(void) = NULL;
+
+/*
+ * PHP itself warns "JIT is incompatible with third party extensions that override zend_execute_ex()";
+ * this notice names the extension and the way out.
+ */
+static zend_result aop_post_startup(void)
+{
+	if (aop_prev_post_startup) {
+		zend_result (*cb)(void) = aop_prev_post_startup;
+		aop_prev_post_startup = NULL;
+		if (cb() != SUCCESS) {
+			return FAILURE;
+		}
+	}
+	if (aop_hooks_installed && aop_jit_requested()) {
+		zend_error(E_NOTICE, "aop: the opcache JIT is disabled because aop interception overrides "
+			"zend_execute_ex(); set aop.enable=0 to use the JIT");
+	}
+	return SUCCESS;
+}
+
+void aop_jit_notice_install(void)
+{
+	aop_prev_post_startup = zend_post_startup_cb;
+	zend_post_startup_cb = aop_post_startup;
 }
 /* }}} */

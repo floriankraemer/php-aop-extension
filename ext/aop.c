@@ -25,11 +25,13 @@ bool aop_hooks_installed = false;
 
 PHP_INI_BEGIN()
 	STD_PHP_INI_BOOLEAN("aop.enable", "1", PHP_INI_SYSTEM, OnUpdateBool, enable, zend_aop_globals, aop_globals)
+	STD_PHP_INI_BOOLEAN("aop.disable_inlining", "1", PHP_INI_SYSTEM, OnUpdateBool, disable_inlining, zend_aop_globals, aop_globals)
 PHP_INI_END()
 
 /* {{{ AOP\Engine */
 ZEND_METHOD(AOP_Engine, __construct)
 {
+	(void) return_value;
 	ZEND_PARSE_PARAMETERS_NONE();
 	zend_throw_error(NULL, "Cannot instantiate %s", ZSTR_VAL(aop_engine_ce->name));
 }
@@ -58,6 +60,7 @@ ZEND_METHOD(AOP_Engine, register)
 
 ZEND_METHOD(AOP_Engine, unregister)
 {
+	(void) return_value;
 	ZEND_PARSE_PARAMETERS_NONE();
 	aop_engine_unregister();
 }
@@ -70,6 +73,7 @@ ZEND_METHOD(AOP_Engine, isRegistered)
 
 ZEND_METHOD(AOP_Engine, reset)
 {
+	(void) return_value;
 	ZEND_PARSE_PARAMETERS_NONE();
 	aop_engine_reset();
 }
@@ -77,6 +81,7 @@ ZEND_METHOD(AOP_Engine, reset)
 ZEND_METHOD(AOP_Engine, setIntroductions)
 {
 	zval *rules;
+	(void) return_value;
 
 	ZEND_PARSE_PARAMETERS_START(1, 1)
 		Z_PARAM_ARRAY(rules)
@@ -114,6 +119,10 @@ PHP_MINIT_FUNCTION(aop)
 	if (AOP_G(enable)) {
 		aop_hook_install();
 		aop_hooks_installed = true;
+		if (AOP_G(disable_inlining)) {
+			aop_compile_hooks_install();
+		}
+		aop_jit_notice_install();
 	}
 
 	return SUCCESS;
@@ -132,6 +141,7 @@ PHP_MSHUTDOWN_FUNCTION(aop)
 
 PHP_RINIT_FUNCTION(aop)
 {
+	(void) type; (void) module_number;
 #if defined(COMPILE_DL_AOP) && defined(ZTS)
 	ZEND_TSRMLS_CACHE_UPDATE();
 #endif
@@ -142,6 +152,7 @@ PHP_RINIT_FUNCTION(aop)
 
 PHP_RSHUTDOWN_FUNCTION(aop)
 {
+	(void) type; (void) module_number;
 	aop_engine_rshutdown();
 
 	return SUCCESS;
@@ -153,6 +164,16 @@ PHP_MINFO_FUNCTION(aop)
 	php_info_print_table_row(2, "aop support", "enabled");
 	php_info_print_table_row(2, "Version", PHP_AOP_VERSION);
 	php_info_print_table_row(2, "Interception hooks", aop_hooks_installed ? "active" : "inactive (aop.enable=0)");
+	php_info_print_table_row(2, "opcache JIT", !aop_hooks_installed
+		? "not affected by aop (aop.enable=0)"
+		: (aop_jit_requested()
+			? "disabled: aop overrides zend_execute_ex() (set aop.enable=0 to use the JIT)"
+			: "not configured; it cannot run while aop overrides zend_execute_ex()"));
+	php_info_print_table_row(2, "opcache function inlining", !aop_hooks_installed
+		? "not affected by aop (aop.enable=0)"
+		: (AOP_G(disable_inlining)
+			? "prevented for user functions (aop.disable_inlining=1)"
+			: "allowed (aop.disable_inlining=0): calls to functions that return a constant may not be intercepted"));
 	php_info_print_table_row(2, "Field interception", "not available");
 	php_info_print_table_end();
 
