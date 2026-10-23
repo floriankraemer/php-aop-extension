@@ -6,12 +6,17 @@ namespace AOP\Tests\Unit\Interceptor;
 
 use AOP\Interceptor\MethodInterceptorInterface;
 use AOP\Interceptor\RuntimeGuardInterceptor;
+use AOP\JoinPoint\JoinPointInterface;
 use AOP\JoinPoint\JoinPointKind;
 use AOP\JoinPoint\MethodInvocation;
+use AOP\Pointcut\ControlFlowInterface;
 use AOP\Pointcut\Expression\PointcutExpressionCompiler;
 use AOP\Pointcut\PointcutInterface;
+use AOP\Pointcut\RuntimeMatchContext;
 use AOP\Pointcut\StaticMatchContext;
 use AOP\Tests\Fixtures\Jp;
+use AOP\Tests\Fixtures\Pointcut\PassThroughInterceptor;
+use AOP\Tests\Fixtures\Pointcut\StubPointcut;
 use AOP\Tests\Fixtures\Service\UserService;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -77,7 +82,7 @@ final class RuntimeGuardInterceptorTest extends TestCase
     public function receivesJoinPointStaticContextAndArguments(): void
     {
         $pointcut = new class implements PointcutInterface {
-            public ?\AOP\Pointcut\RuntimeMatchContext $ctx = null;
+            public ?RuntimeMatchContext $ctx = null;
 
             public function matchesClass(?\ReflectionClass $class, StaticMatchContext $ctx): bool
             {
@@ -94,7 +99,7 @@ final class RuntimeGuardInterceptorTest extends TestCase
                 return true;
             }
 
-            public function matchesRuntime(\AOP\Pointcut\RuntimeMatchContext $ctx): bool
+            public function matchesRuntime(RuntimeMatchContext $ctx): bool
             {
                 $this->ctx = $ctx;
 
@@ -133,5 +138,42 @@ final class RuntimeGuardInterceptorTest extends TestCase
         $with = $invocation->withBoundArguments(['a' => 1]);
         self::assertSame(['a' => 1], $with->getBoundArguments());
         self::assertSame([], $invocation->getBoundArguments());
+    }
+
+    #[Test]
+    public function handsTheControlFlowToThePointcut(): void
+    {
+        $joinPoint = Jp::invocation(new UserService(), 'findUser', [1]);
+        $flow = new class($joinPoint) implements ControlFlowInterface {
+            public function __construct(private readonly JoinPointInterface $joinPoint)
+            {
+            }
+
+            public function stack(): array
+            {
+                return [$this->joinPoint];
+            }
+        };
+        $pointcut = new class extends StubPointcut {
+            /** @var list<JoinPointInterface>|null */
+            public ?array $stack = null;
+
+            public function __construct()
+            {
+                parent::__construct(true, true, true);
+            }
+
+            public function matchesRuntime(RuntimeMatchContext $ctx): bool
+            {
+                $this->stack = $ctx->controlFlow->stack();
+
+                return true;
+            }
+        };
+        $guard = new RuntimeGuardInterceptor($pointcut, new PassThroughInterceptor(), Jp::ctx(UserService::class, 'findUser'), $flow);
+
+        Jp::invocation(new UserService(), 'findUser', [], [$guard], static fn (array $a): null => null)->proceed();
+
+        self::assertSame([$joinPoint], $pointcut->stack);
     }
 }

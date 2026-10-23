@@ -136,6 +136,24 @@ final class ParameterBinderTest extends TestCase
     }
 
     #[Test]
+    public function staticPartParameterBindsTheJoinPointsStaticPart(): void
+    {
+        $jp = $this->joinPoint();
+
+        $arguments = $this->plan('withStaticPart')->resolve($jp, ['id' => 5]);
+
+        self::assertSame([$jp->getStaticPart(), 5, $jp], $arguments->values);
+    }
+
+    #[Test]
+    public function staticPartIsNotABindingCandidate(): void
+    {
+        $advice = $this->advice('withStaticPart');
+
+        self::assertSame(['id' => 'int'], ParameterBinder::bindingCandidates(new \ReflectionMethod(BindingAspect::class, 'withStaticPart'), $advice));
+    }
+
+    #[Test]
     public function unresolvedParameterNamesParameterAndAdviceMethod(): void
     {
         try {

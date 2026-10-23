@@ -8,7 +8,7 @@ use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
 use AOP\Pointcut\StaticMatchContext;
 
-final class StubPointcut implements PointcutInterface
+class StubPointcut implements PointcutInterface
 {
     public function __construct(
         private readonly bool $class = true,

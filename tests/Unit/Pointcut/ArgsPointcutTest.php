@@ -4,15 +4,23 @@ declare(strict_types=1);
 
 namespace AOP\Tests\Unit\Pointcut;
 
+use AOP\JoinPoint\FieldSignature;
+use AOP\JoinPoint\JoinPointData;
+use AOP\JoinPoint\JoinPointKind;
+use AOP\JoinPoint\MethodInvocation;
+use AOP\JoinPoint\StaticPart;
 use AOP\Pointcut\BindingKind;
 use AOP\Pointcut\Expression\PointcutExpressionCompiler;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
+use AOP\Pointcut\StaticMatchContext;
 use AOP\Tests\Fixtures\Hierarchy\Plain;
 use AOP\Tests\Fixtures\Hierarchy\RepositoryInterface;
 use AOP\Tests\Fixtures\Hierarchy\UserRepository;
 use AOP\Tests\Fixtures\Jp;
+use AOP\Tests\Fixtures\Pointcut\Reflect;
 use AOP\Tests\Fixtures\Service\UserService;
+use AOP\Tests\Fixtures\Targets\KindShapes;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -270,5 +278,53 @@ final class ArgsPointcutTest extends TestCase
     public function nonBindingIdentifierIsATypePattern(): void
     {
         self::assertSame([], $this->pc('args(string)', ['id'])->bindings());
+    }
+
+    #[Test]
+    public function fieldSetTakesTheValueAsItsOnlyArgument(): void
+    {
+        $set = new StaticMatchContext(JoinPointKind::FIELD_SET, Reflect::cls(KindShapes::class), null, new \ReflectionProperty(KindShapes::class, 'count'));
+        $get = new StaticMatchContext(JoinPointKind::FIELD_GET, Reflect::cls(KindShapes::class), null, new \ReflectionProperty(KindShapes::class, 'count'));
+
+        self::assertTrue($this->pc('args(int)')->matchesMethod(null, $set));
+        self::assertFalse($this->pc('args(string)')->matchesMethod(null, $set), 'the property is an int');
+        self::assertTrue($this->pc('args(*)')->matchesMethod(null, $set));
+        self::assertFalse($this->pc('args(*, *)')->matchesMethod(null, $set));
+        self::assertTrue($this->pc('args(..)')->matchesMethod(null, $set));
+        self::assertFalse($this->pc('args(int)')->matchesMethod(null, $get), 'a read has no arguments');
+        self::assertTrue($this->pc('args()')->matchesMethod(null, $get));
+    }
+
+    #[Test]
+    public function exceptionHandlersTakeTheExceptionAsTheirOnlyArgument(): void
+    {
+        $handler = new StaticMatchContext(JoinPointKind::EXCEPTION_HANDLER, null, null, null, Reflect::cls(\RuntimeException::class));
+
+        self::assertTrue($this->pc('args(Throwable+)')->matchesMethod(null, $handler));
+        self::assertFalse($this->pc('args(*, *)')->matchesMethod(null, $handler));
+        self::assertFalse($this->pc('args()')->matchesMethod(null, $handler));
+    }
+
+    #[Test]
+    public function matchesRuntimeAgainstTheValueOfAFieldWrite(): void
+    {
+        $static = new StaticMatchContext(JoinPointKind::FIELD_SET, Reflect::cls(KindShapes::class), null, new \ReflectionProperty(KindShapes::class, 'count'));
+        $joinPoint = new MethodInvocation(
+            new JoinPointData(JoinPointKind::FIELD_SET, new KindShapes(), new KindShapes(), new FieldSignature(KindShapes::class, 'count'), new StaticPart(JoinPointKind::FIELD_SET, new FieldSignature(KindShapes::class, 'count'))),
+            [7],
+            [],
+            static fn (array $args): null => null,
+        );
+        $ctx = new RuntimeMatchContext($joinPoint, $static);
+
+        self::assertTrue($this->pc('args(int)')->matchesRuntime($ctx));
+        self::assertFalse($this->pc('args(string)')->matchesRuntime($ctx));
+    }
+
+    #[Test]
+    public function isNotCallerSensitive(): void
+    {
+        self::assertFalse($this->pc('args(int)')->isCallerSensitive());
+        self::assertFalse((new PointcutExpressionCompiler())->compile('@args(Foo)')->isCallerSensitive());
     }
 }
