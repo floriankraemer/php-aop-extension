@@ -21,6 +21,19 @@ php -d extension=$PWD/ext/modules/aop.so -r 'var_dump(extension_loaded("aop"));'
 `make ext` rebuilds when a C source, a header or `config.m4` changes.
 It runs `phpize --clean` first, so the build directory stays consistent.
 
+## Configuration (php.ini)
+
+The extension has three INI settings.
+The README has the same table for users.
+
+| Setting | Default | Changeable | Meaning |
+|---|---|---|---|
+| `aop.enable` | `1` | php.ini or `-d` only (`PHP_INI_SYSTEM`) | `0` installs no hook: no zend_extension, no `zend_execute_ex` override, and the JIT runs. `Weaver::enable()` throws a `RuntimeException`. `phpinfo()` shows "Interception hooks => inactive". |
+| `aop.disable_inlining` | `1` | php.ini or `-d` only (`PHP_INI_SYSTEM`) | With `aop.enable=1`, `1` makes opcache's optimizer leave user functions and methods alone, so opcache never inlines them and their advice runs. `0` allows inlining: a function that only returns a constant can then be inlined at compile time, and its calls may never reach the engine. |
+| `aop.weave_autoload` | `0` | any time (`PHP_INI_ALL`), also `ini_set()` | `1` weaves the calls made while PHP autoloads a class. |
+
+`phpinfo()` shows the state of the first two in the rows "opcache function inlining" and "opcache JIT".
+
 ## Make targets
 
 | Target | What it does |
@@ -43,7 +56,8 @@ The phpunit suites are:
 - `e2e`, in `tests/E2E`. It needs the extension and skips itself without it.
 
 The phpt suite is in `ext/tests`.
-One test, `025-opcache-inlining.phpt`, needs opcache enabled for the CLI.
+`make test-ext` runs it twice: once as it is, and once with opcache enabled for the CLI (`scripts/opcache-args.sh`), because the opcache optimizer changes what reaches the engine.
+The tests that need opcache (`025`, `122`, `200` to `203`) skip themselves when it is not loaded.
 
 ## Variables
 

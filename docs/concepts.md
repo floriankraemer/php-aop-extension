@@ -33,12 +33,13 @@ Every join point has a kind.
 | `function-execution` | `FUNCTION_EXECUTION` | A user or internal function runs. | `execution(* name(..))` | Stable |
 | `function-call` | `FUNCTION_CALL` | A call site calls a function. | `call(* name(..))` | Stable |
 | `advice-execution` | `ADVICE_EXECUTION` | An advice method runs. | `adviceexecution()` | Stable |
-| `initialization` | `INITIALIZATION` | `new` creates an object of a class without a constructor. | `initialization()` | Experimental, not emitted by this build |
-| `field-get`, `field-set` | `FIELD_GET`, `FIELD_SET` | A property is read or written. | `get()`, `set()` | Experimental, not in this build |
-| `exception-handler` | `EXCEPTION_HANDLER` | A `catch` clause catches an exception. | `handler()` | Experimental, not in this build |
+| `initialization` | `INITIALIZATION` | `new` creates an object of a class without a constructor. | `initialization()` | Implemented |
+| `field-get`, `field-set` | `FIELD_GET`, `FIELD_SET` | A property is read or written. | `get()`, `set()` | Implemented; PHP 8.4 and 8.5 in progress |
+| `exception-handler` | `EXCEPTION_HANDLER` | A `catch` clause catches an exception. | `handler()` | Implemented |
 
 `isCall()` and `isExecution()` tell the two families apart.
-The experimental kinds are described in [limitations.md](limitations.md#experimental-features).
+The last three kinds were checked on PHP 8.3.
+Their limits are described in [limitations.md](limitations.md#fields-handlers-initialization-and-introductions).
 
 ## Call versus execution
 

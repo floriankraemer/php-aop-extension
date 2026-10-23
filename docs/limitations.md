@@ -1,6 +1,6 @@
 # Limitations
 
-This page lists what the engine cannot intercept, what is still experimental, and the known issues.
+This page lists what the engine cannot intercept, the limits of the fields, handler, initialization and introduction join points, and the known issues.
 Read it before you rely on a pattern in production.
 
 The statements here describe this build.
@@ -27,13 +27,15 @@ Turn the JIT off in production if the extension is loaded, to avoid the warning.
 Opcache can inline a call to a function whose body is only `return <constant>;`.
 The call then never reaches the engine, so no advice runs.
 
-Here `constantBody()` returns a string literal, and the call is inlined at compile time.
-The extension's test `ext/tests/025-opcache-inlining.phpt` shows it, and the `constantBody()` call never reaches the engine.
+The extension prevents this by default.
+The setting `aop.disable_inlining` (default `1`, see [building.md](building.md#configuration-phpini)) keeps opcache from inlining calls to user functions and methods, so advice runs for them.
+With `aop.disable_inlining=0`, opcache may inline such a call at compile time, and the advice does not run.
+The extension's tests show both settings: `ext/tests/025-opcache-inlining.phpt` (default: the call is advised) and `ext/tests/200-opcache-inlining-allowed.phpt` (allowed: the call is inlined).
 
+Two cases remain with the default setting:
 
-The extension's test `ext/tests/025-opcache-inlining.phpt` shows the behaviour.
-Set `opcache.optimization_level=0x7FFE3FFF` to keep these calls.
-With that level, both calls reached the engine when checked.
+- Scripts compiled by a process without the extension, and cached in a shared `opcache.file_cache`, keep their inlined calls.
+- Internal functions compiled to dedicated opcodes are not affected by the setting (see the next section).
 
 ### Compiler-specialised internal functions
 
@@ -98,6 +100,7 @@ Deep recursion reaches the stack limit sooner than without the extension.
 The package supports PHP 8.3, 8.4 and 8.5, the versions in the release matrix.
 [building.md](building.md) describes the Docker matrix that builds and tests them.
 Only PHP 8.3 NTS was built and tested in the development environment for this release.
+Field interception on PHP 8.4 and 8.5 is in progress (see [fields](#fields)).
 
 ## Not applicable in PHP
 
@@ -106,21 +109,73 @@ Only PHP 8.3 NTS was built and tested in the development environment for this re
 | `preinitialization()`, `staticinitialization()` | PHP has no such moments. Constructor arguments are evaluated before the constructor, and there are no static initializers that run in a fixed order. The compiler rejects both with `UnsupportedPointcutDesignatorException`. |
 | Proxy-based restrictions | None. There are no proxies, so `final` classes, private methods and self-invocation are advised. |
 
-## Experimental features
+## Fields, handlers, initialization and introductions
 
-These features are part of the design, but this build does not provide them yet.
-Their designators and classes exist, and some of them compile.
-They have no runtime effect in this build.
+These join points are implemented in the engine.
+The checks behind this section ran on PHP 8.3.6 NTS.
+Field interception on PHP 8.4 and 8.5 is in progress, so do not rely on field advice there yet.
 
-| Feature | Designator or API | Status in this build |
-|---|---|---|
-| Field read and write | `get()`, `set()`, `field-get`, `field-set` | Compiles. Advice does not run. `AOP\Engine::fieldInterceptionAvailable()` returns `false`. |
-| Exception handlers | `handler()`, `exception-handler` | Compiles. Advice does not run. |
-| Constructor-less initialization | `initialization()` for a class without a constructor, `#[Configurable]` on such a class | Not emitted. The class is not configured. |
-| Introductions | `#[DeclareParents]`, `declare-parents`, `DefaultIntroductionAdvisor` | Accepted. `instanceof` the introduced interface stays `false`. |
+### Fields
 
-Use these designators only when you can test the result in your own environment.
-The rest of the documentation does not depend on them.
+`get()` and `set()` see the accesses listed in [pointcuts](pointcuts.md#get-and-set) (reads, writes, compound assignments and increments).
+They do not see the following.
+
+| Not covered | Why |
+|---|---|
+| `isset()`, `empty()`, `unset()`, `property_exists()` | Other handlers, not field accesses. |
+| Static properties | Not field join points. |
+| `foreach ($object as ...)`, `get_object_vars()`, `(array)`, `var_dump()`, `serialize()`, `json_encode()` | Other handlers. |
+| Objects created before `enable()` | Only objects created by `new` after `enable()` are wrapped. |
+| Objects created without `new`: `unserialize()`, `ReflectionClass::newInstanceWithoutConstructor()`, `PDO` fetch into an object, internal code | They never run the hook that wraps the object. |
+| Objects of a class that no `get()` or `set()` pointcut can match | The class is probed once, on `new`, and only matching classes are wrapped. |
+| Objects of internal classes with handlers of their own (`Throwable`, `Closure`, `ArrayObject`, `DateTime` and others), and their subclasses | The engine keeps their handlers. |
+
+Other behaviour:
+
+- Accessibility is checked first.
+  A property that the accessing code cannot see is not a join point; PHP raises its usual error, or calls `__get()` or `__set()`.
+- `__get()` and `__set()` run inside the original access, and their own accesses are join points.
+- Clones of wrapped objects stay wrapped.
+
+Known limitation: a property access site that first runs on an uncovered object of a class (for example a getter called on an object created before `enable()`) keeps skipping the advice for covered objects of that class, until an object of another class passes the same site (`ext/tests/105-fields-coverage.phpt`).
+
+### Exception handlers
+
+- `handler()` is before-only.
+  The advice's return value is ignored, and `OriginalCall` does nothing.
+- An exception thrown by the advice replaces the caught exception.
+  It propagates from the `catch` clause, the `finally` block of that `try` runs, and the caught exception is not attached as `previous`.
+- Covered: a `catch` clause that catches the exception in flight.
+  Not covered: a `try` with `finally` and no matching `catch`, `exit()`, and code in the `AOP\` namespace.
+- A `catch` clause whose class is not loaded never matches.
+
+### Initialization
+
+- `initialization()` matches `new` of a class without a constructor.
+  Abstract classes, interfaces and enums are not covered: the original code raises its usual error.
+- A class that inherits a constructor is matched through the constructor join points, as before.
+- `new` in the `AOP\` namespace is not covered.
+- Objects created with `unserialize()` or `newInstanceWithoutConstructor()` do not run `new`, so they are not covered.
+- If advice throws, `new` is aborted: the object is released without calling its destructor, as with a failed constructor.
+
+### Introductions
+
+`#[DeclareParents]` and `declare-parents` make a class implement an interface, and forward the methods the class does not declare to a default implementation.
+
+- The rules are compile-time.
+  `enable()` sends them to the engine, and so does a change to the Weaver while it is enabled.
+  Only files compiled afterwards are changed, so load the target classes after `enable()`.
+- Opcache stores the changed code with the file.
+  After you change the rules, reset opcache (`opcache_reset()`, or restart the server), or later requests keep the old code.
+- Covered: class declarations whose name matches the type pattern.
+  Not covered: interfaces, traits, enums and anonymous classes.
+- A method that the class declares, or that a parent class implements, wins over the default implementation.
+- A trait method is shadowed by the default implementation, because traits are unknown at compile time.
+- A `static` return type fails, unless the default implementation's method returns the object.
+- A `final` parent method with the same name is an inheritance error.
+- A woven class implements an interface, so it is no longer early-bound: it cannot be used before its declaration in the same file.
+- Parameter attributes are not copied to the introduced methods.
+- The Spring `DefaultIntroductionAdvisor` does not introduce the interface. `instanceof` stays `false`, and the interface's methods are not defined on the class. Use `#[DeclareParents]` or `declare-parents` instead.
 
 ## Known issues
 
@@ -131,7 +186,8 @@ Each one lists how it shows up, and a workaround where there is one.
 
 Calls made while PHP autoloads a class are not intercepted, so a broad pattern such as `execution(* *(..))` does not advise the autoloader or the internal functions it calls.
 The runtime loads its own classes lazily during dispatch; weaving the autoloader would re-enter the dispatcher.
-Set `aop.weave_autoload=1` (any INI level) to weave class loading anyway, with an aspect that cannot recurse into itself.
+Set `aop.weave_autoload=1` to weave class loading anyway, with an aspect that cannot recurse into itself.
+The setting is `PHP_INI_ALL`, so `ini_set()` at run time works too.
 
 Runaway recursion through advised code raises PHP's `Maximum call stack size` `Error` (PHP 8.3+ stack limit) instead of crashing.
 
