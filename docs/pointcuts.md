@@ -324,7 +324,7 @@ get(private * App\Account::$*)
 
 Fields are covered only for objects created with `new` after `enable()`.
 [limitations](limitations.md#fields) lists what is not covered.
-The checks ran on PHP 8.3; field interception on PHP 8.4 and 8.5 is in progress.
+This works on PHP 8.3, 8.4 and 8.5; for property hooks and lazy objects (8.4+) see [limitations](limitations.md#fields).
 
 [`examples/27-fields.php`](../examples/27-fields.php) shows a `set()` advice that refuses a write and a `get()` advice that changes a read.
 

@@ -34,7 +34,7 @@ The status column says whether the feature is supported in this build.
 | AspectJ `if()` | `if(C::m())` | Supported. |
 | AspectJ `initialization` | `initialization()` | Supported, for constructors and for classes without a constructor. |
 | AspectJ `adviceexecution()` | `adviceexecution()` | Supported. |
-| AspectJ `handler`, `get`, `set` | Same names | Supported. Fields are checked on PHP 8.3; PHP 8.4 and 8.5 are in progress. See [limitations](limitations.md#fields-handlers-initialization-and-introductions). |
+| AspectJ `handler`, `get`, `set` | Same names | Supported on PHP 8.3, 8.4 and 8.5. See [limitations](limitations.md#fields-handlers-initialization-and-introductions). |
 | AspectJ `preinitialization`, `staticinitialization` | Rejected with `UnsupportedPointcutDesignatorException` | Not applicable, see below. |
 | `ControlFlowPointcut` (Spring API) | `AOP\Pointcut\Api\ControlFlowPointcut` | Supported. Execution-only and control-flow aware like `cflow()`, see [spring-api.md](spring-api.md#control-flow). |
 

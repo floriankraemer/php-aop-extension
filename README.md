@@ -228,7 +228,7 @@ The most relevant points:
 - Functions that return by reference, closures and arrow functions are not advised.
 - The `AOP\` namespace is never woven.
 - Class loading is not woven by default (`aop.weave_autoload=1` changes that).
-- Field interception is checked on PHP 8.3 only so far. PHP 8.4 and 8.5 support for fields is in progress.
+- On PHP 8.4+, a hooked property access is one field join point around the whole hooked access; lazy objects created by `newLazyGhost()`/`newLazyProxy()` are not covered.
 
 ## Documentation
 
