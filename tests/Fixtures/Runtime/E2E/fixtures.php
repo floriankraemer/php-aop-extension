@@ -103,6 +103,7 @@ function shout(string $text, string $suffix = '!'): string
 
 /**
  * Calls everything from code outside the AOP\ namespace, so the engine sees a caller it may intercept.
+ * Methods whose body is otherwise pure are marked impure: tests call them for the advice they trigger.
  */
 final class Driver
 {
@@ -126,6 +127,7 @@ final class Driver
         return Service::counted();
     }
 
+    /** @phpstan-impure */
     public function sealed(Service $s): string
     {
         return $s->sealed();
@@ -154,11 +156,13 @@ final class Driver
         return $s->sealed().$s->sealed();
     }
 
+    /** @phpstan-impure */
     public function outer(Pipeline $p): string
     {
         return $p->outer();
     }
 
+    /** @phpstan-impure */
     public function inner(Pipeline $p): string
     {
         return $p->inner();
@@ -179,6 +183,7 @@ final class Driver
         return new PlainWidget();
     }
 
+    /** @phpstan-impure */
     public function final(FinalService $s): string
     {
         return $s->hello();

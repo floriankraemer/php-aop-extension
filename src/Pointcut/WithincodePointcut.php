@@ -40,7 +40,7 @@ final class WithincodePointcut implements PointcutInterface
         }
         $function = $ctx->caller?->function;
 
-        return null !== $function && $this->pattern->matches($function, $ctx->caller?->class);
+        return null !== $function && $this->pattern->matches($function, $ctx->caller->class);
     }
 
     public function isRuntime(): bool
