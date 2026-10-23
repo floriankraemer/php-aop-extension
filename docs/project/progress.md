@@ -12,8 +12,8 @@ Work happens on branch `initial-implementation`; each stream works in its own lo
 | B | PHP model: join point kinds, signatures, nullable this/target, generalised pointcut interface, programmatic advisors | sonnet | done, merged |
 | C | Build & release: Makefile (dist, test-all), Docker, ci.yml, release.yml, semver gate | sonnet | done, merged |
 | D | NativeRuntime + Weaver, instantiation models, precedence, declare warning/error, per-instance advice | sonnet | running |
-| E | New designators: call, withincode, @withincode, @this, cflow, cflowbelow, if, initialization, adviceexecution, handler, get, set | sonnet | running |
-| F | Spring API layer: pointcut/advice/advisor APIs, adapters, target sources, array config, #[Configurable] | sonnet | running |
+| E | New designators: call, withincode, @withincode, @this, cflow, cflowbelow, if, initialization, adviceexecution, handler, get, set | sonnet | done, merged |
+| F | Spring API layer: pointcut/advice/advisor APIs, adapters, target sources, array config, #[Configurable] | sonnet | done, merged |
 | G | C experimental: field get/set, handler(), ctor-less initialization, introductions | opus | running |
 | H | PHP 8.4/8.5 compatibility, test-all on 8.3/8.4/8.5 × NTS/ZTS, opcache inlining, JIT notice | opus | running |
 | I | Docs + examples | haiku | waits for D, E, F, G |
@@ -32,10 +32,14 @@ Work happens on branch `initial-implementation`; each stream works in its own lo
 - Merged stream A (`c4ea6b7`, `c779d15`, `8a629c4`): `AOP\Engine`, `AOP\OriginalCall`, execute_ex/execute_internal hooks, decision cache with the caller-sensitive protocol, raw args, frame teardown. 24 phpt pass (+1 opcache-only), valgrind clean (with and without opcache), `-Wall -Wextra` clean. Engine decisions recorded in the contract ("Engine notes (stream A)"). Known limits: opcache inlines `return <const>;` functions (pass 16), JIT is disabled while hooks are active, frame-inspecting internals (`compact`, `extract`, ...) break when advised.
 - Started streams G (fields, handlers, introductions in C) and H (8.4/8.5/ZTS compat, opcache inlining, JIT).
 
+- Merged stream E (`e3819b8`): `call`, `withincode`, `@withincode`, `@this`, `cflow`, `cflowbelow`, `if`, `initialization`, `adviceexecution`, `handler`, `get`, `set`; `preinitialization`/`staticinitialization` rejected with an explanation. Runtime API: `ControlFlowPointcuts::of()`, `OutermostAwareInterface`, `if()` resolution against the declaring aspect. Contract section "Pointcut notes (stream E)".
+- Merged stream F (`5f75ab7`): `Pointcut\Api` (ClassFilter/MethodMatcher, static/dynamic bases, composable, regexp, name-match, attribute, control-flow, expression), `Advice\Api` (MethodInterceptor, before, after-returning, after, ThrowsAdvice, introduction interceptor), `Advisor\Api` (adapter registry, default/regexp/name-match/introduction advisors, `toAdvisor()`), target sources (singleton, hot-swappable, prototype, pooling, fiber-local, stand-in), `Config\ConfigLoader` (schema-style arrays), `#[Configurable]`. Contract section "Spring API integration (stream F)".
+- After merging E and F: 1051 unit tests, phpstan max and cs clean. Settled in the contract: ctor-less `initialization` passes the new object as `$this`.
+
 ## Still to do
 - Merge G and H.
 - Before the first tag: move the CHANGELOG `Unreleased` entries into a version section (release notes come from it).
-- Merge D, E, F; wire `Weaver::fromConfig()`, target sources and `#[Configurable]` into the Weaver (F's integration points).
+- Merge D after it integrates E (TRACK via `ControlFlowPointcuts::of`, `OutermostAwareInterface`) and F (`fromConfig`/`addConfig`, `advised()` for target-source stand-ins, `#[Configurable]`).
 - E2E tests with the real extension; valgrind run.
 - 8.4/8.5 compatibility; CI green on all cells.
 - Docs and examples (I), final review (J).
