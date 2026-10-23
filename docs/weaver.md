@@ -25,6 +25,8 @@ A Weaver created without the extension loaded still works as a configuration obj
 
 `enable()` also throws `AspectDefinitionException` when an advisor can match `get()`, `set()` or `initialization()` join points and the active backend cannot intercept them.
 This is the case under the default `aop.interception=woven`.
+Without the extension, or with `aop.enable=0`, `enable()` reports that instead, and the hint to set `aop.interception=hook` appears only when the woven backend is active.
+`true`, `within()`, `this()`, `target()`, `configurable()` and `@annotation()` on an attribute that can also sit on methods are accepted; see [limitations.md](limitations.md#backends) for what they see under `woven`.
 The message names the advisor and the setting:
 
 ```text

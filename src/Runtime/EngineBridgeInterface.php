@@ -22,6 +22,12 @@ interface EngineBridgeInterface
     public function reset(): void;
 
     /**
+     * False when there is no engine (extension not loaded) or interception is switched off (`aop.enable=0`):
+     * register() reports that. When true, fieldInterceptionAvailable() tells which backend runs.
+     */
+    public function interceptionActive(): bool;
+
+    /**
      * False when the engine cannot intercept field reads/writes and `initialization` of classes without constructor
      * (`aop.interception=woven`, the default), or when there is no engine.
      */

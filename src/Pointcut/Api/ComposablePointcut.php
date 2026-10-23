@@ -6,9 +6,9 @@ namespace AOP\Pointcut\Api;
 
 use AOP\Pointcut\AndPointcut;
 use AOP\Pointcut\ControlFlowAwareInterface;
+use AOP\Pointcut\ControlFlowPointcuts;
 use AOP\Pointcut\FieldInterception;
 use AOP\Pointcut\FieldInterceptionAwareInterface;
-use AOP\Pointcut\ControlFlowPointcuts;
 use AOP\Pointcut\OrPointcut;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;

@@ -6,11 +6,11 @@ namespace AOP\Pointcut\Api;
 
 use AOP\Exception\PointcutSyntaxException;
 use AOP\Pointcut\ControlFlowAwareInterface;
-use AOP\Pointcut\FieldInterception;
-use AOP\Pointcut\FieldInterceptionAwareInterface;
 use AOP\Pointcut\ControlFlowPointcuts;
 use AOP\Pointcut\Expression\NamedPointcutResolverInterface;
 use AOP\Pointcut\Expression\PointcutExpressionCompiler;
+use AOP\Pointcut\FieldInterception;
+use AOP\Pointcut\FieldInterceptionAwareInterface;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
 use AOP\Pointcut\StaticMatchContext;
