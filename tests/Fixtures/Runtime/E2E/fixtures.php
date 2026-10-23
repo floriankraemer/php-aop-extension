@@ -21,6 +21,11 @@ final class Journal
     /** @var list<string> */
     public static array $entries = [];
 
+    public static function text(mixed $value): string
+    {
+        return \is_string($value) ? $value : '';
+    }
+
     public static function reset(): void
     {
         self::$entries = [];
@@ -176,13 +181,13 @@ final class JournalAspect
     #[Around('execution(* AopE2E\FinalService::*(..))')]
     public function finalClass(ProceedingJoinPointInterface $pjp): mixed
     {
-        return (string) $pjp->proceed().' (advised)';
+        return Journal::text($pjp->proceed()).' (advised)';
     }
 
     #[Around('execution(* AopE2E\shout(..))')]
     public function func(ProceedingJoinPointInterface $pjp): mixed
     {
-        return $pjp->proceed([(string) $pjp->getArgs()[0].'?']);
+        return $pjp->proceed([Journal::text($pjp->getArgs()[0]).'?']);
     }
 
     #[Before('execution(* str_repeat(..))')]
@@ -222,7 +227,7 @@ final class PerTargetAspect
     {
         ++$this->calls;
 
-        return (string) $pjp->proceed().'#'.$this->calls;
+        return Journal::text($pjp->proceed()).'#'.$this->calls;
     }
 }
 
