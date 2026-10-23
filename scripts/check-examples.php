@@ -11,6 +11,8 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__);
 $php = $argv[1] ?? PHP_BINARY.' -d extension='.escapeshellarg($root.'/ext/modules/aop.so');
+// Examples that use field, initialization or handler advice, which need aop.interception=hook.
+$needsHook = ['04-constructors.php', '27-fields.php', '29-initialization-without-constructor.php'];
 $files = glob($root.'/examples/[0-9][0-9]-*.php') ?: [];
 $failures = 0;
 
@@ -21,7 +23,8 @@ foreach ($files as $file) {
         continue;
     }
     $expected = rtrim($m[1], "\n");
-    $actual = rtrim((string) shell_exec($php.' '.escapeshellarg($file).' 2>&1'), "\n");
+    $command = $php.(in_array(basename($file), $needsHook, true) ? ' -d aop.interception=hook' : '');
+    $actual = rtrim((string) shell_exec($command.' '.escapeshellarg($file).' 2>&1'), "\n");
     if ($actual === $expected) {
         echo "PASS  ", basename($file), "\n";
         continue;
