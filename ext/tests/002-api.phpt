@@ -19,6 +19,8 @@ var_dump(\AOP\Engine::isRegistered());
 \AOP\Engine::unregister();
 
 var_dump(\AOP\Engine::fieldInterceptionAvailable());
+interface I {}
+class Impl implements I {}
 \AOP\Engine::setIntroductions([['typePattern' => 'Foo*', 'interface' => 'I', 'defaultImpl' => 'Impl']]);
 \AOP\Engine::setIntroductions([]);
 
@@ -51,7 +53,7 @@ bool(false)
 bool(true)
 bool(true)
 bool(false)
-bool(false)
+bool(true)
 Error: Call to private AOP\Engine::__construct() from global scope
 Error: Cannot directly construct AOP\OriginalCall
 ReflectionException: Class AOP\OriginalCall is an internal class marked as final that cannot be instantiated without invoking its constructor

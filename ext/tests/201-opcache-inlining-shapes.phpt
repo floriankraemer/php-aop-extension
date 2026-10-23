@@ -26,7 +26,7 @@ final class Svc
 }
 $log = [];
 \AOP\Engine::register(
-    fn (array $jp) => $jp['internal'] ? 0 : 1,
+    fn (array $jp) => $jp['internal'] || !str_ends_with($jp['kind'], '-execution') ? 0 : 1,
     function (array $jp, ?object $self, array $args, \AOP\OriginalCall $original) use (&$log) {
         $log[] = $jp['name'];
         return $jp['name'] === 'run' ? $original($args) : 'advised';

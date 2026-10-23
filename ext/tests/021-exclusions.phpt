@@ -20,6 +20,9 @@ function included_fn() { return 'included_fn'; }
 $names = [];
 \AOP\Engine::register(
     function (array $jp) use (&$names) {
+        if (!str_ends_with($jp['kind'], '-execution')) {
+            return 0; // field probes and initialization (stream G) are not what this test is about
+        }
         if (!$jp['internal']) {
             $names[] = ($jp['class'] ?? '').'::'.$jp['name'];
         }
