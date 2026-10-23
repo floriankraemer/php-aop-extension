@@ -67,6 +67,30 @@ try {
 } catch (\Exception $e) {
     echo 'caught ', $e->getMessage(), "\n";
 }
+
+echo "-- exceptions around internal functions\n";
+\AOP\Engine::register(fn (array $jp) => in_array($jp['name'], ['str_repeat', 'intdiv'], true) ? 1 : 0,
+    function ($jp, $self, $args, $original) {
+        if ($jp['name'] === 'str_repeat') {
+            throw new \UnexpectedValueException('no repeating');
+        }
+        try {
+            return $original($args);
+        } catch (\DivisionByZeroError $e) {
+            return 'div: '.$e->getMessage();
+        }
+    });
+try {
+    $x = str_repeat('a', 2);
+} catch (\UnexpectedValueException $e) {
+    echo 'caught ', $e->getMessage(), "\n";
+}
+var_dump(intdiv(1, 0));
+try {
+    intdiv(PHP_INT_MIN, -1);
+} catch (\ArithmeticError $e) {
+    echo 'propagated ', get_class($e), "\n";
+}
 ?>
 --EXPECTF--
 dispatcher saw: recover
@@ -89,3 +113,7 @@ int(2)
 > level3()
 finally in level1
 caught deep
+-- exceptions around internal functions
+caught no repeating
+string(21) "div: Division by zero"
+propagated ArithmeticError
