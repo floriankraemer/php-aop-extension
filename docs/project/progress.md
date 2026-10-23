@@ -15,7 +15,7 @@ Work happens on branch `initial-implementation`; each stream works in its own lo
 | E | New designators: call, withincode, @withincode, @this, cflow, cflowbelow, if, initialization, adviceexecution, handler, get, set | sonnet | done, merged |
 | F | Spring API layer: pointcut/advice/advisor APIs, adapters, target sources, array config, #[Configurable] | sonnet | done, merged |
 | G | C experimental: field get/set, handler(), ctor-less initialization, introductions | opus | running |
-| H | PHP 8.4/8.5 compatibility, test-all on 8.3/8.4/8.5 × NTS/ZTS, opcache inlining, JIT notice | opus | running |
+| H | PHP 8.4/8.5 compatibility, test-all on 8.3/8.4/8.5 × NTS/ZTS, opcache inlining, JIT notice | opus | done, merged |
 | I | Docs + examples | haiku | running (G features documented as experimental, patched after G) |
 | J | Final integration and verification | coordinator | pending |
 
@@ -38,9 +38,12 @@ Work happens on branch `initial-implementation`; each stream works in its own lo
 
 - Merged stream D (`7c80c2d` … follow-up): `AOP\Weaver` (fromAspects, fromConfig/addConfig, add/remove aspects and advisors, advised(), services, include/exclude, freeze, enable/disable, targetSource(), configurable()), `NativeRuntime` (matcher/dispatcher, call→execution layering, arg normalisation, return-type check, per-Fiber cflow stack and AopContext), scopes singleton/perthis/pertarget/percflow/percflowbelow/pertypewithin, `Ordered`, `#[DeclarePrecedence]`, `#[DeclareWarning]`/`#[DeclareError]`, adviceexecution, outermost constructors. Gates on main: 1146 unit tests, 20/21 e2e with the real extension (1 skipped until stream G emits ctor-less `initialization`), phpstan max and cs clean. Smoke test: final class, private method via self-invocation, static method and a plain function all advised with no proxy.
 
+- Merged stream H (`05896c8`): `ext/aop_compat.h`; phpt green on 8.3.36/8.4.27/8.5.12 × NTS/ZTS in Docker (0 warnings with `-Wall -Wextra`), valgrind clean on 8.4 and 8.5 (natively built CLIs). No engine structure differences affecting the hooks between 8.3 and 8.5. Frameless calls are not emitted while the hook is installed; property hooks pass through; lazy objects are not initialised by advice. New INI `aop.disable_inlining` (default 1) stops opcache from inlining functions so they stay advisable. Startup notice and phpinfo rows explain that the JIT is off while aop is active (`aop.enable=0` keeps it).
+- phpt now runs a second pass with opcache enabled (`scripts/opcache-args.sh`, used by `make test-ext` and `scripts/container-build.sh`, so CI and release builds get it too). Locally on 8.3: 24 pass plain, 29 pass with opcache, 0 failures; e2e 20/21.
+
 ## Still to do
 - Merge G and H.
 - Before the first tag: move the CHANGELOG `Unreleased` entries into a version section (release notes come from it).
 - E2E: re-run after G (ctor-less initialization, fields, handlers, introductions end to end through the Weaver); valgrind run of the phpunit e2e suite.
-- 8.4/8.5 compatibility; CI green on all cells.
+- CI green on all cells after the push (musl, arm64, macOS, Windows, phpunit in containers were not verifiable in the sandbox).
 - Docs and examples (I), final review (J).
