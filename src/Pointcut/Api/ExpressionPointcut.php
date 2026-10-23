@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace AOP\Pointcut\Api;
 
 use AOP\Exception\PointcutSyntaxException;
-use AOP\Pointcut\Expression\NamedPointcutResolverInterface;
-use AOP\Pointcut\Expression\PointcutExpressionCompiler;
 use AOP\Pointcut\ControlFlowAwareInterface;
 use AOP\Pointcut\ControlFlowPointcuts;
+use AOP\Pointcut\Expression\NamedPointcutResolverInterface;
+use AOP\Pointcut\Expression\PointcutExpressionCompiler;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
 use AOP\Pointcut\StaticMatchContext;

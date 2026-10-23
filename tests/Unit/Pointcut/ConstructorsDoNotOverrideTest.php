@@ -13,7 +13,7 @@ use PHPUnit\Framework\TestCase;
 
 class CtorBase
 {
-    public function __construct(int $x = 0)
+    public function __construct()
     {
     }
 
@@ -101,16 +101,23 @@ final class ConstructorsDoNotOverrideTest extends TestCase
         self::assertSame($expected, Shadow::matches(Shadow::compile($expression), $ctx));
     }
 
+    /**
+     * @param class-string $class
+     */
+    private static function callFrom(string $class): StaticMatchContext
+    {
+        return Shadow::method(CtorBase::class, 'run', JoinPointKind::METHOD_CALL, Shadow::caller($class, '__construct'));
+    }
+
     #[Test]
     public function withincodeFollowsTheSameRule(): void
     {
         $base = Shadow::compile('withincode('.self::BASE.'::__construct(..))');
         $plus = Shadow::compile('withincode('.self::BASE.'+::__construct(..))');
-        $callFrom = static fn (string $class): StaticMatchContext => Shadow::method(CtorBase::class, 'run', JoinPointKind::METHOD_CALL, Shadow::caller($class, '__construct'));
 
-        self::assertTrue(Shadow::matches($base, $callFrom(CtorBase::class)));
-        self::assertFalse(Shadow::matches($base, $callFrom(CtorOwn::class)));
-        self::assertTrue(Shadow::matches($plus, $callFrom(CtorOwn::class)));
+        self::assertTrue(Shadow::matches($base, self::callFrom(CtorBase::class)));
+        self::assertFalse(Shadow::matches($base, self::callFrom(CtorOwn::class)));
+        self::assertTrue(Shadow::matches($plus, self::callFrom(CtorOwn::class)));
     }
 
     #[Test]

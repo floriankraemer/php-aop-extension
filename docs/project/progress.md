@@ -44,8 +44,9 @@ Work happens on branch `claude/stoic-goodall-rplkuy`; each stream works in its o
 - Merged stream I (`20df1e9`): README, `docs/` user guide (concepts, pointcuts, advice, weaver, spring-api, target-sources, configuration, spring-mapping, limitations, building), 26 runnable examples in `examples/` whose output is checked. While writing them it found bugs (below).
 - Fixed a segfault found by stream I: `execution(* *(..))` advised the internal functions the Composer autoloader calls while the runtime autoloaded its own classes, recursing until the C stack overflowed. The engine now skips interception while a class is being autoloaded (INI `aop.weave_autoload`, default 0) and passes through when the PHP 8.3+ stack limit is reached, so runaway recursion raises PHP's stack `Error`. Tests 026, 027.
 
+- Fixed the findings of stream I: Spring `ControlFlowPointcut` is execution-only and TRACKed through `ControlFlowAwareInterface`; constructors do not override in method patterns; method patterns take `private`/`static`/`final`/`abstract` and `!`; `RegexpMethodPointcut` takes delimited PCRE and throws on invalid patterns; `||` binding errors name the expression; "bean" docblocks; `AdvisorAdapterInterface::getInterceptor()` accepts both interceptor interfaces; `ConfigurableInterceptor` uses `isOutermost()`.
+
 ## Still to do
-- Fix the remaining findings of stream I: Spring `ControlFlowPointcut` matches call kinds and is never TRACKed; `execution(Base::__construct(..))` matches subclass constructors (constructors do not override in AspectJ); method patterns reject `private`/`static`/`final` modifiers; `RegexpMethodPointcut` silently ignores delimited patterns; `||` branches binding different names are not rejected; docblocks still say "bean"; `AdvisorAdapterInterface::getInterceptor()` naming. (Not a bug: `execution(* Base::run(..))` matching an override of `run` is AspectJ semantics.)
 - Document the INI settings (`aop.enable`, `aop.disable_inlining`, `aop.weave_autoload`) in README/docs.
 - Merge G and H.
 - Before the first tag: move the CHANGELOG `Unreleased` entries into a version section (release notes come from it).

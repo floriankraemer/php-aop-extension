@@ -150,7 +150,7 @@ Constructors use the name `__construct`.
 The return type is omitted.
 
 ```text
-execution(* App\Connection::__construct(..))       // every constructor execution of App\Connection
+execution(* App\Connection::__construct(..))       // the constructor declared by App\Connection
 initialization(App\Connection+)                    // only the outermost constructor of a Connection
 ```
 
@@ -163,7 +163,7 @@ A constructor pattern matches the constructor declared by the named type, like i
 - `call()`, `withincode()` and `initialization()` follow the same rule.
 
 Use `initialization()` when you want one advice call per `new`.
-[`examples/04-constructors.php`](../examples/04-constructors.php) shows the difference.
+[`examples/04-constructors.php`](../examples/04-constructors.php) shows both designators.
 
 ## Designators
 

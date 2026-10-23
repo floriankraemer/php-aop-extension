@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace AOP\Pointcut\Api;
 
 use AOP\Pointcut\AndPointcut;
-use AOP\Pointcut\OrPointcut;
 use AOP\Pointcut\ControlFlowAwareInterface;
 use AOP\Pointcut\ControlFlowPointcuts;
+use AOP\Pointcut\OrPointcut;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
 use AOP\Pointcut\StaticMatchContext;

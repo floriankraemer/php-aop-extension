@@ -109,7 +109,7 @@ final class ConfigurableAspectTest extends TestCase
         $parentConstructor = new \ReflectionMethod(ConfiguredService::class, '__construct');
 
         // ConfiguredChild::__construct() calls parent::__construct(): both are constructor-execution join points
-        $inner = static fn (): MethodInvocation => new MethodInvocation(Jp::data($child, '__construct', JoinPointKind::CONSTRUCTOR_EXECUTION), ['child'], $chain, static fn (array $a): mixed => $parentConstructor->invokeArgs($child, $a));
+        $inner = static fn (): MethodInvocation => new MethodInvocation(Jp::data($child, '__construct', JoinPointKind::CONSTRUCTOR_EXECUTION, outermost: false), ['child'], $chain, static fn (array $a): mixed => $parentConstructor->invokeArgs($child, $a));
         $outer = new MethodInvocation(Jp::data($child, '__construct', JoinPointKind::CONSTRUCTOR_EXECUTION), [], $chain, static function () use ($inner): null {
             Log::add('child-before-parent');
             $inner()->proceed();
@@ -131,9 +131,8 @@ final class ConfigurableAspectTest extends TestCase
         $advisor = $this->aspect()->toAdvisor();
         $chain = $this->chain($advisor);
         $object = (new \ReflectionClass(EarlyConfiguredService::class))->newInstanceWithoutConstructor();
-        $data = Jp::data($object, '__construct', JoinPointKind::CONSTRUCTOR_EXECUTION);
-        $inner = new MethodInvocation($data, [], $chain, static fn (array $a): null => null);
-        $outer = new MethodInvocation($data, [], $chain, static function () use ($inner): null {
+        $inner = new MethodInvocation(Jp::data($object, '__construct', JoinPointKind::CONSTRUCTOR_EXECUTION, outermost: false), [], $chain, static fn (array $a): null => null);
+        $outer = new MethodInvocation(Jp::data($object, '__construct', JoinPointKind::CONSTRUCTOR_EXECUTION), [], $chain, static function () use ($inner): null {
             Log::add('outer-body');
             $inner->proceed();
 
