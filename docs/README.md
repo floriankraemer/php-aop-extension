@@ -18,7 +18,7 @@ Jump to a page when you know what you need.
 | 6 | [Target sources](target-sources.md) | You swap, pool or pool-per-Fiber the target of a call. |
 | 7 | [Configuration](configuration.md) | You describe aspects in an array, or use `#[Configurable]`. |
 | 8 | [Spring and AspectJ mapping](spring-mapping.md) | You port an aspect, or look for the equivalent of a Spring class. |
-| 9 | [Limitations](limitations.md) | You need to know what cannot be intercepted, what is experimental, and the known issues. |
+| 9 | [Limitations](limitations.md) | You need to know what cannot be intercepted, the limits of fields, handlers, initialization and introductions, and the known issues. |
 | 10 | [Building, testing and releasing](building.md) | You build the extension, run the tests, or publish a release. |
 
 The runnable examples are in [examples/](../examples/README.md).

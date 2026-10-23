@@ -98,7 +98,7 @@ Unknown top-level keys are rejected.
 | `order` | The order between aspects. Default `PHP_INT_MAX`, lower runs first. |
 | `scope` | `singleton`, `pertarget` or `perthis`. |
 | `advice` | The advice list. |
-| `declare-parents` | Introductions (experimental, see below). |
+| `declare-parents` | Introductions, see below. |
 
 Exactly one of `class`, `ref` and `instance` must be given.
 Each aspect class can be configured once.
@@ -155,7 +155,36 @@ Pass a `ConfigResult` to `Weaver::addConfig()` when you want to inspect it befor
 ## Introductions
 
 `declare-parents` is the array form of `#[DeclareParents]`.
-Introductions are experimental, and this build does not apply them (see [limitations.md](limitations.md#experimental-features)).
+Each entry has three keys:
+
+| Key | Meaning |
+|---|---|
+| `types-matching` | The type pattern, as in `within()`. |
+| `implement-interface` | The interface that the matching classes get. |
+| `default-impl` | A concrete class that implements the interface, with a public constructor that takes no arguments. Its methods answer the methods the class does not declare. |
+
+```php
+final class Introductions
+{
+    // Only the introduction is declared, so the class needs no methods.
+}
+
+$weaver = Weaver::fromConfig([
+    'aspects' => [
+        [
+            'class' => Introductions::class,
+            'declare-parents' => [
+                ['types-matching' => 'App\Report', 'implement-interface' => Greeting::class, 'default-impl' => DefaultGreeting::class],
+            ],
+        ],
+    ],
+]);
+$weaver->enable();
+```
+
+The rules apply to classes that are compiled after `enable()`, so load the target classes afterwards.
+[`examples/30-introductions.php`](../examples/30-introductions.php) shows the attribute form, with the same rule.
+The limits are described in [limitations](limitations.md#introductions).
 
 ## `#[Configurable]`
 
@@ -211,5 +240,6 @@ The attribute's options are:
 Without `preConstruction`, the configurer runs after the outermost constructor.
 A `parent::__construct()` call is not outermost.
 
-A class without a constructor is configured through the `initialization` join point, which is experimental.
-This build does not emit that join point, so such a class is not configured yet (see [limitations.md](limitations.md#experimental-features)).
+A class without a constructor is configured too.
+Its creation is the `initialization` join point, and the configurer runs right after the object is created.
+[`examples/29-initialization-without-constructor.php`](../examples/29-initialization-without-constructor.php) shows it.

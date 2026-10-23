@@ -27,7 +27,8 @@ The PHP package in `src/`, namespace `AOP\`, holds the model, the pointcut langu
 - Aspects without attributes: a configuration array in the shape of Spring's XML schema.
 - `#[Configurable]` for objects created with `new`.
 - Per-object advice with `Weaver::advised()`.
-- Experimental: field access, exception handlers, constructor-less initialization and introductions. See [limitations](docs/limitations.md#experimental-features).
+- Field access with `get()` and `set()`, exception handlers with `handler()`, and constructor-less `initialization()`.
+- Introductions with `#[DeclareParents]`: a class gets an interface and a default implementation, at compile time.
 
 ## Requirements
 
@@ -76,6 +77,26 @@ Check that it loads:
 ```bash
 php -m | grep aop
 ```
+
+## Configuration (php.ini)
+
+Three INI settings control the extension:
+
+| Setting | Default | Changeable | Meaning |
+|---|---|---|---|
+| `aop.enable` | `1` | php.ini or `-d` only | `0` turns interception off. The hooks are not installed, the JIT runs, and `Weaver::enable()` throws a `RuntimeException`. |
+| `aop.disable_inlining` | `1` | php.ini or `-d` only | `1` keeps opcache from inlining calls to user functions and methods, so their advice runs. `0` lets opcache inline a function that only returns a constant, and then its advice may not run. |
+| `aop.weave_autoload` | `0` | any time, also with `ini_set()` | `1` weaves class loading too. By default the autoloader and the code it runs are not woven. |
+
+```ini
+; php.ini
+extension=/path/to/php-aop-extension/ext/modules/aop.so
+aop.enable=1
+aop.disable_inlining=1
+aop.weave_autoload=0
+```
+
+The [building page](docs/building.md#configuration-phpini) describes the same settings for developers.
 
 ## Quick start
 
@@ -190,7 +211,7 @@ The proxy column describes what that library documents about its proxies.
 | Internal functions and methods | Not supported. | Advised, with the limits described in [limitations](docs/limitations.md). |
 | `call()` join points | Not supported. | Supported. |
 | `cflow()`, `cflowbelow()`, `if()` | Not supported. | Supported. |
-| `initialization()` | Not supported. | Supported for constructors. |
+| `initialization()` | Not supported. | Supported, for constructors and for classes without a constructor. |
 | Requirements | PHP only. | PHP 8.3 to 8.5, and the extension. |
 | Install | Composer. | Composer and the extension (PIE or a prebuilt archive). |
 | Spring AOP API and aspect attributes | Supported. | Supported. |
@@ -201,12 +222,13 @@ The full list is in [docs/limitations.md](docs/limitations.md).
 The most relevant points:
 
 - The JIT is disabled while the extension is loaded.
-- Opcache can inline functions that only return a constant, so no advice runs for them.
+- Opcache inlining of functions that only return a constant is prevented by default (`aop.disable_inlining=1`).
 - Calls compiled to dedicated opcodes, such as `strlen()` in the global namespace, are not intercepted.
 - Functions that inspect their caller's frame, such as `compact()`, fail when advised.
 - Functions that return by reference, closures and arrow functions are not advised.
 - The `AOP\` namespace is never woven.
-- Class loading is not woven (`aop.weave_autoload=1` changes that).
+- Class loading is not woven by default (`aop.weave_autoload=1` changes that).
+- Field interception is checked on PHP 8.3 only so far. PHP 8.4 and 8.5 support for fields is in progress.
 
 ## Documentation
 

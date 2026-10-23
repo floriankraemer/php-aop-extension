@@ -36,9 +36,9 @@ designator      = "execution" "(" methodPattern ")"
                 | "initialization" "(" ( ctorPattern | typePattern [ "+" ] ) ")"
                 | "adviceexecution" "(" ")"
                 | "service" "(" serviceName ")"
-                | "handler" "(" typePattern [ "+" ] ")"                 (* experimental *)
-                | "get" "(" fieldPattern ")"                            (* experimental *)
-                | "set" "(" fieldPattern ")"                            (* experimental *)
+                | "handler" "(" typePattern [ "+" ] ")"
+                | "get" "(" fieldPattern ")"
+                | "set" "(" fieldPattern ")"
                 | "preinitialization" "(" ... ")"                       (* raises an error *)
                 | "staticinitialization" "(" ... ")" ;                  (* raises an error *)
 
@@ -188,8 +188,8 @@ Use `initialization()` when you want one advice call per `new`.
 | `initialization(P)` | The outermost constructor execution of a matching type. | - | `initialization(App\Connection+)` |
 | `adviceexecution()` | The execution of an advice method. | - | `adviceexecution() && within(App\Audit)` |
 | `service(name)` | The object or class registered under a service name. | - | `service(orders.repository)` |
-| `handler(T)` | A `catch` of T. Experimental. | `args(e)` | see [limitations](limitations.md#experimental-features) |
-| `get(F)`, `set(F)` | Reads and writes of a property. Experimental. | `args(v)` for `set` | see [limitations](limitations.md#experimental-features) |
+| `handler(T)` | A `catch` of T. | `args(e)` | [handler()](#handler) |
+| `get(F)`, `set(F)` | Reads and writes of a property. | `args(v)` for `set` | [get() and set()](#get-and-set) |
 | `preinitialization(...)`, `staticinitialization(...)` | Nothing. They raise `UnsupportedPointcutDesignatorException`. | - | - |
 
 The designators apply only to the kinds they name.
@@ -281,7 +281,8 @@ initialization(App\Connection+)
 ```
 
 A `parent::__construct()` call is not outermost, so it does not match.
-For a class without a constructor, the designator relies on the experimental `initialization` join point, which this build does not emit yet.
+For a class without a constructor, the designator matches the creation of the object (the `initialization` join point).
+[`examples/29-initialization-without-constructor.php`](../examples/29-initialization-without-constructor.php) shows it.
 
 ### `adviceexecution()`
 
@@ -302,6 +303,50 @@ service(mail*)              && execution(* App\Mailer::send(..))
 ```
 
 [`examples/17-services.php`](../examples/17-services.php) shows both forms.
+
+### `get()` and `set()`
+
+`get(F)` matches a read of a property, and `set(F)` matches a write.
+`F` is a field pattern: optional modifiers (`public`, `protected`, `private`, `static`, `readonly`, each negated with `!`), an optional type, the declaring type and the property name.
+
+```text
+set(int App\Account::$balance)
+get(?string App\Account::$note)
+get(private * App\Account::$*)
+```
+
+- `get()` advice runs when the property is read.
+  An `around` advice receives the value the read would return, and what it returns is the value the reader gets.
+- `set()` advice runs before the write, and it sees the new value as `args(v)`.
+  Throwing from it keeps the old value.
+- A compound assignment (`+=`, `.=`) and an increment (`++`) are a read followed by a write.
+- Writes through a nested or referenced access (`$o->list[] = 1`, `$r = &$o->p`) are only reported as reads, and the advice cannot change them.
+
+Fields are covered only for objects created with `new` after `enable()`.
+[limitations](limitations.md#fields) lists what is not covered.
+The checks ran on PHP 8.3; field interception on PHP 8.4 and 8.5 is in progress.
+
+[`examples/27-fields.php`](../examples/27-fields.php) shows a `set()` advice that refuses a write and a `get()` advice that changes a read.
+
+### `handler()`
+
+`handler(T)` matches a `catch` clause that catches a `T`.
+With `+`, it also matches a catch of a subclass of `T`.
+The `catch` clause runs the advice first, with the caught exception bound by `args(e)`.
+
+```php
+#[Before('handler(App\Payments\PaymentException) && args(e)')]
+public function log(\Throwable $e, JoinPointInterface $jp): void
+{
+    // ...
+}
+```
+
+The advice of a handler is before-only: its return value is ignored.
+An exception thrown by the advice replaces the caught one, and the catch body does not run.
+[limitations](limitations.md#exception-handlers) describes the details.
+
+[`examples/28-exception-handler.php`](../examples/28-exception-handler.php) shows both the observing and the replacing advice.
 
 ### Attribute designators
 

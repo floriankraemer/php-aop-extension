@@ -200,9 +200,9 @@ caller got: a name is required
 
 ### Introductions
 
-`IntroductionInterceptorInterface` and `DelegatingIntroductionInterceptor` implement introductions, which add an interface to existing classes.
-`DefaultIntroductionAdvisor` attaches one.
-Introductions are experimental, and this build does not apply them (see [limitations.md](limitations.md#experimental-features)).
+`IntroductionInterceptorInterface` and `DelegatingIntroductionInterceptor` answer the calls of an introduced interface.
+`DefaultIntroductionAdvisor` attaches one, but it does not add the interface to the class: `instanceof` stays `false`.
+To make a class implement an interface, use `#[DeclareParents]` or `declare-parents` (see [weaver.md](weaver.md#introductions) and [limitations](limitations.md#introductions)).
 
 ## Advisors
 
@@ -213,7 +213,7 @@ An advisor joins a pointcut, advice and an order.
 | `DefaultPointcutAdvisor` | `(PointcutInterface\|string $pointcut, object $advice, int $order = PHP_INT_MAX, ?string $id = null, AdvisorAdapterRegistry $adapters)` | Any pointcut. |
 | `RegexpMethodPointcutAdvisor` | `(string\|array $patterns, object $advice, int $order = PHP_INT_MAX, ?string $id = null, string\|array $excludedPatterns = [], AdvisorAdapterRegistry $adapters)` | Patterns against `Class::method`. |
 | `NameMatchMethodPointcutAdvisor` | `(string\|array $mappedNames, object $advice, int $order = PHP_INT_MAX, ?string $id = null, AdvisorAdapterRegistry $adapters)` | Method names, on any class. |
-| `DefaultIntroductionAdvisor` | `(IntroductionInterceptorInterface $interceptor, array $interfaces, ...)` | Introductions (experimental). |
+| `DefaultIntroductionAdvisor` | `(IntroductionInterceptorInterface $interceptor, array $interfaces, ...)` | Routes calls through the interceptor; does not add the interface. |
 
 - The id defaults to the advice class and a counter, such as `App\Audit#3`.
   Give an id when you want to remove the advisor later.

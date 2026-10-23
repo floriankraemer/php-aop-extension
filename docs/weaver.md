@@ -161,9 +161,9 @@ See [pointcuts.md](pointcuts.md#compiling-expressions-directly).
 
 ## Introductions
 
-`introductionRules()` returns the `#[DeclareParents]` rules of the registered aspects.
-Introductions are experimental.
-This build does not apply them (see [limitations.md](limitations.md#experimental-features)).
+`introductionRules()` returns the `#[DeclareParents]` and `declare-parents` rules of the registered aspects.
+`enable()` sends them to the engine.
+They apply to the classes compiled afterwards (see [limitations](limitations.md#introductions)).
 
 ## Errors
 
