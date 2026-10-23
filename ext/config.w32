@@ -1,0 +1,8 @@
+// config.w32 for the aop extension
+
+ARG_ENABLE("aop", "Enable native aspect-oriented programming support", "no");
+
+if (PHP_AOP != "no") {
+	// Keep the source list in sync with config.m4.
+	EXTENSION("aop", "aop.c", PHP_AOP_SHARED, "/DZEND_ENABLE_STATIC_TSRMLS_CACHE=1");
+}
