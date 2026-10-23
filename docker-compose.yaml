@@ -3,8 +3,22 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: php-extension-dev
+      args:
+        PHP_TAG: ${PHP_TAG:-8.3-cli-bookworm}
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    container_name: php-aop-extension-dev
+    working_dir: /workspace
     volumes:
-      - ./src:/usr/src/php-extension
-    working_dir: /usr/src/php-extension
+      - .:/workspace
+      - composer-cache:/home/developer/.composer
+    # gdb needs ptrace; valgrind works without extra privileges.
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
     tty: true
+    stdin_open: true
+
+volumes:
+  composer-cache:
