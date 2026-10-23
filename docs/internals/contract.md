@@ -374,3 +374,87 @@ Known limitations:
   suspended until the matcher returns.
 - Observer end handlers are called for advised user frames (`zend_observer_fcall_end`), but this is not covered
   by the tests (no observer extension available in the test setup).
+
+## Pointcut notes (stream E)
+
+New designators of the expression language (`src/Pointcut/**`). All return `false` for kinds they cannot apply to and never throw.
+
+### Grammar additions (EBNF)
+
+```ebnf
+designator      = ...existing...
+                | "call" "(" methodPattern ")"
+                | "withincode" "(" methodPattern ")"
+                | "@withincode" "(" ( typePattern | binding ) ")"
+                | "@this" "(" ( typePattern | binding ) ")"
+                | "cflow" "(" pointcut ")"
+                | "cflowbelow" "(" pointcut ")"
+                | "if" "(" [ className "::" ] identifier "(" ")" ")"
+                | "initialization" "(" ( ctorPattern | typePattern [ "+" ] ) ")"
+                | "adviceexecution" "(" ")"
+                | "handler" "(" typePattern [ "+" ] ")"
+                | "get" "(" fieldPattern ")"
+                | "set" "(" fieldPattern ")"
+                | ( "preinitialization" | "staticinitialization" ) "(" ... ")"   (* UnsupportedPointcutDesignatorException *) ;
+methodPattern   = [ "public" | "protected" ] returnType [ typePattern [ "+" ] "::" ] namePattern "(" paramList ")"
+                | [ "public" | "protected" ] typePattern [ "+" ] "::__construct" "(" paramList ")" ;   (* constructor: no return type *)
+ctorPattern     = [ "public" | "protected" ] typePattern [ "+" ] "::__construct" "(" paramList ")" ;
+fieldPattern    = { fieldModifier } [ [ "?" ] typePattern [ "+" ] ] typePattern [ "+" ] "::" "$" namePattern ;
+fieldModifier   = "public" | "protected" | "private" | "static" | "readonly" ;
+```
+
+`methodPattern` is the existing `execution()` pattern; a constructor pattern may omit the return type (also in `execution()`).
+`$name` is a new token (`TokenType::Variable`), `*` is allowed in the name. `Lexer::DESIGNATORS` lists all designators, including the two unsupported ones.
+AST: `CallNode`/`WithincodeNode` wrap an `ExecutionNode`; `AtThisNode`, `AtWithincodeNode`, `CflowNode(inner, below)`, `IfNode(?class, method)`,
+`InitializationNode(modifier, declaringType, params)` (the shorthand `Foo+` is the same node with `(..)`), `AdviceExecutionNode`, `HandlerNode`,
+`GetNode`/`SetNode` over `FieldPatternNode(modifiers, ?type, declaringType, namePattern)`.
+
+### Designators
+
+| Designator | Kinds it matches | Runtime | Caller-sensitive | Bindings |
+|---|---|---|---|---|
+| `execution(P)` | `method-`/`constructor-`/`function-execution` only | no | no | - |
+| `call(P)` | `method-`/`constructor-`/`function-call` (P describes the callee) | no | no | - |
+| `withincode(P)` | all; enclosing function = executing function for execution kinds, `initialization` and `advice-execution`, else `$caller->function` (false when unknown) | no | **yes** | - |
+| `@withincode(A\|b)` | same enclosing function carries attribute A | only with binding | **yes** | `b` = attribute instance (`BindingKind::AT_WITHINCODE`) |
+| `@this(A\|b)` | class of the executing (call kinds: calling) object carries A; false for static code, functions, unknown caller | only with binding | **yes** | `b` = attribute instance (`AT_THIS`) |
+| `cflow(p)` / `cflowbelow(p)` | any kind (decided at runtime) | **always** | no (entries are matched with their own recorded caller) | the bindings of `p` |
+| `if(C::m())` / `if(m())` | any kind | **always** | no | - |
+| `initialization(P)` | `initialization`; `constructor-execution` if outermost | **always** | no | - |
+| `adviceexecution()` | `advice-execution` | no | no | - |
+| `handler(T)` | `exception-handler` with a caught type matching T (`T+`: or a subtype) | no | no | `args(e)` binds the exception |
+| `get(F)` / `set(F)` | `field-get` / `field-set` (class prefilter accepts both field kinds) | no | no | `set`: `args(v)` is the new value |
+| `service(n)` | any kind of a registered service | no | no | - |
+
+`!` refuses bindings (`BindingException`), `||` branches must bind the same names, `&&`/`||`/`!` are runtime when a child is and caller-sensitive when a child is.
+
+### API for the runtime (stream D)
+
+* **cflow**: `AOP\Pointcut\ControlFlowPointcuts::of(PointcutInterface): list<PointcutInterface>` returns the inner pointcuts of every `cflow`/`cflowbelow`
+  in a pointcut tree, nested ones included (empty for pointcuts that do not implement `ControlFlowAwareInterface::cflowPointcuts()`; And/Or/Not and
+  `CflowPointcut` do). Give a join point the `TRACK` bit when `inner->matchesClass($class, $ctx) && inner->matchesMethod($function, $ctx)` for one of
+  them (the static half; the runtime half is evaluated when the cflow is consulted). Keep tracked join points on `ControlFlowInterface::stack()` of the
+  current Fiber while they are active, the **current join point last**. A runtime pointcut is evaluated by `matchesRuntime()` on a
+  `RuntimeMatchContext` whose control flow is that stack; `cflowbelow` drops the last entry, so the last entry must be the context's own join point.
+  Entries are matched by rebuilding their `StaticMatchContext` from `getSignature()`, `getTarget()`/`getThis()` and `getEnclosingStaticPart()`
+  (`StaticContextFactory`), so those must be filled in (the enclosing static part gives `within`/`withincode`/`@this` of call, field and handler entries
+  their caller). The innermost matching entry provides the bound values. `cflow` over an empty stack is false.
+* **initialization / outermost**: for `constructor-execution` the pointcut is true only if `RuntimeMatchContext::isOutermost()`. That returns true unless
+  the context's join point implements `AOP\Pointcut\OutermostAwareInterface { isOutermost(): bool }`. The runtime marks a `parent::__construct()` execution
+  (descriptor `outermost => false`) by making its `JoinPointInterface` implement that interface and return false. `initialization` kinds are never filtered.
+  The static half matches constructor executions of the *declaring* class (or the runtime class) of the constructor, so `Foo::__construct` run for a
+  subclass object via `parent::` still matches statically and is rejected at runtime.
+* **if()**: `PointcutExpressionCompiler::compile($expr, $names, $declaringAspect, $resolver)` resolves the short form `if(m())` against `$declaringAspect`
+  (inside a named pointcut that is the class of the named pointcut, like `fromAspect`); an empty aspect or a bad method (missing, not static, return type
+  other than `bool`, parameter other than one `JoinPointInterface`) throws `PointcutSyntaxException` at compile time. At runtime the static method is
+  called with the current `JoinPointInterface` if it declares a parameter; a non-bool result throws `\UnexpectedValueException`. The pointcut is runtime
+  with a static part of `true`, so wrap it in the `RuntimeGuardInterceptor` like every runtime pointcut.
+* **get/set**: the engine's class probe (`kind => field-get, name => *`) is answered by `matchesClass()`, which accepts both field kinds, so `set()`-only
+  aspects still get their classes wrapped. The full decision is `matchesMethod(null, $ctx)` with `$ctx->property` set.
+* **handler**: `StaticMatchContext::$caughtType` must be set; `matchesClass()` passes a probe without it.
+* **adviceexecution**: `StaticMatchContext::$function` is the advice method and `$targetClass` the aspect class, so `within(Aspect)` narrows it.
+
+### Shared files touched by stream E
+
+`src/Pointcut/**`, `tests/Unit/Pointcut/**`, `tests/Fixtures/Pointcut/**`, this section. `src/Binding/**` and `src/Exception/**` are untouched
+(`BindingKind` gained `AT_THIS` and `AT_WITHINCODE`; `ParameterBinder` only reads binding names).
