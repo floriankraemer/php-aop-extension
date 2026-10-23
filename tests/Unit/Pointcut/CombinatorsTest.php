@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AOP\Tests\Unit\Pointcut;
 
 use AOP\Exception\BindingException;
+use AOP\JoinPoint\JoinPointKind;
 use AOP\Pointcut\AndPointcut;
 use AOP\Pointcut\BindingKind;
 use AOP\Pointcut\BindingSpec;
@@ -16,7 +17,7 @@ use AOP\Pointcut\StaticMatchContext;
 use AOP\Pointcut\TargetPointcut;
 use AOP\Pointcut\TruePointcut;
 use AOP\Tests\Fixtures\Hierarchy\UserRepository;
-use AOP\Tests\Fixtures\Pointcut\Reflect;
+use AOP\Tests\Fixtures\Jp;
 use AOP\Tests\Fixtures\Pointcut\SpyPointcut;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -25,7 +26,7 @@ final class CombinatorsTest extends TestCase
 {
     private function sctx(): StaticMatchContext
     {
-        return new StaticMatchContext(Reflect::cls(UserRepository::class));
+        return Jp::ctx(UserRepository::class, 'find');
     }
 
     private function method(): \ReflectionMethod
@@ -35,7 +36,7 @@ final class CombinatorsTest extends TestCase
 
     private function rctx(): RuntimeMatchContext
     {
-        return new RuntimeMatchContext(new UserRepository(), new UserRepository(), $this->method(), [], $this->sctx());
+        return Jp::runtime(new UserRepository(), 'find', [], $this->sctx());
     }
 
     private function method_(PointcutInterface $p): bool
@@ -206,5 +207,32 @@ final class CombinatorsTest extends TestCase
     public function notHasNoBindings(): void
     {
         self::assertSame([], (new NotPointcut(new SpyPointcut()))->bindings());
+    }
+
+    #[Test]
+    public function callerSensitivityIsOredAcrossCombinators(): void
+    {
+        $plain = new SpyPointcut();
+        $sensitive = new SpyPointcut(callerSensitive: true);
+
+        self::assertFalse((new AndPointcut($plain, $plain))->isCallerSensitive());
+        self::assertTrue((new AndPointcut($plain, $sensitive))->isCallerSensitive());
+        self::assertTrue((new AndPointcut($sensitive, $plain))->isCallerSensitive());
+        self::assertFalse((new OrPointcut($plain, $plain))->isCallerSensitive());
+        self::assertTrue((new OrPointcut($plain, $sensitive))->isCallerSensitive());
+        self::assertTrue((new OrPointcut($sensitive, $plain))->isCallerSensitive());
+        self::assertFalse((new NotPointcut($plain))->isCallerSensitive());
+        self::assertTrue((new NotPointcut($sensitive))->isCallerSensitive());
+        self::assertFalse((new TruePointcut())->isCallerSensitive());
+    }
+
+    #[Test]
+    public function nullClassAndFunctionAreAccepted(): void
+    {
+        $ctx = new StaticMatchContext(JoinPointKind::FUNCTION_EXECUTION, null);
+
+        self::assertTrue((new AndPointcut(new SpyPointcut(), new TruePointcut()))->matchesClass(null, $ctx));
+        self::assertTrue((new NotPointcut(new SpyPointcut(method: false)))->matchesMethod(null, $ctx));
+        self::assertFalse((new NotPointcut(new SpyPointcut()))->matchesMethod(null, $ctx));
     }
 }

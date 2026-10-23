@@ -11,7 +11,6 @@ use AOP\Pointcut\ArgsPointcut;
 use AOP\Pointcut\AtArgsPointcut;
 use AOP\Pointcut\AtTargetPointcut;
 use AOP\Pointcut\AtWithinPointcut;
-use AOP\Pointcut\ServicePointcut;
 use AOP\Pointcut\BindingKind;
 use AOP\Pointcut\BindingSpec;
 use AOP\Pointcut\ExecutionPointcut;
@@ -21,7 +20,6 @@ use AOP\Pointcut\Expression\Ast\ArgsNode;
 use AOP\Pointcut\Expression\Ast\AtArgsNode;
 use AOP\Pointcut\Expression\Ast\AtTargetNode;
 use AOP\Pointcut\Expression\Ast\AtWithinNode;
-use AOP\Pointcut\Expression\Ast\ServiceNode;
 use AOP\Pointcut\Expression\Ast\BindingCandidateNode;
 use AOP\Pointcut\Expression\Ast\ExecutionNode;
 use AOP\Pointcut\Expression\Ast\NodeInterface;
@@ -29,6 +27,7 @@ use AOP\Pointcut\Expression\Ast\NotNode;
 use AOP\Pointcut\Expression\Ast\OrNode;
 use AOP\Pointcut\Expression\Ast\ParamListNode;
 use AOP\Pointcut\Expression\Ast\ReferenceNode;
+use AOP\Pointcut\Expression\Ast\ServiceNode;
 use AOP\Pointcut\Expression\Ast\TargetNode;
 use AOP\Pointcut\Expression\Ast\ThisNode;
 use AOP\Pointcut\Expression\Ast\TypePatternNode;
@@ -40,6 +39,7 @@ use AOP\Pointcut\Pattern\NamePattern;
 use AOP\Pointcut\Pattern\ParameterPattern;
 use AOP\Pointcut\Pattern\TypePattern;
 use AOP\Pointcut\PointcutInterface;
+use AOP\Pointcut\ServicePointcut;
 use AOP\Pointcut\TargetPointcut;
 use AOP\Pointcut\ThisPointcut;
 use AOP\Pointcut\WithinPointcut;
@@ -94,24 +94,119 @@ final class PointcutExpressionCompiler
             $node instanceof OrNode => new OrPointcut($this->build($node->left, $names, $aspect, $resolver, $stack), $this->build($node->right, $names, $aspect, $resolver, $stack)),
             $node instanceof NotNode => new NotPointcut($this->build($node->inner, $names, $aspect, $resolver, $stack)),
             $node instanceof ReferenceNode => $this->reference($node, $names, $aspect, $resolver, $stack),
-            $node instanceof ExecutionNode => new ExecutionPointcut(
-                new ModifierPattern($node->modifier),
-                null === $node->returnPattern ? null : TypePattern::fromNode($node->returnPattern),
-                null === $node->declaringType ? null : TypePattern::fromNode($node->declaringType),
-                new NamePattern($node->namePattern),
-                ParameterPattern::fromNode($node->params),
-            ),
-            $node instanceof WithinNode => new WithinPointcut(TypePattern::fromNode($node->type)),
-            $node instanceof ThisNode => new ThisPointcut($this->subject($node->subject, BindingKind::THIS, $names)),
-            $node instanceof TargetNode => new TargetPointcut($this->subject($node->subject, BindingKind::TARGET, $names)),
-            $node instanceof AnnotationNode => new AnnotationPointcut($this->subject($node->subject, BindingKind::ANNOTATION, $names)),
-            $node instanceof AtWithinNode => new AtWithinPointcut($this->subject($node->subject, BindingKind::WITHIN, $names)),
-            $node instanceof AtTargetNode => new AtTargetPointcut($this->subject($node->subject, BindingKind::AT_TARGET, $names)),
-            $node instanceof ServiceNode => new ServicePointcut(new NamePattern($node->pattern)),
-            $node instanceof ArgsNode => $this->args($node->params, $names, false),
-            $node instanceof AtArgsNode => $this->args($node->params, $names, true),
-            default => throw new PointcutSyntaxException(sprintf('Unsupported pointcut node %s.', $node::class)),
+            default => $this->leaf($node, $names),
         };
+    }
+
+    /**
+     * Designator node class => name of the method building its pointcut from `(node, names)`.
+     * Add a designator by adding an entry here and the method.
+     *
+     * @return array<class-string<NodeInterface>, string>
+     */
+    private function factories(): array
+    {
+        return [
+            ExecutionNode::class => 'execution',
+            WithinNode::class => 'within',
+            ThisNode::class => 'thisPointcut',
+            TargetNode::class => 'target',
+            AnnotationNode::class => 'annotation',
+            AtWithinNode::class => 'atWithin',
+            AtTargetNode::class => 'atTarget',
+            ServiceNode::class => 'service',
+            ArgsNode::class => 'argsPointcut',
+            AtArgsNode::class => 'atArgs',
+        ];
+    }
+
+    /**
+     * @param array<string, string|null> $names
+     */
+    private function leaf(NodeInterface $node, array $names): PointcutInterface
+    {
+        $method = $this->factories()[$node::class] ?? throw new PointcutSyntaxException(sprintf('Unsupported pointcut node %s.', $node::class));
+        /** @var PointcutInterface $pointcut */
+        $pointcut = $this->{$method}($node, $names);
+
+        return $pointcut;
+    }
+
+    private function execution(ExecutionNode $node): PointcutInterface
+    {
+        return new ExecutionPointcut(
+            new ModifierPattern($node->modifier),
+            null === $node->returnPattern ? null : TypePattern::fromNode($node->returnPattern),
+            null === $node->declaringType ? null : TypePattern::fromNode($node->declaringType),
+            new NamePattern($node->namePattern),
+            ParameterPattern::fromNode($node->params),
+        );
+    }
+
+    private function within(WithinNode $node): PointcutInterface
+    {
+        return new WithinPointcut(TypePattern::fromNode($node->type));
+    }
+
+    private function service(ServiceNode $node): PointcutInterface
+    {
+        return new ServicePointcut(new NamePattern($node->pattern));
+    }
+
+    /**
+     * @param array<string, string|null> $names
+     */
+    private function thisPointcut(ThisNode $node, array $names): PointcutInterface
+    {
+        return new ThisPointcut($this->subject($node->subject, BindingKind::THIS, $names));
+    }
+
+    /**
+     * @param array<string, string|null> $names
+     */
+    private function target(TargetNode $node, array $names): PointcutInterface
+    {
+        return new TargetPointcut($this->subject($node->subject, BindingKind::TARGET, $names));
+    }
+
+    /**
+     * @param array<string, string|null> $names
+     */
+    private function annotation(AnnotationNode $node, array $names): PointcutInterface
+    {
+        return new AnnotationPointcut($this->subject($node->subject, BindingKind::ANNOTATION, $names));
+    }
+
+    /**
+     * @param array<string, string|null> $names
+     */
+    private function atWithin(AtWithinNode $node, array $names): PointcutInterface
+    {
+        return new AtWithinPointcut($this->subject($node->subject, BindingKind::WITHIN, $names));
+    }
+
+    /**
+     * @param array<string, string|null> $names
+     */
+    private function atTarget(AtTargetNode $node, array $names): PointcutInterface
+    {
+        return new AtTargetPointcut($this->subject($node->subject, BindingKind::AT_TARGET, $names));
+    }
+
+    /**
+     * @param array<string, string|null> $names
+     */
+    private function argsPointcut(ArgsNode $node, array $names): PointcutInterface
+    {
+        return $this->args($node->params, $names, false);
+    }
+
+    /**
+     * @param array<string, string|null> $names
+     */
+    private function atArgs(AtArgsNode $node, array $names): PointcutInterface
+    {
+        return $this->args($node->params, $names, true);
     }
 
     /**

@@ -9,6 +9,7 @@ use AOP\Advice\AdviceType;
 use AOP\Exception\BindingException;
 use AOP\JoinPoint\JoinPointInterface;
 use AOP\JoinPoint\ProceedingJoinPointInterface;
+use AOP\JoinPoint\StaticPart;
 use AOP\Pointcut\PointcutInterface;
 
 /**
@@ -17,7 +18,7 @@ use AOP\Pointcut\PointcutInterface;
 final class ParameterBinder
 {
     /**
-     * Parameters that may be bound by the pointcut (name => type name), i.e. neither join point,
+     * Parameters that may be bound by the pointcut (name => type name), i.e. neither join point, static part,
      * `returning` nor `throwing`. Feed this to PointcutExpressionCompiler::compile().
      *
      * @return array<string, string|null>
@@ -48,7 +49,9 @@ final class ParameterBinder
             $name = $parameter->getName();
             $kind = self::joinPointKind($parameter);
 
-            if (null !== $kind) {
+            if (StaticPart::class === $kind) {
+                $slots[] = ['static_part'];
+            } elseif (null !== $kind) {
                 $sawProceeding = $sawProceeding || ProceedingJoinPointInterface::class === $kind;
                 $slots[] = ['jp'];
             } elseif (null !== $advice->returning && $name === $advice->returning) {
@@ -62,7 +65,7 @@ final class ParameterBinder
             } elseif (isset($bindings[$name])) {
                 $slots[] = ['bound', $name];
             } else {
-                throw new BindingException(sprintf('Cannot bind parameter $%s of %s: it is not a JoinPoint, not the returning/throwing parameter and not bound by the pointcut expression "%s".', $name, $id, $advice->expression));
+                throw new BindingException(sprintf('Cannot bind parameter $%s of %s: it is not a JoinPoint or StaticPart, not the returning/throwing parameter and not bound by the pointcut expression "%s".', $name, $id, $advice->expression));
             }
         }
 
@@ -83,12 +86,12 @@ final class ParameterBinder
     }
 
     /**
-     * @return class-string<JoinPointInterface>|null
+     * @return class-string<JoinPointInterface>|class-string<StaticPart>|null
      */
     private static function joinPointKind(\ReflectionParameter $parameter): ?string
     {
         $type = $parameter->getType();
-        if ($type instanceof \ReflectionNamedType && in_array($type->getName(), [JoinPointInterface::class, ProceedingJoinPointInterface::class], true)) {
+        if ($type instanceof \ReflectionNamedType && in_array($type->getName(), [JoinPointInterface::class, ProceedingJoinPointInterface::class, StaticPart::class], true)) {
             return $type->getName();
         }
 

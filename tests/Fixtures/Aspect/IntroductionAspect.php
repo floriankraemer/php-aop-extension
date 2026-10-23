@@ -27,18 +27,18 @@ final class IntroductionAspect
     public function record(JoinPointInterface $jp, Auditable $auditable): void
     {
         $args = $jp->getArgs();
-        $auditable->recordAudit($jp->getSignature()->methodName.'('.(\is_string($args[0] ?? null) ? $args[0] : '').')');
+        $auditable->recordAudit($jp->getSignature()->getName().'('.(\is_string($args[0] ?? null) ? $args[0] : '').')');
     }
 
     #[Before('execution(* AOP\Tests\Fixtures\Introduction\Auditable::*(..))')]
     public function introduced(JoinPointInterface $jp): void
     {
-        Log::add('introduced '.$jp->getSignature()->methodName);
+        Log::add('introduced '.$jp->getSignature()->getName());
     }
 
     #[Before('target(AOP\Tests\Fixtures\Introduction\Auditable) || within(AOP\Tests\Fixtures\Introduction\Auditable+)')]
     public function targetOrWithin(JoinPointInterface $jp): void
     {
-        Log::add('target or within '.$jp->getSignature()->methodName);
+        Log::add('target or within '.$jp->getSignature()->getName());
     }
 }

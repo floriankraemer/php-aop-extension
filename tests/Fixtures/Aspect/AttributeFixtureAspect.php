@@ -12,12 +12,9 @@ use AOP\Attribute\Aspect;
 use AOP\Attribute\Before;
 use AOP\Attribute\Order;
 use AOP\Attribute\Pointcut;
-use AOP\Attribute\Proxyable;
-use AOP\Proxy\ProxyStrategy;
 
 #[Aspect]
 #[Order(10)]
-#[Proxyable(ProxyStrategy::INTERFACE)]
 final class AttributeFixtureAspect
 {
     #[Pointcut('execution(* App\Service\*Service::*(..))')]

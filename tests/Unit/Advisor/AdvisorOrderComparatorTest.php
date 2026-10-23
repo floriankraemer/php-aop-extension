@@ -8,6 +8,7 @@ use AOP\Advice\AdviceDefinition;
 use AOP\Advice\AdviceType;
 use AOP\Advisor\Advisor;
 use AOP\Advisor\AdvisorOrderComparator;
+use AOP\Tests\Fixtures\Pointcut\PassThroughInterceptor;
 use AOP\Tests\Fixtures\Pointcut\StubPointcut;
 use PHPUnit\Framework\TestCase;
 
@@ -89,5 +90,54 @@ final class AdvisorOrderComparatorTest extends TestCase
         $a = self::advisor('A', 'm', AdviceType::BEFORE, 5, 0);
 
         self::assertSame(0, (new AdvisorOrderComparator())($a, $a));
+    }
+
+    public function testProgrammaticAdvisorsSortByOrderThenIdThenTypeDefaultingToAround(): void
+    {
+        $prog = static fn (string $id, int $order, ?AdviceType $type = null): Advisor => new Advisor($id, null, $order, new StubPointcut(), new PassThroughInterceptor(), $type);
+        $aspect = self::advisor('M', 'before', AdviceType::BEFORE, 5, 0);
+
+        self::assertSame(
+            ['early', 'A', 'M::before', 'Z'],
+            $this->sorted([$prog('Z', 5), $aspect, $prog('A', 5), $prog('early', 1)]),
+        );
+        self::assertSame(
+            ['X-after', 'X-around', 'X-before'],
+            $this->sorted([$prog('X-after', 5, AdviceType::AFTER), $prog('X-before', 5, AdviceType::BEFORE), $prog('X-around', 5)]),
+            'ids differ so the id decides before the type',
+        );
+    }
+
+    public function testProgrammaticAdvisorsOfOneSourceUseTheType(): void
+    {
+        $same = static fn (string $id, ?AdviceType $type): Advisor => new Advisor('same', null, 5, new StubPointcut(), new PassThroughInterceptor(), $type);
+        $around = $same('x', null);
+        $before = $same('y', AdviceType::BEFORE);
+        $after = $same('z', AdviceType::AFTER);
+
+        $list = [$after, $before, $around];
+        usort($list, new AdvisorOrderComparator());
+
+        self::assertSame([$around, $before, $after], $list);
+    }
+
+    public function testAspectAdvisorAndProgrammaticAdvisorWithTheSameSourceUseTypePrecedence(): void
+    {
+        $aspect = self::advisor('S', 'before', AdviceType::BEFORE, 5, 0);
+        $prog = new Advisor('S', null, 5, new StubPointcut(), new PassThroughInterceptor());
+
+        self::assertSame([$prog, $aspect], $this->sortedAdvisors([$aspect, $prog]));
+    }
+
+    /**
+     * @param list<Advisor> $advisors
+     *
+     * @return list<Advisor>
+     */
+    private function sortedAdvisors(array $advisors): array
+    {
+        usort($advisors, new AdvisorOrderComparator());
+
+        return $advisors;
     }
 }

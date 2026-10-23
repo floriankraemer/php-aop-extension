@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace AOP\Pointcut;
 
+use AOP\JoinPoint\JoinPointKind;
 use AOP\Pointcut\Pattern\ModifierPattern;
 use AOP\Pointcut\Pattern\NamePattern;
 use AOP\Pointcut\Pattern\ParameterPattern;
 use AOP\Pointcut\Pattern\TypePattern;
-use AOP\Proxy\MethodEligibility;
 
 final class ExecutionPointcut implements PointcutInterface
 {
@@ -25,10 +25,16 @@ final class ExecutionPointcut implements PointcutInterface
     ) {
     }
 
-    public function matchesClass(\ReflectionClass $class, StaticMatchContext $ctx): bool
+    public function matchesClass(?\ReflectionClass $class, StaticMatchContext $ctx): bool
     {
+        if (!self::appliesTo($ctx->kind)) {
+            return false;
+        }
         if (null === $this->declaringType) {
             return true;
+        }
+        if (null === $class) {
+            return false; // a function has no declaring type
         }
         foreach ([...self::hierarchy($class), ...self::introduced($ctx)] as $type) {
             if ($this->declaringType->matchesType($type)) {
@@ -39,13 +45,31 @@ final class ExecutionPointcut implements PointcutInterface
         return false;
     }
 
-    public function matchesMethod(\ReflectionMethod $method, StaticMatchContext $ctx): bool
+    public function matchesMethod(?\ReflectionFunctionAbstract $method, StaticMatchContext $ctx): bool
     {
+        if (null === $method || !self::appliesTo($ctx->kind)) {
+            return false;
+        }
+        if ($method instanceof \ReflectionMethod) {
+            if (JoinPointKind::FUNCTION_EXECUTION === $ctx->kind) {
+                return false;
+            }
+        } elseif (null !== $this->declaringType || JoinPointKind::FUNCTION_EXECUTION !== $ctx->kind) {
+            return false;
+        }
+
         return $this->modifier->matches($method)
             && $this->name->matches($method->getName())
             && $this->params->matches($method)
-            && (null === $this->returnType || $this->returnType->matchesDeclared($method->getReturnType(), $method->getDeclaringClass()))
-            && $this->declaringTypeMatches($method->getName(), $ctx);
+            && (null === $this->returnType || $this->returnType->matchesDeclared($method->getReturnType(), $method instanceof \ReflectionMethod ? $method->getDeclaringClass() : null))
+            && $this->declaringTypeMatches($method, $ctx);
+    }
+
+    private static function appliesTo(JoinPointKind $kind): bool
+    {
+        return JoinPointKind::METHOD_EXECUTION === $kind
+            || JoinPointKind::CONSTRUCTOR_EXECUTION === $kind
+            || JoinPointKind::FUNCTION_EXECUTION === $kind;
     }
 
     public function isRuntime(): bool
@@ -64,20 +88,23 @@ final class ExecutionPointcut implements PointcutInterface
     }
 
     /**
-     * A target method: the target class itself, or any ancestor/interface that declares it.
-     * An introduced method (the target declares none of that name publicly, as in the generated proxy): the introduced
-     * interface, or any ancestor of it that declares it.
+     * A method: the runtime class itself, or any ancestor/interface that declares it. An introduced method (declared
+     * by an introduced interface): that interface, or any ancestor of it that declares it.
      */
-    private function declaringTypeMatches(string $method, StaticMatchContext $ctx): bool
+    private function declaringTypeMatches(\ReflectionFunctionAbstract $function, StaticMatchContext $ctx): bool
     {
         if (null === $this->declaringType) {
             return true;
         }
-        if ($ctx->targetClass->hasMethod($method) && !isset(MethodEligibility::introducedMethods($ctx->targetClass, $ctx->introducedInterfaces)[$method])) {
-            return $this->declaredBy($ctx->targetClass, $method);
+        if (!$function instanceof \ReflectionMethod) {
+            return false;
+        }
+        $class = $ctx->targetClass ?? $function->getDeclaringClass();
+        if ($class->hasMethod($function->getName()) && $this->declaredBy($class, $function->getName())) {
+            return true;
         }
         foreach (self::introduced($ctx) as $interface) {
-            if ($interface->hasMethod($method) && $this->declaredBy($interface, $method)) {
+            if ($interface->hasMethod($function->getName()) && $this->declaredBy($interface, $function->getName())) {
                 return true;
             }
         }
@@ -129,5 +156,10 @@ final class ExecutionPointcut implements PointcutInterface
         }
 
         return $types;
+    }
+
+    public function isCallerSensitive(): bool
+    {
+        return false;
     }
 }

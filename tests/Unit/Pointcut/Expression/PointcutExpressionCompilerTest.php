@@ -12,7 +12,6 @@ use AOP\Pointcut\ArgsPointcut;
 use AOP\Pointcut\AtArgsPointcut;
 use AOP\Pointcut\AtTargetPointcut;
 use AOP\Pointcut\AtWithinPointcut;
-use AOP\Pointcut\ServicePointcut;
 use AOP\Pointcut\BindingKind;
 use AOP\Pointcut\BindingSpec;
 use AOP\Pointcut\ExecutionPointcut;
@@ -21,14 +20,14 @@ use AOP\Pointcut\Expression\PointcutExpressionCompiler;
 use AOP\Pointcut\NotPointcut;
 use AOP\Pointcut\OrPointcut;
 use AOP\Pointcut\PointcutInterface;
-use AOP\Pointcut\RuntimeMatchContext;
-use AOP\Pointcut\StaticMatchContext;
+use AOP\Pointcut\ServicePointcut;
 use AOP\Pointcut\TargetPointcut;
 use AOP\Pointcut\ThisPointcut;
 use AOP\Pointcut\WithinPointcut;
 use AOP\Tests\Fixtures\Hierarchy\Audit;
 use AOP\Tests\Fixtures\Hierarchy\Plain;
 use AOP\Tests\Fixtures\Hierarchy\UserRepository;
+use AOP\Tests\Fixtures\Jp;
 use AOP\Tests\Fixtures\Pointcut\Reflect;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -104,7 +103,7 @@ final class PointcutExpressionCompilerTest extends TestCase
     {
         $p = $this->compile('execution(public ?object '.UserRepository::class.'::find(int))');
         $class = Reflect::cls(UserRepository::class);
-        $ctx = new StaticMatchContext($class);
+        $ctx = Jp::ctx(UserRepository::class, 'find');
 
         self::assertTrue($p->matchesMethod($class->getMethod('find'), $ctx));
         self::assertFalse($p->matchesMethod($class->getMethod('noParams'), $ctx));
@@ -117,7 +116,7 @@ final class PointcutExpressionCompilerTest extends TestCase
 
         self::assertInstanceOf(OrPointcut::class, $p);
         $plain = Reflect::cls(Plain::class);
-        self::assertTrue($p->matchesMethod($plain->getMethod('find'), new StaticMatchContext($plain)));
+        self::assertTrue($p->matchesMethod($plain->getMethod('find'), Jp::ctx($plain->getName())));
     }
 
     #[Test]
@@ -140,8 +139,8 @@ final class PointcutExpressionCompilerTest extends TestCase
         $p = $this->compile('within(Plain)');
         $plain = Reflect::cls(Plain::class);
 
-        self::assertFalse($p->matchesMethod($plain->getMethod('find'), new StaticMatchContext($plain)));
-        self::assertTrue($this->compile('within('.Plain::class.')')->matchesMethod($plain->getMethod('find'), new StaticMatchContext($plain)));
+        self::assertFalse($p->matchesMethod($plain->getMethod('find'), Jp::ctx($plain->getName())));
+        self::assertTrue($this->compile('within('.Plain::class.')')->matchesMethod($plain->getMethod('find'), Jp::ctx($plain->getName())));
     }
 
     #[Test]
@@ -179,8 +178,8 @@ final class PointcutExpressionCompilerTest extends TestCase
 
         self::assertSame(Audit::class, $p->bindings()['audit']->typeRestriction);
         $class = Reflect::cls(UserRepository::class);
-        self::assertTrue($p->matchesMethod($class->getMethod('audited'), new StaticMatchContext($class)));
-        self::assertFalse($p->matchesMethod($class->getMethod('find'), new StaticMatchContext($class)));
+        self::assertTrue($p->matchesMethod($class->getMethod('audited'), Jp::ctx($class->getName())));
+        self::assertFalse($p->matchesMethod($class->getMethod('find'), Jp::ctx($class->getName())));
     }
 
     #[Test]
@@ -236,7 +235,7 @@ final class PointcutExpressionCompilerTest extends TestCase
         $plain = Reflect::cls(Plain::class);
 
         self::assertInstanceOf(WithinPointcut::class, $p);
-        self::assertTrue($p->matchesMethod($plain->getMethod('find'), new StaticMatchContext($plain)));
+        self::assertTrue($p->matchesMethod($plain->getMethod('find'), Jp::ctx($plain->getName())));
         self::assertSame([[null, 'services', 'App\Aspect']], $resolver->calls); // @phpstan-ignore-line
     }
 
@@ -335,7 +334,7 @@ final class PointcutExpressionCompilerTest extends TestCase
     {
         $p = $this->compile('target(t) && within('.UserRepository::class.')', ['t']);
         $target = new UserRepository();
-        $ctx = new RuntimeMatchContext(new \stdClass(), $target, new \ReflectionMethod($target, 'find'), []);
+        $ctx = Jp::runtime($target, 'find');
 
         self::assertTrue($p->matchesRuntime($ctx));
         self::assertSame($target, $ctx->bound()['t']);

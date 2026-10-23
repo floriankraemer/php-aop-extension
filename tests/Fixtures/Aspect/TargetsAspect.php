@@ -24,7 +24,7 @@ final class TargetsAspect
     public function around(ProceedingJoinPointInterface $pjp): mixed
     {
         $this->joinPoints[] = $pjp;
-        Log::add('around>'.$pjp->getSignature()->methodName);
+        Log::add('around>'.$pjp->getSignature()->getName());
         try {
             return $pjp->proceed();
         } finally {

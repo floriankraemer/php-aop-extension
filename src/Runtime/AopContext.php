@@ -4,42 +4,49 @@ declare(strict_types=1);
 
 namespace AOP\Runtime;
 
+use AOP\JoinPoint\JoinPointInterface;
+
 /**
- * Gives a target access to its own proxy, like Spring's AopContext.currentProxy().
- *
- * With an interface proxy `$this` is the plain target, so `$this->other()` bypasses advice;
- * `AopContext::currentProxy()->other()` goes through it.
+ * Gives advised code and advice access to the join point being executed, like Spring's AopContext.
  */
 final class AopContext
 {
-    /** @var list<object> */
-    private static array $proxies = [];
+    /** @var list<JoinPointInterface> */
+    private static array $joinPoints = [];
 
     private function __construct()
     {
     }
 
     /**
-     * The proxy whose advised method is currently executing, or null outside an advised call.
+     * The innermost join point currently being executed, or null outside an advised call.
      */
-    public static function currentProxy(): ?object
+    public static function currentJoinPoint(): ?JoinPointInterface
     {
-        return self::$proxies[\count(self::$proxies) - 1] ?? null;
+        return self::$joinPoints[\count(self::$joinPoints) - 1] ?? null;
     }
 
     /**
-     * @internal called by AopRuntime
+     * The executing object of the innermost join point; null outside an advised call and for static code and functions.
      */
-    public static function push(object $proxy): void
+    public static function currentObject(): ?object
     {
-        self::$proxies[] = $proxy;
+        return self::currentJoinPoint()?->getThis();
     }
 
     /**
-     * @internal called by AopRuntime
+     * @internal called by the runtime dispatcher
+     */
+    public static function push(JoinPointInterface $joinPoint): void
+    {
+        self::$joinPoints[] = $joinPoint;
+    }
+
+    /**
+     * @internal called by the runtime dispatcher
      */
     public static function pop(): void
     {
-        array_pop(self::$proxies);
+        array_pop(self::$joinPoints);
     }
 }

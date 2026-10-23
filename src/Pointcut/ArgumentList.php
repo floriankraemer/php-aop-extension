@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AOP\Pointcut;
 
+use AOP\JoinPoint\JoinPointKind;
 use AOP\Pointcut\Expression\Ast\BindingCandidateNode;
 use AOP\Pointcut\Expression\Ast\ParamListNode;
 use AOP\Pointcut\Expression\Ast\TypePatternNode;
@@ -37,7 +38,7 @@ trait ArgumentList
         }
     }
 
-    public function matchesClass(\ReflectionClass $class, StaticMatchContext $ctx): bool
+    public function matchesClass(?\ReflectionClass $class, StaticMatchContext $ctx): bool
     {
         return true;
     }
@@ -50,6 +51,11 @@ trait ArgumentList
             }
         }
 
+        return false;
+    }
+
+    public function isCallerSensitive(): bool
+    {
         return false;
     }
 
@@ -66,14 +72,23 @@ trait ArgumentList
     }
 
     /**
-     * Can a call to $method possibly be made with an argument count this list accepts? Proxies always forward
-     * every declared parameter (defaults filled in), so only a variadic tail makes the count vary.
+     * Can the join point possibly be made with an argument count this list accepts? The runtime normalises the
+     * arguments to every declared parameter (defaults filled in), so only a variadic tail makes the count vary.
+     * Without a function the count is fixed by the kind: a field read has none, a field write and a handler one.
      */
-    private function arityFeasible(\ReflectionMethod $method): bool
+    private function arityFeasible(?\ReflectionFunctionAbstract $function, StaticMatchContext $ctx): bool
     {
         $wanted = count($this->entries);
-        $declared = $method->getNumberOfParameters();
-        if ($method->isVariadic()) {
+        if (null === $function) {
+            $declared = match ($ctx->kind) {
+                JoinPointKind::FIELD_SET, JoinPointKind::EXCEPTION_HANDLER => 1,
+                default => 0,
+            };
+
+            return $this->ellipsis ? $declared >= $wanted : $declared === $wanted;
+        }
+        $declared = $function->getNumberOfParameters();
+        if ($function->isVariadic()) {
             return $this->ellipsis || $wanted >= $declared - 1;
         }
 

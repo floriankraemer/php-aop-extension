@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace AOP\Pointcut;
 
-use AOP\Proxy\AdvisedInterface;
+use AOP\JoinPoint\JoinPointInterface;
 
 final class RuntimeMatchContext
 {
@@ -13,36 +13,45 @@ final class RuntimeMatchContext
      */
     private array $bound = [];
 
-    /**
-     * @param array<int|string, mixed> $args
-     * @param StaticMatchContext|null  $staticContext context used at weave time; lets combinators re-evaluate static parts at runtime
-     */
     public function __construct(
-        public readonly object $proxy,
-        public readonly object $target,
-        public readonly \ReflectionMethod $method,
-        public readonly array $args,
-        public readonly ?StaticMatchContext $staticContext = null,
+        public readonly JoinPointInterface $joinPoint,
+        public readonly StaticMatchContext $staticContext,
+        public readonly ControlFlowInterface $controlFlow = new EmptyControlFlow(),
     ) {
     }
 
     /**
-     * The advised class: the weave-time target class, else the target's class with generated proxy classes
-     * (and subclasses of them, e.g. lazy ghosts) skipped, since attributes are not inherited.
-     *
-     * @return \ReflectionClass<object>
+     * The executing object (for call kinds the caller's object).
      */
-    public function targetClass(): \ReflectionClass
+    public function this(): ?object
     {
-        if (null !== $this->staticContext) {
-            return $this->staticContext->targetClass;
-        }
-        $class = $this->target::class;
-        while (is_a($class, AdvisedInterface::class, true) && false !== ($parent = get_parent_class($class))) {
-            $class = $parent;
-        }
+        return $this->joinPoint->getThis();
+    }
 
-        return new \ReflectionClass($class);
+    public function target(): ?object
+    {
+        return $this->joinPoint->getTarget();
+    }
+
+    /**
+     * @return array<int|string, mixed>
+     */
+    public function args(): array
+    {
+        return $this->joinPoint->getArgs();
+    }
+
+    public function function(): ?\ReflectionFunctionAbstract
+    {
+        return $this->staticContext->function;
+    }
+
+    /**
+     * @return \ReflectionClass<object>|null
+     */
+    public function targetClass(): ?\ReflectionClass
+    {
+        return $this->staticContext->targetClass;
     }
 
     /**

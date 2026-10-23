@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace AOP\Interceptor;
 
 use AOP\JoinPoint\MethodInvocation;
+use AOP\Pointcut\ControlFlowInterface;
+use AOP\Pointcut\EmptyControlFlow;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
 use AOP\Pointcut\StaticMatchContext;
@@ -19,18 +21,13 @@ final class RuntimeGuardInterceptor implements MethodInterceptorInterface
         private readonly PointcutInterface $pointcut,
         private readonly MethodInterceptorInterface $inner,
         private readonly StaticMatchContext $static,
+        private readonly ControlFlowInterface $controlFlow = new EmptyControlFlow(),
     ) {
     }
 
     public function invoke(MethodInvocation $invocation): mixed
     {
-        $context = new RuntimeMatchContext(
-            $invocation->getThis(),
-            $invocation->getTarget(),
-            $invocation->getSignature()->method,
-            $invocation->getArgs(),
-            $this->static,
-        );
+        $context = new RuntimeMatchContext($invocation, $this->static, $this->controlFlow);
 
         if (!$this->pointcut->matchesRuntime($context)) {
             return $invocation->proceed();

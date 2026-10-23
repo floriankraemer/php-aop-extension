@@ -7,7 +7,7 @@ namespace AOP\Advisor;
 use AOP\Pointcut\Pattern\TypePattern;
 
 /**
- * An introduction: proxies of classes matching the type pattern implement the interface through the default implementation.
+ * An introduction: classes matching the type pattern implement the interface through the default implementation.
  */
 final readonly class IntroductionAdvisor
 {
