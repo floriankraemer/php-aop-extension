@@ -58,7 +58,7 @@ aspect never kills unrelated code paths silently.
 
 Called for every join point whose decision is non-zero, with the advised frame still on the stack
 (so `debug_backtrace()` and exception traces show the advised function).
-Receives the full descriptor, `$this` (null for static methods, functions, ctor-less `initialization`), the raw
+Receives the full descriptor, `$this` (null for static methods and functions; the newly created object for ctor-less `initialization`), the raw
 argument array (§3) and an `OriginalCall`. Its return value becomes the result of the call; an exception thrown
 by it propagates to the caller exactly like one thrown by the original code.
 The PHP side type-hints the original as `callable` (tests pass a `\Closure`; see `tests/Support/FakeEngine.php`).
@@ -374,3 +374,202 @@ of unknown ids do nothing; duplicates throw. Freezing a Weaver freezes its insta
 `enable()` and after every change while enabled. `tests/Support/RecordingEngine` records the rules.
 
 **NativeEngineBridge** can be constructed without the extension; `register()` etc. then throw `AspectDefinitionException` naming ext-aop.
+
+## Engine notes (stream A)
+
+Decisions the sections above leave open, as implemented by `ext/` for PHP 8.3 (tests: `ext/tests/0*.phpt`).
+
+- **Pass-through order** (both hooks): `AOP_G(bypass) == func` (cleared, then pass) → no pair registered, matcher
+  running, or an exception pending → generator resumption / top-level, include, eval code → closures, trampolines,
+  return-by-reference → callee scope or runtime class in `AOP\` (functions: name in `AOP\`) → caller in `AOP\` →
+  decision. Matching on `AOP\` is case-insensitive.
+- **"Caller in `AOP\`"** walks down the stack through internal frames to the nearest user frame, so a call the
+  runtime makes through `call_user_func`, `array_map`, `ReflectionMethod::invoke`, … is still the runtime's.
+  Because `OriginalCall::__invoke` is itself an `AOP\` frame, the call it makes is never intercepted even without
+  the bypass.
+- **`caller`** is the nearest frame below the advised one. If it runs internal code (e.g. `array_map`,
+  `ReflectionMethod::invoke`, a non-inlined `call_user_func`) it is `null`, as the table says. Note that
+  `call_user_func()` with a literal callable in a non-namespaced (or `\call_user_func`) call is compiled to
+  opcodes, so there the user code is the caller. Top-level/include/eval code: `function => null`; `class`/`scope`
+  are those of the including method if any. `line` is the line of the call in the caller.
+- **CALLER_SENSITIVE**: with an internal or missing caller the second question is not asked; the first answer
+  without the `CALLER_SENSITIVE` bit is used (it was already asked with `caller => null`). The second-level cache
+  key is (callee runtime class, callee function, caller runtime class, caller scope, caller code), where the caller
+  code is the calling function's opcodes (all closure objects of one declaration share them) or, for
+  top-level/include/eval code, its file name.
+- The matcher result is cast to int. A matcher exception becomes the warning
+  `AOP\Engine: the matcher threw <class> (<message>) for <Class::method>(); the call is not intercepted`.
+  If an error handler turns that warning into an exception, the intercepted call fails with it.
+- **Arguments**: the VM fills parameters skipped by named arguments with their defaults *before* the function is
+  entered, so `f(1, c: 3)` for `f($a, $b = 'B', $c = 'C')` gives `[1, 'B', 3]` (int keys). Only omitted
+  *trailing* parameters are absent. Should a slot still be undefined, later parameters are keyed by name.
+  Values are raw: no coercion or type check has run (it runs when the original runs; never if nobody proceeds).
+- **Fake closures** (`$obj->m(...)`, `Closure::fromCallable([$obj, 'm'])`, `strrev(...)`) are advised as the
+  underlying method/function (same decision and descriptor). Real closures and arrow functions are not.
+- **Magic calls**: the `__call`/`__callStatic` trampoline is not a join point, the `__call`/`__callStatic`
+  method itself is (name `__call`, args `[$name, $arguments]`).
+- **Results**: the dispatcher's return value is not checked against the declared return type; a returned
+  reference is dereferenced; constructors ignore it. After an exception the call has no result.
+- A dispatcher (or matcher) that is a non-closure user method is never intercepted itself.
+- `outermost` is false only when the immediate caller frame is a `__construct` running on the same object.
+- `register()` replaces a registered pair and clears the decision cache; with `aop.enable=0` it throws
+  `RuntimeException`. `unregister()` and `reset()` clear the cache. All three are safe inside the matcher or
+  the dispatcher (running calls keep their own reference to the callables).
+- `OriginalCall` cannot be constructed (`new`, reflection, `unserialize`, `clone` all fail), has no properties,
+  is callable (`$original($args)`, `Closure::fromCallable($original)`). Argument errors are the engine's
+  (`Cannot use positional argument after named argument`, `Unknown named parameter $x`, `ArgumentCountError`).
+  It does not reference the function: user and internal functions/methods live for the whole request.
+- `setIntroductions()` only stores a copy of the rules; `fieldInterceptionAvailable()` returns false (stream G).
+- Version-specific code (frame layout, frame teardown) is confined to `ext/aop_hook.c`. The generated
+  `aop_arginfo.h` uses typed class constants (8.3+). It was generated from a copy of `aop.stub.php` without the
+  generic `@param` docblocks, which the 8.3 `gen_stub.php` cannot parse.
+- Build with `CFLAGS=-DAOP_DEBUG` for internal consistency checks that do not need a debug PHP.
+
+Known limitations:
+
+- **opcache inlining**: the optimizer (pass 16, part of the default `opcache.optimization_level`) inlines calls
+  to functions/methods whose body is only `return <constant>;` (no typed or by-ref parameters). Those calls never
+  reach the engine. Use `opcache.optimization_level=0x7FFE3FFF` to keep them (`ext/tests/025-opcache-inlining.phpt`).
+- PHP disables the JIT while `zend_execute_ex` is overridden (it warns when the JIT is configured), and every
+  user call recurses on the C stack, so very deep recursion hits the stack limit sooner.
+- Advising internal functions that inspect their caller's frame (`compact`, `extract`, `get_defined_vars`,
+  `func_get_args` called dynamically) breaks them: through `OriginalCall` their caller is `OriginalCall::__invoke`.
+- The matcher guard is per request, not per fiber: suspending a fiber inside the matcher keeps interception
+  suspended until the matcher returns.
+- Observer end handlers are called for advised user frames (`zend_observer_fcall_end`), but this is not covered
+  by the tests (no observer extension available in the test setup).
+
+## Pointcut notes (stream E)
+
+New designators of the expression language (`src/Pointcut/**`). All return `false` for kinds they cannot apply to and never throw.
+
+### Grammar additions (EBNF)
+
+```ebnf
+designator      = ...existing...
+                | "call" "(" methodPattern ")"
+                | "withincode" "(" methodPattern ")"
+                | "@withincode" "(" ( typePattern | binding ) ")"
+                | "@this" "(" ( typePattern | binding ) ")"
+                | "cflow" "(" pointcut ")"
+                | "cflowbelow" "(" pointcut ")"
+                | "if" "(" [ className "::" ] identifier "(" ")" ")"
+                | "initialization" "(" ( ctorPattern | typePattern [ "+" ] ) ")"
+                | "adviceexecution" "(" ")"
+                | "handler" "(" typePattern [ "+" ] ")"
+                | "get" "(" fieldPattern ")"
+                | "set" "(" fieldPattern ")"
+                | ( "preinitialization" | "staticinitialization" ) "(" ... ")"   (* UnsupportedPointcutDesignatorException *) ;
+methodPattern   = [ "public" | "protected" ] returnType [ typePattern [ "+" ] "::" ] namePattern "(" paramList ")"
+                | [ "public" | "protected" ] typePattern [ "+" ] "::__construct" "(" paramList ")" ;   (* constructor: no return type *)
+ctorPattern     = [ "public" | "protected" ] typePattern [ "+" ] "::__construct" "(" paramList ")" ;
+fieldPattern    = { fieldModifier } [ [ "?" ] typePattern [ "+" ] ] typePattern [ "+" ] "::" "$" namePattern ;
+fieldModifier   = "public" | "protected" | "private" | "static" | "readonly" ;
+```
+
+`methodPattern` is the existing `execution()` pattern; a constructor pattern may omit the return type (also in `execution()`).
+`$name` is a new token (`TokenType::Variable`), `*` is allowed in the name. `Lexer::DESIGNATORS` lists all designators, including the two unsupported ones.
+AST: `CallNode`/`WithincodeNode` wrap an `ExecutionNode`; `AtThisNode`, `AtWithincodeNode`, `CflowNode(inner, below)`, `IfNode(?class, method)`,
+`InitializationNode(modifier, declaringType, params)` (the shorthand `Foo+` is the same node with `(..)`), `AdviceExecutionNode`, `HandlerNode`,
+`GetNode`/`SetNode` over `FieldPatternNode(modifiers, ?type, declaringType, namePattern)`.
+
+### Designators
+
+| Designator | Kinds it matches | Runtime | Caller-sensitive | Bindings |
+|---|---|---|---|---|
+| `execution(P)` | `method-`/`constructor-`/`function-execution` only | no | no | - |
+| `call(P)` | `method-`/`constructor-`/`function-call` (P describes the callee) | no | no | - |
+| `withincode(P)` | all; enclosing function = executing function for execution kinds, `initialization` and `advice-execution`, else `$caller->function` (false when unknown) | no | **yes** | - |
+| `@withincode(A\|b)` | same enclosing function carries attribute A | only with binding | **yes** | `b` = attribute instance (`BindingKind::AT_WITHINCODE`) |
+| `@this(A\|b)` | class of the executing (call kinds: calling) object carries A; false for static code, functions, unknown caller | only with binding | **yes** | `b` = attribute instance (`AT_THIS`) |
+| `cflow(p)` / `cflowbelow(p)` | any kind (decided at runtime) | **always** | no (entries are matched with their own recorded caller) | the bindings of `p` |
+| `if(C::m())` / `if(m())` | any kind | **always** | no | - |
+| `initialization(P)` | `initialization`; `constructor-execution` if outermost | **always** | no | - |
+| `adviceexecution()` | `advice-execution` | no | no | - |
+| `handler(T)` | `exception-handler` with a caught type matching T (`T+`: or a subtype) | no | no | `args(e)` binds the exception |
+| `get(F)` / `set(F)` | `field-get` / `field-set` (class prefilter accepts both field kinds) | no | no | `set`: `args(v)` is the new value |
+| `service(n)` | any kind of a registered service | no | no | - |
+
+`!` refuses bindings (`BindingException`), `||` branches must bind the same names, `&&`/`||`/`!` are runtime when a child is and caller-sensitive when a child is.
+
+### API for the runtime (stream D)
+
+* **cflow**: `AOP\Pointcut\ControlFlowPointcuts::of(PointcutInterface): list<PointcutInterface>` returns the inner pointcuts of every `cflow`/`cflowbelow`
+  in a pointcut tree, nested ones included (empty for pointcuts that do not implement `ControlFlowAwareInterface::cflowPointcuts()`; And/Or/Not and
+  `CflowPointcut` do). Give a join point the `TRACK` bit when `inner->matchesClass($class, $ctx) && inner->matchesMethod($function, $ctx)` for one of
+  them (the static half; the runtime half is evaluated when the cflow is consulted). Keep tracked join points on `ControlFlowInterface::stack()` of the
+  current Fiber while they are active, the **current join point last**. A runtime pointcut is evaluated by `matchesRuntime()` on a
+  `RuntimeMatchContext` whose control flow is that stack; `cflowbelow` drops the last entry, so the last entry must be the context's own join point.
+  Entries are matched by rebuilding their `StaticMatchContext` from `getSignature()`, `getTarget()`/`getThis()` and `getEnclosingStaticPart()`
+  (`StaticContextFactory`), so those must be filled in (the enclosing static part gives `within`/`withincode`/`@this` of call, field and handler entries
+  their caller). The innermost matching entry provides the bound values. `cflow` over an empty stack is false.
+* **initialization / outermost**: for `constructor-execution` the pointcut is true only if `RuntimeMatchContext::isOutermost()`. That returns true unless
+  the context's join point implements `AOP\Pointcut\OutermostAwareInterface { isOutermost(): bool }`. The runtime marks a `parent::__construct()` execution
+  (descriptor `outermost => false`) by making its `JoinPointInterface` implement that interface and return false. `initialization` kinds are never filtered.
+  The static half matches constructor executions of the *declaring* class (or the runtime class) of the constructor, so `Foo::__construct` run for a
+  subclass object via `parent::` still matches statically and is rejected at runtime.
+* **if()**: `PointcutExpressionCompiler::compile($expr, $names, $declaringAspect, $resolver)` resolves the short form `if(m())` against `$declaringAspect`
+  (inside a named pointcut that is the class of the named pointcut, like `fromAspect`); an empty aspect or a bad method (missing, not static, return type
+  other than `bool`, parameter other than one `JoinPointInterface`) throws `PointcutSyntaxException` at compile time. At runtime the static method is
+  called with the current `JoinPointInterface` if it declares a parameter; a non-bool result throws `\UnexpectedValueException`. The pointcut is runtime
+  with a static part of `true`, so wrap it in the `RuntimeGuardInterceptor` like every runtime pointcut.
+* **get/set**: the engine's class probe (`kind => field-get, name => *`) is answered by `matchesClass()`, which accepts both field kinds, so `set()`-only
+  aspects still get their classes wrapped. The full decision is `matchesMethod(null, $ctx)` with `$ctx->property` set.
+* **handler**: `StaticMatchContext::$caughtType` must be set; `matchesClass()` passes a probe without it.
+* **adviceexecution**: `StaticMatchContext::$function` is the advice method and `$targetClass` the aspect class, so `within(Aspect)` narrows it.
+
+### Shared files touched by stream E
+
+`src/Pointcut/**`, `tests/Unit/Pointcut/**`, `tests/Fixtures/Pointcut/**`, this section. `src/Binding/**` and `src/Exception/**` are untouched
+(`BindingKind` gained `AT_THIS` and `AT_WITHINCODE`; `ParameterBinder` only reads binding names).
+## Spring API integration (stream F)
+
+Stream F adds the programmatic (Spring AOP API) layer on top of §4/§5. Everything it produces is an `AOP\Advisor\Advisor`
+(programmatic: `$interceptor` set, `$advice` null) or, for configuration aspects, an `Advisor` with an `AdviceDefinition`
+plus the aspect metadata/instances. Nothing in it needs the engine; the Weaver only has to register what it produces.
+
+### 8.1 Public API (namespaces under `AOP\`)
+
+- `Pointcut\Api`: `ClassFilterInterface::matches(\ReflectionClass)`, `MethodMatcherInterface` (`matches(fn, ?class)`, `isRuntime()`,
+  `matchesRuntime(fn, ?class, array $args)`), `ApiPointcut(ClassFilter, MethodMatcher, ?list<JoinPointKind> $kinds)` (adapter to
+  `PointcutInterface`; matches only method/function executions unless `$kinds` says otherwise), `StaticMethodMatcherPointcut` /
+  `DynamicMethodMatcherPointcut` (abstract; implement `matches()` / `matchesArguments()`), `ComposablePointcut` (`union`/`intersection`),
+  `Pointcuts` (`union`, `intersection`, `matches(pointcut, fn, ?class, args, ?target, controlFlow)`), `RegexpMethodPointcut`,
+  `NameMatchMethodPointcut`, `AttributeMatchingPointcut`, `ControlFlowPointcut`, `ExpressionPointcut`, constants `TruePointcut::INSTANCE`,
+  `TrueClassFilter::INSTANCE`, `TrueMethodMatcher::INSTANCE`.
+- `Advice\Api`: `AdviceInterface`, `MethodInterceptorInterface::invoke(ProceedingJoinPointInterface)`, `MethodBeforeAdviceInterface::before(JoinPointInterface)`,
+  `AfterReturningAdviceInterface::afterReturning(mixed, JoinPointInterface)`, `AfterAdviceInterface`, `ThrowsAdviceInterface` (marker; handlers are
+  public methods named `afterThrowing*`, one exception type each, most specific type wins), `IntroductionInterceptorInterface`,
+  `DelegatingIntroductionInterceptor(object $delegate, ?list<class-string> $interfaces)`; engine bridges in `Advice\Api\Interceptor\*`.
+- `Advisor\Api`: `AdvisorAdapterInterface` (`supportsAdvice`, `getInterceptor`), `TypedAdvisorAdapterInterface` (+ `adviceType`), `ClosureAdvisorAdapter`,
+  `AdvisorAdapterRegistry` (`registerAdvisorAdapter`, `supports`, `getInterceptor`, `adviceType`), `DefaultPointcutAdvisor(PointcutInterface|string, object $advice, int $order = PHP_INT_MAX, ?string $id = null, AdvisorAdapterRegistry = new)`,
+  `RegexpMethodPointcutAdvisor`, `NameMatchMethodPointcutAdvisor`, `DefaultIntroductionAdvisor`. **Every advisor class has `toAdvisor(): Advisor`**; the Weaver consumes
+  `$weaver->addAdvisor($api->toAdvisor())`. The advisor id is the caller's id or `<advice class>#<n>`.
+- `TargetSource`: `TargetSourceInterface`, `SingletonTargetSource`, `HotSwappableTargetSource` (`swap()`), `PrototypeTargetSource`, `PoolingTargetSource` (`stats(): PoolStats`,
+  `PoolExhaustedException`), `FiberLocalTargetSource`, `TargetSourceStandIn::create(class, source): array{0: object, 1: Advisor}`.
+- `Config`: `ConfigLoader::load(array $config, ?callable $aspectFactory = null, ?AdvisorAdapterRegistry = null): ConfigResult` (array shape documented on the class),
+  `ConfigResult::{metadata(): list<AspectMetadata>, aspectInstances(): array<class-string, object|\Closure>, aspectAdvisors(), programmaticAdvisors(), advisors(), namedPointcutResolver()}`,
+  `ConfigurationException`.
+- `Attribute\Configurable(autowire, preConstruction, service)`, `Configurable\ConfigurableAspect(callable(object, Configurable): void $configurer, int $order = PHP_INT_MIN)::toAdvisor(string $id = 'configurable')`.
+
+### 8.2 What the Weaver must provide or call
+
+1. **Programmatic advisors**: `addAdvisor(Advisor)` / `removeAdvisor(string $id)` as in §5. Advisors are built once and reused; `Advisor::$pointcut` may be runtime
+   (`ControlFlowPointcut`, `DynamicMethodMatcherPointcut`): the Weaver builds chains with `AdvisorChainFactory::chainFor(..., $controlFlow)`, passing the runtime's `ControlFlowInterface`
+   (`ControlFlowPointcut` reads `RuntimeMatchContext::$controlFlow->stack()`; with `EmptyControlFlow` it never matches).
+2. **Per-instance advisors**: `Weaver::advised(object $instance): Runtime\AdvisedInstance` must offer `addAdvisor(Advisor)` (and `removeAdvisor(string $id)`), applying the advisor to
+   method executions whose `JoinPointInterface::getThis()` is that very object. `TargetSourceStandIn` relies on it: its advisor's pointcut is runtime, matches exactly `$standIn`
+   by identity (weakly held), and must be sorted last (order `PHP_INT_MAX`, id prefix `~~`, so every other advisor wraps it). The engine must dispatch method executions of the
+   stand-in's class (the matcher answers `ADVISE` for that class, as for any class with advisors); the stand-in's own code never runs.
+3. **Configuration aspects**: `Weaver::fromConfig(array $config, ?callable $aspectFactory = null)` (and `addConfig(ConfigResult)`) should call `ConfigLoader::load()` and then, for the result:
+   - register each `AspectMetadata` of `metadata()` exactly as `addAspect()` does for attribute aspects (advisors via `AdvisorFactory::fromMetadata`, introductions via
+     `AdvisorFactory::introductionsFromMetadata`, named pointcuts via a `MetadataNamedPointcutResolver` that includes `metadata()`), or simply `addAdvisor()` every `$result->advisors()`;
+   - give the `AspectInstanceResolverInterface` the instances: `new ArrayAspectInstanceResolver($result->aspectInstances())` merged with the attribute aspects (closure entries = pertarget/perthis factories).
+     `removeAspect(class)` must also drop these advisors (they carry `AdviceDefinition::$aspectClass`).
+4. **`#[Configurable]`**: `$weaver->addAdvisor((new ConfigurableAspect($configurer))->toAdvisor())`. It matches `constructor-execution` (and `initialization`) of classes with the attribute
+   (nearest attribute up the class hierarchy). Requirements on the runtime:
+   - `constructor-execution` is dispatched for `parent::__construct()` too (§2 says so), each time with the same object as `getThis()`; the aspect counts running constructors per object to find the outermost one
+     because **the join point model does not expose the descriptor's `outermost` flag** (gap: if `JoinPointInterface`/`JoinPointData` gains it, `ConfigurableInterceptor` could use it instead of the counter);
+   - `initialization` join points (constructor-less classes) must pass the new object as `getThis()` (settled: §1.2 now passes the new object).
+5. Introductions from `DefaultIntroductionAdvisor` run through the normal chain (delegating the introduced interface methods). For true interface introduction the Weaver still has to call
+   `Engine::setIntroductions()` (§6) with `introducedInterfaces()`; F does not do that.

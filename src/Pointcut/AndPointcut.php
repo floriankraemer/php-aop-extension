@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace AOP\Pointcut;
 
-final class AndPointcut implements PointcutInterface
+final class AndPointcut implements PointcutInterface, ControlFlowAwareInterface
 {
     public function __construct(private readonly PointcutInterface $left, private readonly PointcutInterface $right)
     {
@@ -40,5 +40,10 @@ final class AndPointcut implements PointcutInterface
     public function isCallerSensitive(): bool
     {
         return $this->left->isCallerSensitive() || $this->right->isCallerSensitive();
+    }
+
+    public function cflowPointcuts(): array
+    {
+        return [...ControlFlowPointcuts::of($this->left), ...ControlFlowPointcuts::of($this->right)];
     }
 }

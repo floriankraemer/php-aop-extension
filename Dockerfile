@@ -1,37 +1,42 @@
-# Use the official PHP 8.3 image
-FROM php:8.3-cli
+# Development container: PHP 8.3 (NTS) with everything needed to build and
+# debug the extension. The whole repository is mounted at /workspace by
+# docker-compose.yaml.
+#
+#   docker compose run --rm php bash
+#   make ext test-ext test
+#
+# For a ZTS toolchain: docker compose build --build-arg PHP_TAG=8.3-zts-bookworm
+ARG PHP_TAG=8.3-cli-bookworm
+FROM php:${PHP_TAG}
 
-# Install required dependencies including sudo
-RUN apt-get update && apt-get install -y \
-    sudo \
-    git \
-    build-essential \
-    autoconf \
-    automake \
-    libtool \
-    pkg-config \
-    gdb \
-    valgrind \
-    vim \
-    && apt-get clean
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        $PHPIZE_DEPS \
+        ca-certificates \
+        gdb \
+        git \
+        make \
+        sudo \
+        unzip \
+        valgrind \
+        vim-tiny \
+    && rm -rf /var/lib/apt/lists/*
 
-# Add a non-root user for development
-RUN useradd -ms /bin/bash developer
+# Composer from the official image.
+COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
 
-# Add developer user to sudoers (grant sudo privileges)
-RUN echo "developer ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/developer
+# Non-root developer matching the host user so files in the bind mount keep
+# sane ownership. Override with --build-arg UID=$(id -u) GID=$(id -g).
+ARG UID=1000
+ARG GID=1000
+RUN (getent group "${GID}" >/dev/null || groupadd -g "${GID}" developer) \
+    && useradd -m -s /bin/bash -u "${UID}" -g "${GID}" developer \
+    && echo "developer ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/developer
 
-# Fix permissions for the PHP extensions directory
-RUN chown -R developer:developer /usr/local/lib/php/extensions
+# Valgrind-friendly allocator for debugging: USE_ZEND_ALLOC=0 php ...
+ENV COMPOSER_HOME=/home/developer/.composer \
+    TEST_PHP_EXECUTABLE=/usr/local/bin/php
 
-# Switch to the non-root user for the development phase
 USER developer
-
-# Set the default working directory
-WORKDIR /usr/src/php-extension
-
-# Expose environment variables for debugging
-ENV PHP_INI_DIR=/usr/local/etc/php \
-    PATH=$PATH:/usr/local/bin
-
+WORKDIR /workspace
 CMD ["bash"]
