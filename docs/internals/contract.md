@@ -310,3 +310,67 @@ and `callFunction(string $function, array $args = [], ?array $caller = null)` bu
 args as C (§2, §3), apply the same decision and caller-sensitive protocol (§1.1), and pass a `\Closure` that
 invokes the original through reflection. So PHP streams test the runtime end to end without the compiled
 extension. E2E tests in `tests/E2E` use the real extension (`extension_loaded('aop')`, else skipped).
+
+## Runtime notes (stream D)
+
+Decisions where the contract was silent.
+
+**Eligibility.** The matcher never advises abstract methods, classes carrying `#[Aspect]` (as runtime or declaring class), enums,
+anonymous classes, and anything in the `AOP\` namespace except `AOP\Tests\` (so FakeEngine tests can use fixtures; the C engine itself
+never intercepts `AOP\Tests\`, so E2E fixtures must live elsewhere, and their callers too: a call made from code in `AOP\` is not intercepted).
+Everything else is advisable. A matcher exception inside our own reflection yields 0.
+
+**Matcher.** `ADVISE` when any advisor, declare rule or per-instance class marker matches the execution kind or the derived call kind
+(method/constructor/function execution -> method/constructor/function call). `TRACK` when only a cflow feeds on it: pointcuts implementing
+`AOP\Runtime\ControlFlowConsumer::controlFlowPointcut()` (stream E's `cflow`/`cflowbelow` must implement it; the runtime finds consumers
+inside And/Or/Not/etc. by walking pointcut properties) and the entry pointcuts of percflow aspects. `CALLER_SENSITIVE` (only on the
+caller-less first ask) when a caller-sensitive pointcut passes `matchesClass` for the call kind (or for the kind itself on fields/handlers).
+Execution-kind contexts carry `caller = null`; call-kind contexts carry the `EnclosingContext` of the caller. A `constructor-execution`
+that is not `outermost` has no call kind. Call-kind chains only exist when the descriptor has a caller.
+
+**Services.** Matcher: class-level service of the runtime class or nearest parent, plus every name registered for an instance of that exact
+class (a superset, resolved per object in the dispatcher). Instance services win over class services in the dispatcher.
+
+**Include/exclude.** Type patterns (`+` for subtypes) are matched against the declaring class (`scope`) of the executed code, for functions
+against the function name; exclude wins; no include = everything.
+
+**Arguments.** Normalised to declared parameters with defaults filled in (stopping at the first parameter without an available default
+or a by-ref one) plus the extras with their keys; references are kept. The original receives the normalised array (so `func_num_args()`
+sees the filled defaults). With no interceptors the raw array is passed through untouched.
+
+**Chains.** Every non-empty chain starts with a `FrameInterceptor` (pushes the join point on the per-Fiber cflow stack and on
+`AopContext`, which is also per Fiber). Call join points are only pushed when a call chain exists. The stack includes the current join
+point. `this` of a call kind is the caller object, `target` the callee; the enclosing static part is the caller's execution static part
+(null for top-level code). Plans are cached per (kind, class, scope, name, instance service, caller class/scope/function, outermost);
+per-instance plans live in the `AdvisedInstance`. Around results are checked against the declared return type for both chains.
+
+**Ordering.** An aspect's order is `Ordered::getOrder()` of the registered instance, else `#[Order]`, else `PHP_INT_MAX`. Advisors of one
+source (aspect class, or programmatic id) run as a block, blocks by (order, name). `#[DeclarePrecedence('A, B, *')]` (repeatable, patterns
+may end in `+`) adds "earlier before later" constraints, applied by a stable topological sort over the default sequence; it overrides
+`#[Order]` between the aspects it relates; contradictions throw `AspectDefinitionException`. It applies to every source, not only aspects.
+
+**Instantiation models.** `#[Aspect(scope: ..., pointcut: ...)]`. The registered object is the singleton and the clone prototype; other
+instances are clones. perthis: per `getThis()` (for call kinds the caller). pertarget: per `getTarget()`. Static members and functions have
+no this/target, so they use the registered object. `pointcut` on perthis/pertarget restricts the advised join points statically.
+pertypewithin (pointcut = type pattern, required): one instance per type the join point lexically belongs to (declaring class of the
+executed code, caller's class for call kinds), advice limited to matching types. percflow/percflowbelow (pointcut required): a token is
+pushed when a join point matching the entry pointcut (static part only) is entered; one instance per token; advice is skipped outside
+the flow. percflowbelow does not bind at the entry join point itself.
+
+**Declare warning/error.** Checked when a plan is built, i.e. at the first dispatch of a join point (the matcher answers ADVISE for matches
+so the dispatcher sees them). Warnings go through `trigger_error(E_USER_WARNING)` once per rule and join point; errors throw
+`DeclareErrorException` on every call (the plan is not cached).
+
+**adviceexecution.** `AdviceInvoker` asks the aspect resolver (`AdviceExecutionWrapper`) to run each advice call. Advisors matching kind
+`ADVICE_EXECUTION` with the aspect method wrap it (target = this = the aspect object, args = the bound advice arguments). An advisor never
+advises its own advice, and an advice method already being wrapped is not wrapped again (per Fiber), so wildcard pointcuts terminate.
+
+**Per-instance advice.** `AdvisedInstance` (not final) is stored in a WeakMap; once an instance of a class has advisors the matcher answers
+ADVISE for every eligible join point of that class. Its advisors are merged and ordered with the global ones. `removeAdvisor`/`removeAspect`
+of unknown ids do nothing; duplicates throw. Freezing a Weaver freezes its instances; `AdvisedInstance::freeze()` freezes one.
+
+**Introductions.** `EngineBridgeInterface` is unchanged (FakeEngine is final and may not be edited); bridges that accept
+`#[DeclareParents]` rules implement `IntroducingEngineInterface::setIntroductions()`. `NativeEngineBridge` does; the Weaver calls it on
+`enable()` and after every change while enabled. `tests/Support/RecordingEngine` records the rules.
+
+**NativeEngineBridge** can be constructed without the extension; `register()` etc. then throw `AspectDefinitionException` naming ext-aop.
