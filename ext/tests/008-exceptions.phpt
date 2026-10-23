@@ -2,6 +2,8 @@
 Exceptions from the original, from the dispatcher and from the matcher
 --EXTENSIONS--
 aop
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 require __DIR__.'/000-helper.inc';

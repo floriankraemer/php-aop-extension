@@ -1,5 +1,16 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: 854368f21208ccdcee73a6ec5fd8fb373b9ce107 */
+ * Stub hash: 2c9a5198e1f96ee674c6763de0ce4c7e4d186f33 */
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_AOP_Internal_intercept, 0, 0, _IS_BOOL, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_AOP_Internal_result, 0, 0, IS_MIXED, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_AOP_Internal_caught, 0, 2, IS_VOID, 0)
+	ZEND_ARG_OBJ_INFO(0, exception, Throwable, 0)
+	ZEND_ARG_TYPE_INFO(0, classes, IS_ARRAY, 0)
+ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_class_AOP_Engine___construct, 0, 0, 0)
 ZEND_END_ARG_INFO()
@@ -12,8 +23,7 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_AOP_Engine_unregister, 0, 0, IS_VOID, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_AOP_Engine_isRegistered, 0, 0, _IS_BOOL, 0)
-ZEND_END_ARG_INFO()
+#define arginfo_class_AOP_Engine_isRegistered arginfo_AOP_Internal_intercept
 
 #define arginfo_class_AOP_Engine_reset arginfo_class_AOP_Engine_unregister
 
@@ -21,7 +31,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_AOP_Engine_setIntroduction
 	ZEND_ARG_TYPE_INFO(0, rules, IS_ARRAY, 0)
 ZEND_END_ARG_INFO()
 
-#define arginfo_class_AOP_Engine_fieldInterceptionAvailable arginfo_class_AOP_Engine_isRegistered
+#define arginfo_class_AOP_Engine_fieldInterceptionAvailable arginfo_AOP_Internal_intercept
 
 #define arginfo_class_AOP_OriginalCall___construct arginfo_class_AOP_Engine___construct
 
@@ -30,6 +40,9 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_AOP_OriginalCall___invoke,
 ZEND_END_ARG_INFO()
 
 
+ZEND_FUNCTION(AOP_Internal_intercept);
+ZEND_FUNCTION(AOP_Internal_result);
+ZEND_FUNCTION(AOP_Internal_caught);
 ZEND_METHOD(AOP_Engine, __construct);
 ZEND_METHOD(AOP_Engine, register);
 ZEND_METHOD(AOP_Engine, unregister);
@@ -39,6 +52,14 @@ ZEND_METHOD(AOP_Engine, setIntroductions);
 ZEND_METHOD(AOP_Engine, fieldInterceptionAvailable);
 ZEND_METHOD(AOP_OriginalCall, __construct);
 ZEND_METHOD(AOP_OriginalCall, __invoke);
+
+
+static const zend_function_entry ext_functions[] = {
+	ZEND_NS_FALIAS("AOP\\Internal", intercept, AOP_Internal_intercept, arginfo_AOP_Internal_intercept)
+	ZEND_NS_FALIAS("AOP\\Internal", result, AOP_Internal_result, arginfo_AOP_Internal_result)
+	ZEND_NS_FALIAS("AOP\\Internal", caught, AOP_Internal_caught, arginfo_AOP_Internal_caught)
+	ZEND_FE_END
+};
 
 
 static const zend_function_entry class_AOP_Engine_methods[] = {

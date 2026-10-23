@@ -22,7 +22,8 @@ use AOP\Attribute\Configurable;
  *
  * The advisor needs the engine to dispatch `constructor-execution` join points, and the new object as `$this`.
  * Constructor-less classes (`initialization` join points) are configured when the engine passes the new object
- * as `$this` of that join point; otherwise they are skipped.
+ * as `$this` of that join point. Under the woven backend there are no such join points: see ConfigurablePointcut
+ * for how that is reported.
  */
 final class ConfigurableAspect
 {
@@ -58,8 +59,11 @@ final class ConfigurableAspect
         ($this->configurer)($instance, $attribute);
     }
 
-    public function toAdvisor(string $id = 'configurable'): Advisor
+    /**
+     * @param (\Closure(): bool)|null $fieldInterceptionAvailable see ConfigurablePointcut; the Weaver passes its engine's answer
+     */
+    public function toAdvisor(string $id = 'configurable', ?\Closure $fieldInterceptionAvailable = null): Advisor
     {
-        return new Advisor($id, null, $this->order, new ConfigurablePointcut(), new ConfigurableInterceptor($this), AdviceType::AROUND);
+        return new Advisor($id, null, $this->order, new ConfigurablePointcut($fieldInterceptionAvailable), new ConfigurableInterceptor($this), AdviceType::AROUND);
     }
 }

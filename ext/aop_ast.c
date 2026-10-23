@@ -73,29 +73,6 @@ typedef struct {
 	uint32_t num_methods;
 } aop_intro_rule;
 
-static zend_always_inline bool aop_ast_is_decl(zend_ast_kind kind)
-{
-	switch (kind) {
-		case ZEND_AST_FUNC_DECL:
-		case ZEND_AST_CLOSURE:
-		case ZEND_AST_METHOD:
-		case ZEND_AST_CLASS:
-		case ZEND_AST_ARROW_FUNC:
-#if PHP_VERSION_ID >= 80400
-		case ZEND_AST_PROPERTY_HOOK:
-#endif
-			return true;
-		default:
-			return false;
-	}
-}
-
-/* Special nodes other than declarations (zval, constant, znode; 8.5: op_array) have no AST children. */
-static zend_always_inline bool aop_ast_is_leaf(zend_ast *ast)
-{
-	return zend_ast_is_special(ast) && !aop_ast_is_decl(ast->kind);
-}
-
 static void (*aop_prev_ast_process)(zend_ast *ast) = NULL;
 static bool aop_ast_hooked = false;
 
@@ -584,7 +561,7 @@ typedef struct {
 
 
 
-static void aop_ast_set_lineno(zend_ast *ast, uint32_t line)
+void aop_ast_set_lineno(zend_ast *ast, uint32_t line)
 {
 	uint32_t i, n;
 
@@ -972,6 +949,10 @@ static void aop_ast_process(zend_ast *ast)
 			zend_string_release(ctx.ns);
 		}
 		zend_hash_destroy(&ctx.imports);
+	}
+	/* After the introductions, so the methods they graft in are woven too. */
+	if (ast && aop_interception_mode == AOP_MODE_WOVEN) {
+		aop_weave_ast(ast);
 	}
 	if (aop_prev_ast_process) {
 		aop_prev_ast_process(ast);

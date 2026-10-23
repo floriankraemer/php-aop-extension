@@ -2,6 +2,8 @@
 Fields: readonly and typed properties (initialization, modification errors, coercion, TypeError, typed references)
 --EXTENSIONS--
 aop
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 require __DIR__.'/100-helper.inc';

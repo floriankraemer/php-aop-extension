@@ -11,6 +11,8 @@
 #include "php.h"
 #include "php_ini.h"
 #include "ext/standard/info.h"
+#include "zend_system_id.h"
+#include "SAPI.h"
 #include "zend_exceptions.h"
 #include "ext/spl/spl_exceptions.h"
 #include "php_aop.h"
@@ -21,10 +23,31 @@ ZEND_DECLARE_MODULE_GLOBALS(aop)
 
 zend_class_entry *aop_engine_ce;
 zend_class_entry *aop_original_call_ce;
-/* Process wide: set in MINIT, never changes afterwards (aop.enable is PHP_INI_SYSTEM). */
+/* Process wide: set by the post-startup callback, never changes afterwards (aop.enable is PHP_INI_SYSTEM). */
 bool aop_hooks_installed = false;
+aop_interception_setting_t aop_interception_setting = AOP_SETTING_WOVEN;
+aop_mode_t aop_interception_mode = AOP_MODE_NONE;
+
+static PHP_INI_MH(OnUpdateInterception)
+{
+	(void) entry; (void) mh_arg1; (void) mh_arg2; (void) mh_arg3; (void) stage;
+
+	if (zend_string_equals_literal_ci(new_value, "woven")) {
+		aop_interception_setting = AOP_SETTING_WOVEN;
+	} else if (zend_string_equals_literal_ci(new_value, "hook")) {
+		aop_interception_setting = AOP_SETTING_HOOK;
+	} else if (zend_string_equals_literal_ci(new_value, "auto")) {
+		aop_interception_setting = AOP_SETTING_AUTO;
+	} else {
+		zend_error(E_WARNING, "aop.interception: invalid value \"%s\", expected woven, hook or auto",
+			ZSTR_VAL(new_value));
+		return FAILURE;
+	}
+	return SUCCESS;
+}
 
 PHP_INI_BEGIN()
+	PHP_INI_ENTRY("aop.interception", "woven", PHP_INI_SYSTEM, OnUpdateInterception)
 	STD_PHP_INI_BOOLEAN("aop.enable", "1", PHP_INI_SYSTEM, OnUpdateBool, enable, zend_aop_globals, aop_globals)
 	STD_PHP_INI_BOOLEAN("aop.disable_inlining", "1", PHP_INI_SYSTEM, OnUpdateBool, disable_inlining, zend_aop_globals, aop_globals)
 	STD_PHP_INI_BOOLEAN("aop.weave_autoload", "0", PHP_INI_ALL, OnUpdateBool, weave_autoload, zend_aop_globals, aop_globals)
@@ -49,8 +72,9 @@ ZEND_METHOD(AOP_Engine, register)
 	ZEND_PARSE_PARAMETERS_END();
 
 	if (!aop_hooks_installed) {
-		zend_throw_exception(spl_ce_RuntimeException,
-			"AOP\\Engine::register(): interception is disabled (aop.enable=0)", 0);
+		zend_throw_exception(spl_ce_RuntimeException, AOP_G(enable)
+			? "AOP\\Engine::register(): interception is not installed (the extension did not finish starting up)"
+			: "AOP\\Engine::register(): interception is disabled (aop.enable=0)", 0);
 		RETURN_THROWS();
 	}
 
@@ -101,8 +125,8 @@ ZEND_METHOD(AOP_Engine, setIntroductions)
 ZEND_METHOD(AOP_Engine, fieldInterceptionAvailable)
 {
 	ZEND_PARSE_PARAMETERS_NONE();
-	/* stream G: the ZEND_NEW handler is installed together with the other hooks. */
-	RETURN_BOOL(aop_hooks_installed);
+	/* stream G: the ZEND_NEW handler belongs to the hook backend; the JIT cannot honour it (aop_weave.c). */
+	RETURN_BOOL(aop_interception_mode == AOP_MODE_HOOK);
 }
 /* }}} */
 
@@ -115,6 +139,38 @@ static PHP_GINIT_FUNCTION(aop)
 	ZVAL_UNDEF(&aop_globals->introductions);
 }
 
+/*
+ * opcache keys cached bytecode (shared memory and opcache.file_cache) by zend_system_id, which hashes the VM
+ * hooks and user opcode handlers present when it is finalized. That happens before zend_post_startup_cb, where
+ * the backend is installed, so aop contributes what decides the backend: aop.enable, aop.interception, the SAPI
+ * and, because `auto` depends on it, the raw opcache settings of the configuration. The resolved mode is a
+ * function of exactly these values, so equal ids always mean equal backends (hook bytecode holds user opcode
+ * dispatches that crash a process without the handlers). Raw values, not defaults, are hashed: differently
+ * spelled but equivalent configurations only cost a recompile.
+ */
+static void aop_add_system_entropy(void)
+{
+	static const char *const keys[] = {
+		"aop.enable", "aop.interception", "aop.disable_inlining", "opcache.enable", "opcache.enable_cli", "opcache.jit", "opcache.jit_buffer_size"
+	};
+	char buf[512];
+	size_t len = 0, i;
+
+	len += snprintf(buf + len, sizeof(buf) - len, "sapi=%s;", sapi_module.name);
+	for (i = 0; i < sizeof(keys) / sizeof(keys[0]) && len < sizeof(buf); i++) {
+		char *value = NULL;
+
+		if (cfg_get_string(keys[i], &value) != SUCCESS || !value) {
+			value = "";
+		}
+		len += snprintf(buf + len, sizeof(buf) - len, "%s=%s;", keys[i], value);
+	}
+	if (len >= sizeof(buf)) {
+		len = sizeof(buf) - 1;
+	}
+	zend_add_system_entropy("aop", "interception", buf, len);
+}
+
 PHP_MINIT_FUNCTION(aop)
 {
 	REGISTER_INI_ENTRIES();
@@ -123,18 +179,21 @@ PHP_MINIT_FUNCTION(aop)
 	aop_original_call_ce = register_class_AOP_OriginalCall();
 	aop_engine_minit();
 
-	if (AOP_G(enable)) {
-		aop_hook_install();
-		aop_hooks_installed = true;
-		if (AOP_G(disable_inlining)) {
-			aop_compile_hooks_install();
-		}
-		aop_jit_notice_install();
-		/* stream G */
-		aop_fields_minit();
-		aop_catch_minit();
+	if (type != MODULE_TEMPORARY) {
+		aop_add_system_entropy();
 	}
-	aop_ast_minit(aop_hooks_installed); /* stream G */
+	if (AOP_G(enable)) {
+		/* The op_array handler serves aop.disable_inlining and the woven backend's constructor prologue. */
+		aop_compile_hooks_install();
+		if (type == MODULE_TEMPORARY) {
+			/* dl(): startup is over, zend_post_startup_cb never fires. Nothing was compiled by this extension yet. */
+			aop_install_backend();
+		} else {
+			/* The backend is chosen and installed there: aop.interception=auto needs opcache's INI entries. */
+			aop_post_startup_install();
+		}
+	}
+	aop_ast_minit(AOP_G(enable)); /* stream G */
 
 	return SUCCESS;
 }
@@ -142,11 +201,14 @@ PHP_MINIT_FUNCTION(aop)
 PHP_MSHUTDOWN_FUNCTION(aop)
 {
 	if (aop_hooks_installed) {
-		/* stream G */
-		aop_catch_mshutdown();
-		aop_fields_mshutdown();
+		if (aop_interception_mode == AOP_MODE_HOOK) {
+			/* stream G */
+			aop_catch_mshutdown();
+			aop_fields_mshutdown();
+		}
 		aop_hook_uninstall();
 		aop_hooks_installed = false;
+		aop_interception_mode = AOP_MODE_NONE;
 	}
 	aop_ast_mshutdown(); /* stream G */
 	UNREGISTER_INI_ENTRIES();
@@ -185,23 +247,42 @@ static ZEND_MODULE_POST_ZEND_DEACTIVATE_D(aop)
 	return SUCCESS;
 }
 
+static const char *aop_backend_description(void)
+{
+	bool is_auto = aop_interception_setting == AOP_SETTING_AUTO;
+
+	switch (aop_interception_mode) {
+		case AOP_MODE_HOOK:
+			return is_auto ? "hook (auto: opcache JIT not configured)" : "hook";
+		case AOP_MODE_WOVEN:
+			return is_auto ? "woven (auto: opcache JIT configured)" : "woven";
+		default:
+			return "none (aop.enable=0)";
+	}
+}
+
 PHP_MINFO_FUNCTION(aop)
 {
 	php_info_print_table_start();
 	php_info_print_table_row(2, "aop support", "enabled");
 	php_info_print_table_row(2, "Version", PHP_AOP_VERSION);
 	php_info_print_table_row(2, "Interception hooks", aop_hooks_installed ? "active" : "inactive (aop.enable=0)");
+	php_info_print_table_row(2, "Interception backend", aop_backend_description());
 	php_info_print_table_row(2, "opcache JIT", !aop_hooks_installed
 		? "not affected by aop (aop.enable=0)"
-		: (aop_jit_requested()
-			? "disabled: aop overrides zend_execute_ex() (set aop.enable=0 to use the JIT)"
-			: "not configured; it cannot run while aop overrides zend_execute_ex()"));
+		: (aop_interception_mode == AOP_MODE_WOVEN
+			? "compatible (aop.interception=woven)"
+			: (aop_jit_requested()
+				? "disabled: aop.interception=hook overrides zend_execute_ex() (use aop.interception=woven to keep the JIT)"
+				: "not configured; it cannot run while aop.interception=hook overrides zend_execute_ex()")));
 	php_info_print_table_row(2, "opcache function inlining", !aop_hooks_installed
 		? "not affected by aop (aop.enable=0)"
 		: (AOP_G(disable_inlining)
 			? "prevented for user functions (aop.disable_inlining=1)"
 			: "allowed (aop.disable_inlining=0): calls to functions that return a constant may not be intercepted"));
-	php_info_print_table_row(2, "Field interception", aop_hooks_installed ? "available" : "not available");
+	php_info_print_table_row(2, "Field interception", aop_interception_mode == AOP_MODE_HOOK
+		? "available"
+		: (aop_hooks_installed ? "not available (aop.interception=woven)" : "not available"));
 	php_info_print_table_end();
 
 	DISPLAY_INI_ENTRIES();
@@ -210,7 +291,7 @@ PHP_MINFO_FUNCTION(aop)
 zend_module_entry aop_module_entry = {
 	STANDARD_MODULE_HEADER,
 	"aop",
-	NULL,
+	ext_functions,
 	PHP_MINIT(aop),
 	PHP_MSHUTDOWN(aop),
 	PHP_RINIT(aop),

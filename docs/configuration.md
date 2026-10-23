@@ -240,6 +240,6 @@ The attribute's options are:
 Without `preConstruction`, the configurer runs after the outermost constructor.
 A `parent::__construct()` call is not outermost.
 
-A class without a constructor is configured too.
+A class without a constructor is configured too, but only with `aop.interception=hook`; under `woven` such a class is reported with an `AspectDefinitionException` raised when the engine first asks about one of its methods (see [limitations](limitations.md#backends)).
 Its creation is the `initialization` join point, and the configurer runs right after the object is created.
 [`examples/29-initialization-without-constructor.php`](../examples/29-initialization-without-constructor.php) shows it.

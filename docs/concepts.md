@@ -28,17 +28,19 @@ Every join point has a kind.
 |---|---|---|---|---|
 | `method-execution` | `METHOD_EXECUTION` | The body of a method runs. | `execution()` | Stable |
 | `method-call` | `METHOD_CALL` | The call site of a method calls it. | `call()` | Stable |
-| `constructor-execution` | `CONSTRUCTOR_EXECUTION` | The body of a `__construct()` runs. This includes `parent::__construct()`. | `execution(... ::__construct(..))`, `initialization()` | Stable |
+| `constructor-execution` | `CONSTRUCTOR_EXECUTION` | The body of a `__construct()` runs. This includes `parent::__construct()`. | `execution(... ::__construct(..))`, `initialization()` (needs `aop.interception=hook`) | Stable |
 | `constructor-call` | `CONSTRUCTOR_CALL` | The `new` expression calls a constructor. | `call(... ::__construct(..))` | Stable |
 | `function-execution` | `FUNCTION_EXECUTION` | A user or internal function runs. | `execution(* name(..))` | Stable |
 | `function-call` | `FUNCTION_CALL` | A call site calls a function. | `call(* name(..))` | Stable |
 | `advice-execution` | `ADVICE_EXECUTION` | An advice method runs. | `adviceexecution()` | Stable |
-| `initialization` | `INITIALIZATION` | `new` creates an object of a class without a constructor. | `initialization()` | Implemented |
-| `field-get`, `field-set` | `FIELD_GET`, `FIELD_SET` | A property is read or written. | `get()`, `set()` | Implemented (PHP 8.4+: hooked properties and lazy objects, see [limitations](limitations.md#fields)) |
+| `initialization` | `INITIALIZATION` | `new` creates an object of a class without a constructor. | `initialization()` | Implemented, needs `aop.interception=hook` |
+| `field-get`, `field-set` | `FIELD_GET`, `FIELD_SET` | A property is read or written. | `get()`, `set()` | Implemented, needs `aop.interception=hook` (PHP 8.4+: hooked properties and lazy objects, see [limitations](limitations.md#fields)) |
 | `exception-handler` | `EXCEPTION_HANDLER` | A `catch` clause catches an exception. | `handler()` | Implemented |
 
 `isCall()` and `isExecution()` tell the two families apart.
 The last three kinds were checked on PHP 8.3.
+`initialization`, `field-get` and `field-set` exist only with `aop.interception=hook`, which turns the opcache JIT off.
+The default backend, `woven`, keeps the JIT and rejects pointcuts for these kinds in `Weaver::enable()` (see [limitations](limitations.md#backends)).
 Their limits are described in [limitations.md](limitations.md#fields-handlers-initialization-and-introductions).
 
 ## Call versus execution

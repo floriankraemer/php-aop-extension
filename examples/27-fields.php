@@ -6,6 +6,8 @@ namespace Demo\Fields;
 
 require __DIR__.'/../vendor/autoload.php';
 
+// Needs aop.interception=hook (php.ini or -d): field and initialization advice is unavailable in woven mode.
+
 use AOP\Attribute\Around;
 use AOP\Attribute\Aspect;
 use AOP\Attribute\Before;

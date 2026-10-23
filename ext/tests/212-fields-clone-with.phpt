@@ -4,6 +4,8 @@ PHP 8.5+ fields: clone() with properties writes through the handlers: field-set 
 aop
 --SKIPIF--
 <?php if (PHP_VERSION_ID < 80500) die('skip PHP 8.5+ (clone with)'); ?>
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 require __DIR__.'/100-helper.inc';

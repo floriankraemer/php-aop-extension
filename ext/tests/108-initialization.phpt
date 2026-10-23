@@ -2,6 +2,8 @@
 initialization: ctor-less classes from new ($this = the new object, no-op OriginalCall, before arguments are evaluated); dispatcher exceptions abort new
 --EXTENSIONS--
 aop
+--INI--
+aop.interception=hook
 --FILE--
 <?php
 require __DIR__.'/100-helper.inc';

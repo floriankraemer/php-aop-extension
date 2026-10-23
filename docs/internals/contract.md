@@ -78,8 +78,8 @@ The PHP side type-hints the original as `callable` (tests pass a `\Closure`; see
 
 - Anything while no dispatcher is registered, or while the matcher runs.
 - Classes in namespace `AOP\` and calls whose **caller** frame belongs to a class in `AOP\` (the runtime itself).
-- Closures, generator **resumption** (only the call that creates the generator is a join point), eval/include frames,
-  functions returning by reference.
+- Closures, generator **resumption** (only the call that creates the generator is a join point; under the woven
+  backend that is the first resume, see "Woven backend"), eval/include frames, functions returning by reference.
 - Internal functions compiled to dedicated opcodes (`strlen`, `count`, `is_*`, …). (PHP 8.4+ frameless calls are not
   emitted while the hooks are installed, so those functions *are* intercepted; see "Compat notes (stream H)".)
 - PHP 8.4+ property hook bodies (`$prop::get`/`$prop::set`); their accesses are field join points (§6).
@@ -432,8 +432,9 @@ Known limitations:
   to functions/methods whose body is only `return <constant>;` (no typed or by-ref parameters). Those calls never
   reach the engine. Since stream H this is prevented by default (`aop.disable_inlining=1`, see "Compat notes
   (stream H)"); with `aop.disable_inlining=0` it applies (`ext/tests/200-opcache-inlining-allowed.phpt`).
-- PHP disables the JIT while `zend_execute_ex` is overridden (it warns when the JIT is configured), and every
-  user call recurses on the C stack, so very deep recursion hits the stack limit sooner.
+- With `aop.interception=hook`, PHP disables the JIT while `zend_execute_ex` is overridden (it warns when the JIT is
+  configured); the woven backend leaves the JIT on (see "Woven backend"). Every user call recurses on the C stack
+  in both backends, so very deep recursion hits the stack limit sooner.
 - Advising internal functions that inspect their caller's frame (`compact`, `extract`, `get_defined_vars`,
   `func_get_args` called dynamically) breaks them: through `OriginalCall` their caller is `OriginalCall::__invoke`.
 - The matcher guard is per request, not per fiber: suspending a fiber inside the matcher keeps interception
@@ -613,7 +614,7 @@ not regenerated).
 | Version | Difference | Handling |
 |---|---|---|
 | 8.4 | `zend_observer_fcall_end()` became a static inline that checks `EG(current_observed_frame)` | none needed, same call |
-| 8.4 | Frameless internal calls (`ZEND_FRAMELESS_ICALL_0..3`: `strpos`, `str_contains`, `in_array`, `implode`, `min`, `preg_match`, …) bypass `zend_execute_internal` | The compiler only emits them while `zend_execute_internal` is NULL (`find_frameless_function_info()`, 8.4 and 8.5), and the hook is installed in MINIT, so they are never emitted while `aop.enable=1`: those functions are intercepted normally (`206-frameless.phpt`). No user opcode handler is needed. Remaining gap: scripts compiled by a process **without** the hook and loaded from a shared `opcache.file_cache` keep their frameless opcodes. |
+| 8.4 | Frameless internal calls (`ZEND_FRAMELESS_ICALL_0..3`: `strpos`, `str_contains`, `in_array`, `implode`, `min`, `preg_match`, …) bypass `zend_execute_internal` | The compiler only emits them while `zend_execute_internal` is NULL (`find_frameless_function_info()`, 8.4 and 8.5), and the internal hook is installed in the post-startup callback (both backends), before any script compiles, so they are never emitted while `aop.enable=1`: those functions are intercepted normally (`206-frameless.phpt`). No user opcode handler is needed. A process without the hook has another system id, so it never shares cached bytecode with one that has it. |
 | 8.4 | Property hooks are user functions (`common.prop_info` set, named `$prop::get`/`$prop::set`); the "simple get" VM fast path enters them without `zend_execute_ex` | The fast path is only cached while `zend_execute_ex == execute_ex`, so with the hook every hook call reaches the engine. Hook bodies pass through (`aop_is_property_hook()`): they are not methods (no `ReflectionMethod` by that name) and their accesses are field join points (§6). Calls made *from* a hook report `caller.function` = `$prop::get` with `scope` the declaring class; the PHP side resolves it with `ReflectionProperty::getHook()` (`204-property-hooks.phpt`). |
 | 8.4 | Lazy objects | The engine never reads properties of `$this`, so advising a method of an uninitialized ghost/proxy does not initialize it; the original initializes it on its first property access, as without advice (`205-lazy-objects.phpt`). `class`/`$this` of a proxy are the proxy. |
 | 8.4 | `exit()`/`die()` is an internal function | Advisable like any internal function; proceeding exits (finally blocks of the dispatcher do not run, shutdown functions do) (`207-exit-function.phpt`). |
@@ -634,37 +635,135 @@ variadics, named extras and the missing-argument error). Cost: one `RECV` per de
 The zend_extension has no `startup`, so `php -v` does not list it. Alternatives rejected: changing
 `opcache.optimization_level` from MINIT (only works when loaded before opcache, and turns off the pass for every
 function), `ZEND_COMPILE_EXTENDED_STMT` (EXT_STMT before every statement: slower and visible to debuggers),
-`ZEND_ACC_DEPRECATED` (changes behaviour). What remains: scripts cached by a process without aop (shared
-`opcache.file_cache`, a different `aop.disable_inlining`) keep their inlined calls; SCCP still evaluates calls to
+`ZEND_ACC_DEPRECATED` (changes behaviour). What remains: SCCP still evaluates calls to
 some internal functions with constant arguments at compile time, and internal functions compiled to dedicated
 opcodes (`strlen`, `count`, …) are unchanged (§1.4). Setting `ZEND_COMPILE_NO_BUILTINS` in RINIT would remove the
 latter at a small cost per builtin; not done.
 
-**JIT**. On every version `zend_jit_check_support()` turns the JIT off when `zend_execute_ex != execute_ex`, which
-is checked in opcache's post-startup, after our MINIT. When the JIT is configured for the current SAPI (opcache
-enabled, `opcache.jit` not `disable`, `opcache.jit_buffer_size` > 0), PHP warns ("JIT is incompatible with third
-party extensions that override zend_execute_ex(). JIT disabled.") and aop adds the startup notice
-`aop: the opcache JIT is disabled because aop interception overrides zend_execute_ex(); set aop.enable=0 to use the JIT`
-(from a `zend_post_startup_cb`, so opcache's INI is registered). `phpinfo()` shows the state in the rows
-"opcache JIT" and "opcache function inlining". With `aop.enable=0` no hook, no zend_extension and no callback is
-installed and the JIT runs (`202-jit-disabled.phpt`, `203-jit-aop-disabled.phpt`; 203 skips under valgrind
-because the JIT's IR compiler itself reports uninitialised reads).
+**JIT**.
+On every version `zend_jit_check_support()` turns the JIT off when `zend_execute_ex != execute_ex` or when any user opcode handler is set.
+It runs in opcache's post-startup, after our MINIT, and `accel_post_startup()` calls the previous `zend_post_startup_cb` (ours) first.
+That is why the backend is chosen and installed there, see "Woven backend".
+With `aop.interception=hook`, when the JIT is configured for the current SAPI (opcache enabled, `opcache.jit` not `disable`, `opcache.jit_buffer_size` > 0), PHP warns ("JIT is incompatible with third party extensions that override zend_execute_ex().
+JIT disabled.") and aop adds the startup notice `aop: the opcache JIT is disabled because aop.interception=hook overrides zend_execute_ex(); set aop.interception=woven to keep the JIT` (raised from the same callback, after the chain ran, as `E_NOTICE`).
+With `aop.interception=woven` nothing overrides `zend_execute_ex` and no user opcode handler is set, so the JIT runs and the notice does not appear.
+With `aop.enable=0` no backend, no zend_extension and no callback work is done and the JIT runs.
+`phpinfo()` shows the state in the rows "Interception backend", "opcache JIT", "opcache function inlining" and "Field interception" (strings in `docs/building.md`).
+Tests: `202-jit-disabled.phpt` (hook), `203-jit-aop-disabled.phpt`, `300`/`301`/`315` (woven with `opcache.jit=tracing`/`function`, advice on JIT-compiled code); 203 and the JIT tests skip under valgrind because the JIT's IR compiler itself reports uninitialised reads.
 
-**Testing notes**. `make test` runs with `-n`, so on 8.3/8.4 opcache is not loaded and the opcache/JIT tests
-(025, 200–203) skip; CI should run the phpt suite a second time with
-`TEST_PHP_ARGS="-q -d zend_extension=$(php -r 'echo ini_get("extension_dir");')/opcache.so -d opcache.enable_cli=1"`
-(8.5: only `-d opcache.enable_cli=1`, opcache is built in).
+**Testing notes**.
+`make test` runs with `-n`, so on 8.3/8.4 opcache is not loaded and the opcache/JIT tests (025, 200–203, 300, 301, 302, 315) skip; CI should run the phpt suite a second time with `TEST_PHP_ARGS="-q -d zend_extension=$(php -r 'echo ini_get("extension_dir");')/opcache.so -d opcache.enable_cli=1"` (8.5: only `-d opcache.enable_cli=1`, opcache is built in).
+The default backend is `woven`, so a test that depends on hook behaviour (field and `initialization` join points, hook-order backtraces, uncoerced arguments, advice at the generator call) carries `aop.interception=hook` in its `--INI--` section: `007`, `008`, `022`, `100`–`109`, `111`, `122`, `200`, `202`, `205`, `210`–`212`, `305`.
+Their woven counterparts are `310` (arguments), `311` (exceptions), `312` (fibers, backtrace), `307` (generators) and `313`–`315` (catch blocks).
+`002-api.phpt` compares `fieldInterceptionAvailable()` with the INI value and so runs under both.
+A test that must only run in one mode skips itself on `ini_get('aop.interception')`.
+`opcache.jit=off` still configures the JIT (the default `jit_buffer_size` is 64M), so under `hook` aop's JIT notice and PHP's warning appear: tests that need opcache without JIT use `opcache.jit=disable` (`122-opcache.phpt`, `303`).
+Tests that assert a startup notice or warning need `display_startup_errors=1`.
 
 **Fields on 8.4/8.5** (`ext/aop_fields.c`; semantics in "Engine notes (stream G)", "Fields on PHP 8.4 / 8.5"). The
 property handler signatures did not change; `EG(fake_scope)` became `const` in 8.5 (`AOP_FAKE_SCOPE_T`), and
 `zend_property_info.hooks`, `ZEND_ACC_VIRTUAL`, `ZEND_ACC_PPP_SET_MASK`, `zend_asymmetric_property_has_set_access()`
 and `zend_lazy_object_*` are used under `AOP_HAVE_PROPERTY_HOOKS`/`AOP_HAVE_LAZY_OBJECTS` (`AOP_PROP_IS_HOOKED()`).
 `zend_lazy_object_get_instance()` is not exported; `zend_lazy_object_init()` on an initialized proxy returns the
-instance without side effects and is used instead. The `ZEND_NEW` handler is unchanged in 8.4/8.5. On 8.4+
-`opcache.jit=off` still configures the JIT (the default `jit_buffer_size` is 64M), so aop's JIT notice and PHP's
-warning appear: tests that need opcache without JIT use `opcache.jit=disable` (`122-opcache.phpt`). The extension builds without warnings with `-Wall -Wextra` on 8.3, 8.4 and 8.5 (the dummy
+instance without side effects and is used instead. The `ZEND_NEW` handler is unchanged in 8.4/8.5. The extension builds without warnings with `-Wall -Wextra` on 8.3, 8.4 and 8.5 (the dummy
 constructor frame is pushed through a pointer to `zend_pass_function` set in MINIT; a direct cast triggers GCC's
 `-Warray-bounds`, as `zend_pass_function` is only a `zend_internal_function`).
+
+## Woven backend
+
+The second interception backend, selected by the INI setting `aop.interception` (`woven` default, `hook`, `auto`; `PHP_INI_SYSTEM`; invalid value: `E_WARNING`, default kept).
+Code: `ext/aop_weave.c` (compile time), `ext/aop_hook.c` (`AOP\Internal\intercept()`, `result()`, mode resolution), `ext/aop_catch.c` (`AOP\Internal\caught()`), `ext/aop_engine.c` (generator bypass).
+Tests: `ext/tests/3*.phpt`.
+
+| | `hook` | `woven` |
+|---|---|---|
+| Entry into the engine | `zend_execute_ex` override, `ZEND_NEW`/`ZEND_CATCH` user opcode handlers | a call woven into each function and `catch` block; `zend_execute_internal` for internal functions |
+| JIT | refused by `zend_jit_check_support()` | stays on |
+| Join points | all | all except `field-get`, `field-set`, `initialization` |
+| Arguments | raw, before `RECV` | after `RECV` (coerced) |
+| Generator function advice | at the call | at the first resume |
+
+`aop.enable=0` installs neither backend; `aop_interception_mode` is then `AOP_MODE_NONE`.
+
+### Mode resolution and installation
+
+opcache's INI entries exist only after `accel_startup`, and `accel_post_startup()` calls the previous `zend_post_startup_cb` before `zend_jit_check_support()` (verified for 8.3, 8.4 and 8.5).
+MINIT therefore chains `aop_post_startup()` into `zend_post_startup_cb`; that callback, in this order:
+
+1. resolves the mode: `hook` is `hook`, `woven` is `woven`, `auto` is `woven` when `aop_jit_requested()` (the condition of `accel_post_startup()`: `opcache.enable`, `opcache.enable_cli` for the CLI and phpdbg SAPIs, `opcache.jit` not `disable`, `opcache.jit_buffer_size` > 0; `opcache.jit=off` counts as configured) and `hook` otherwise;
+2. installs the backend: always the `zend_execute_internal` override, plus `zend_execute_ex`, `aop_fields_minit()` and `aop_catch_minit()` in hook mode only;
+3. calls the previous callback, which is opcache's, which now sees an untouched VM in woven mode;
+4. raises the `E_NOTICE` in hook mode when the JIT is configured.
+
+Nothing compiles or runs between MINIT and this callback, so installing late misses nothing.
+The mode is process-wide and fixed at startup (`aop_interception_mode`); the zend_extension (`op_array_handler` for `aop.disable_inlining` and the constructor prologue move) and the `zend_ast_process` hook (`aop_ast_minit()`) are set up in MINIT for both backends.
+
+When the module is loaded by `dl()` (`type == MODULE_TEMPORARY` in MINIT) startup is over and `zend_post_startup_cb` never fires.
+MINIT then calls `aop_install_backend()` directly: `auto` resolves against the INI entries of the running opcache, and the backend takes effect for code compiled from then on (`325-dl-runtime-load.phpt`).
+`AOP\Engine::register()` throws "interception is disabled (aop.enable=0)" when `aop.enable=0`, and "interception is not installed" in the remaining case where the backend is missing.
+
+### Prologue shapes
+
+`aop_ast_process()` calls `aop_weave_ast()` after the introductions (so grafted methods are woven too) for every parsed file and eval'd string in woven mode.
+It prepends one statement to the body of every named function and method that has a body:
+
+| Function | Prologue |
+|---|---|
+| value (also untyped, `?T`, `static`, ...) | `if (\AOP\Internal\intercept()) return \AOP\Internal\result();` |
+| `void` return type, or a method named `__construct` | `if (\AOP\Internal\intercept()) { \AOP\Internal\result(); return; }` |
+| `never` return type | `if (\AOP\Internal\intercept()) \AOP\Internal\result();` |
+| generator (its own body, not a nested function or class, contains `yield` or `yield from`) | `if (\AOP\Internal\intercept()) return yield from \AOP\Internal\result();` |
+
+The statement uses no variables, so `get_defined_vars()` stays clean.
+It is not woven into closures and arrow functions (they are join points only as fake closures, which run a woven method), functions without a body, PHP 8.4 property hooks, functions returning by reference, and anything in the `AOP` or `AOP\...` namespaces.
+The decision stays at run time (`aop_decide()`), so the woven form does not depend on the registered rules, opcache caches one form, and `register()`/`unregister()` keep working.
+The prologue's line number is the declaration's.
+
+### `intercept()`, `result()`, `caught()`
+
+- `intercept()` runs in its own internal frame; the function being intercepted is `prev_execute_data`.
+  A non-user frame returns `false`.
+  The rest is the pipeline of the hook backend (`aop_advise_frame()`, shared): single-shot `bypass`, no pair registered / matcher running / exception pending, `aop_join_point()`, `aop_decide()`, argument collection, `aop_dispatch()`.
+  It returns `true` when the call was dispatched, or when the matcher failed with an exception (the call then fails with it, and `result()` finds nothing).
+  It returns `false` to let the function run.
+  Near the C stack limit it raises the engine's "Maximum call stack size" `Error` instead of recursing.
+- The dispatcher's result is parked in `AOP_G(woven_result)`; `result()` takes it (NULL when none).
+  It is returned by the prologue's `return`, so the engine checks it against the declared return type (the hook backend does not).
+  For `never` functions `result()` raises the engine's "must not implicitly return" `TypeError` unless an exception is pending.
+  For generator functions it must be an array or a `Traversable`, otherwise `TypeError` `f(): the advice of a generator function must return an array or a Traversable, <type> returned`.
+- Argument collection (`aop_collect_woven_args()`) reads the frame after the `RECV` opcodes: declared parameters (the coerced values; omitted trailing parameters are absent), the variadic array spread (string keys become named arguments), and extra positional arguments behind the CVs and TMPs.
+  Promoted constructor parameters are not touched: the compiler emits `RECV*`, then one `ASSIGN_OBJ`/`ASSIGN_OBJ_REF` + `OP_DATA` per promoted parameter, then the body, so the prologue would run after the promotion (a repeated call fails on `readonly` properties, the 8.4+ `set` hooks run twice, earlier values are lost).
+  `aop_hoist_prologue()` (the zend_extension's `op_array_handler`, which runs at the start of `pass_two()`, before jump targets become relative) therefore moves the assignment block behind the prologue and retargets the prologue's single `JMPZ`; the body starts at the same opline index.
+  It only acts when the op_array has exactly that shape (`RECV*`, assignment pairs, `INIT_FCALL*` of `AOP\Internal\intercept`, a `JMPZ`, no other jump in the prologue) and is skipped otherwise.
+  Result: skipping the constructor leaves the object unconstructed and a second call keeps the earlier values, as under `hook` (`316`, `317`).
+- `aop_execute_internal()` recognises the handlers of `intercept`, `result` and `caught` with one pointer comparison and passes them through, so the woven calls cost no join point checks; an unregistered request pays one internal call per user function call.
+- The advised frame stays on the stack below the `intercept()` frame while the dispatcher runs, so traces and `debug_backtrace()` show `AOP\Internal\intercept()` (or `caught()`) between the dispatcher and the advised function.
+- `caught($e, [A::class, B::class])` is the first statement of every `catch` block outside `AOP`.
+  It resolves the listed classes without autoloading and uses the first one the exception is an instance of, then runs the matcher and the before-only dispatch of the hook backend (`aop_catch_advise()`, shared).
+  A non-capturing `catch (A)` gets a capture variable named `aop caught` (not writable as `$name`), unset right after the call.
+  An exception thrown by the advice propagates from the start of the catch block, as in hook mode; the caught exception stays alive until the replacing exception is freed, because it is an argument in that exception's trace.
+
+### Generator bypass
+
+`OriginalCall` clears the single-shot `bypass` when the original returns, but a generator function's prologue runs on the first resume, later.
+When `OriginalCall::__invoke` calls a generator function in woven mode it records the returned `Generator` in `AOP_G(bypassed_generators)`, a table keyed by object identity through `zend_weakrefs_hash_add()` (weak keys: an entry disappears when its generator is destroyed unstarted, so a reused address never matches).
+`intercept()` checks `ZEND_CALL_GENERATOR` frames against it, deletes the entry and returns `false`.
+The table is freed in RSHUTDOWN.
+
+### Differences and limits
+
+- Join points that do not exist: `field-get`, `field-set`, `initialization` (including constructors, because a ctor-less class is indistinguishable at `enable()`).
+  `fieldInterceptionAvailable()` is false, and `Weaver::enable()` throws (message in `docs/limitations.md`).
+- Arguments after `RECV`: coerced; a `TypeError` for a bad argument is raised before the advice; a default value that is an expression with side effects (`new Foo`) runs twice when advice proceeds.
+- Generator advice at the first resume; `getReturn()`/`send()` work, proceeding does not recurse (`307`).
+- `aop.disable_inlining` is moot: the prologue makes the body more than `return <constant>;` (`ext/tests/200`, run with woven and `aop.disable_inlining=0`, shows the call advised).
+- Cached bytecode is keyed by `zend_system_id`, which opcache's `zend_finalize_system_id()` computes before `zend_post_startup_cb`, i.e. before the backend is installed.
+  The system id hashes the `zend_execute_ex`/`zend_execute_internal`/`zend_ast_process` overrides and the user opcode handlers, so alone it would not tell woven, hook and `aop.enable=0` apart (hook bytecode dispatches `ZEND_NEW`/`ZEND_CATCH` to `ZEND_USER_OPCODE`, a NULL call in a process without the handlers: a segmentation fault).
+  MINIT therefore calls `zend_add_system_entropy("aop", "interception", ...)` with the SAPI name and the raw configuration values `aop.enable`, `aop.interception`, `aop.disable_inlining`, `opcache.enable`, `opcache.enable_cli`, `opcache.jit`, `opcache.jit_buffer_size` (`cfg_get_string()`, because opcache's INI entries do not exist yet).
+  The mode that `aop_resolve_mode()` computes in the post-startup callback is a function of exactly these values (plus per-version defaults), so equal ids imply equal backends and the two resolutions cannot disagree.
+  Different spellings of one effective configuration only cost a recompile.
+  A `dl()` load happens after the id is final and adds nothing: such a process shares its cache with processes without aop (documented in limitations.md).
+  Covered by `326-file-cache-system-id.phpt` (hook, woven and `aop.enable=0` against one `opcache.file_cache`: three variants, no crash).
 
 ## Engine notes (stream G)
 
@@ -675,8 +774,12 @@ The experimental join points of §6 as implemented by `ext/` for PHP 8.3 (`ext/a
 and code in `AOP\` (the enclosing frame, or for internal frames the nearest user frame below) never produces these
 join points. A matcher exception is the usual warning, worded `... for field-get Class::$prop; the join point is not
 intercepted` (`exception-handler catch(Class)`, `initialization Class`). The `ZEND_NEW` and `ZEND_CATCH` user opcode
-handlers chain to handlers installed before them; both are installed only with `aop.enable=1`.
-`fieldInterceptionAvailable()` returns true when the hooks are installed.
+handlers chain to handlers installed before them; both are installed only with `aop.interception=hook`.
+`fieldInterceptionAvailable()` returns true only in hook mode: the woven backend has no `ZEND_NEW` handler, and the JIT
+reads declared properties straight from the object slots, bypassing the per-object property handlers that field
+interception swaps in (`zend_get_known_property_info()` checks the class only). `Weaver::enable()` therefore throws
+`AspectDefinitionException` for field-get, field-set and every `initialization` pointcut when it returns false (see
+"Woven backend"). Below, `initialization`, `field-get` and `field-set` are hook-only; `exception-handler` works in both.
 
 ### Fields (`field-get`, `field-set`)
 
@@ -749,7 +852,9 @@ handlers chain to handlers installed before them; both are installed only with `
 - Emitted by the `ZEND_CATCH` handler for the catch clause that catches the in-flight exception (the original
   matching is replicated: exact class or `instanceof`; a clause whose class is not loaded never matches). A
   multi-catch `catch (A | B $e)` is one `ZEND_CATCH` per class, so `name` is the class of the matching
-  alternative. `try`/`finally` without a matching catch is no join point; `exit()` is never one.
+  alternative. `try`/`finally` without a matching catch is no join point; `exit()` is never one. (The woven backend
+  reaches the same join points through `AOP\Internal\caught()`; its class is the first listed class the exception is
+  an instance of, which is the clause the engine matched.)
 - Descriptor: `class` = runtime class of the enclosing code (null in functions and top-level code), `scope` =
   its declaring class, `name` = caught class (as declared), `static` = enclosing method is static, `internal`
   false, `caller` = the enclosing frame (`line` = line of the `catch`), `exception` = the exception. `$this` = the
