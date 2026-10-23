@@ -22,7 +22,13 @@ namespace {
     }
 
     \AOP\Engine::register(
-        function (array $jp) { echo 'asked ', $jp['class'] ?? '', '::', $jp['name'], "\n"; return 1; },
+        function (array $jp) {
+            if (!str_ends_with($jp['kind'], '-execution')) {
+                return 0; // field probes and initialization (stream G) are not what this test is about
+            }
+            echo 'asked ', $jp['class'] ?? '', '::', $jp['name'], "\n";
+            return 1;
+        },
         fn ($jp, $self, $args, $original) => '<'.$original($args).'>'
     );
     $h = new \AOP\Runtime\Helper();

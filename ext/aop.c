@@ -15,6 +15,7 @@
 #include "ext/spl/spl_exceptions.h"
 #include "php_aop.h"
 #include "aop_arginfo.h"
+#include "aop_g.h" /* stream G */
 
 ZEND_DECLARE_MODULE_GLOBALS(aop)
 
@@ -88,7 +89,11 @@ ZEND_METHOD(AOP_Engine, setIntroductions)
 		Z_PARAM_ARRAY(rules)
 	ZEND_PARSE_PARAMETERS_END();
 
-	/* Stored only; stream G weaves them into classes compiled afterwards. */
+	/* stream G: compiled for the zend_ast_process hook, woven into classes compiled afterwards. */
+	aop_ast_set_rules(Z_ARRVAL_P(rules));
+	if (EG(exception)) {
+		RETURN_THROWS();
+	}
 	zval_ptr_dtor(&AOP_G(introductions));
 	ZVAL_COPY(&AOP_G(introductions), rules);
 }
@@ -96,7 +101,8 @@ ZEND_METHOD(AOP_Engine, setIntroductions)
 ZEND_METHOD(AOP_Engine, fieldInterceptionAvailable)
 {
 	ZEND_PARSE_PARAMETERS_NONE();
-	RETURN_FALSE;
+	/* stream G: the ZEND_NEW handler is installed together with the other hooks. */
+	RETURN_BOOL(aop_hooks_installed);
 }
 /* }}} */
 
@@ -124,7 +130,11 @@ PHP_MINIT_FUNCTION(aop)
 			aop_compile_hooks_install();
 		}
 		aop_jit_notice_install();
+		/* stream G */
+		aop_fields_minit();
+		aop_catch_minit();
 	}
+	aop_ast_minit(aop_hooks_installed); /* stream G */
 
 	return SUCCESS;
 }
@@ -132,9 +142,13 @@ PHP_MINIT_FUNCTION(aop)
 PHP_MSHUTDOWN_FUNCTION(aop)
 {
 	if (aop_hooks_installed) {
+		/* stream G */
+		aop_catch_mshutdown();
+		aop_fields_mshutdown();
 		aop_hook_uninstall();
 		aop_hooks_installed = false;
 	}
+	aop_ast_mshutdown(); /* stream G */
 	UNREGISTER_INI_ENTRIES();
 
 	return SUCCESS;
@@ -147,6 +161,9 @@ PHP_RINIT_FUNCTION(aop)
 	ZEND_TSRMLS_CACHE_UPDATE();
 #endif
 	aop_engine_rinit();
+	/* stream G */
+	aop_fields_rinit();
+	aop_ast_rinit();
 
 	return SUCCESS;
 }
@@ -154,7 +171,16 @@ PHP_RINIT_FUNCTION(aop)
 PHP_RSHUTDOWN_FUNCTION(aop)
 {
 	(void) type; (void) module_number;
+	aop_ast_rshutdown(); /* stream G */
 	aop_engine_rshutdown();
+
+	return SUCCESS;
+}
+
+/* stream G: wrapped object handlers must outlive the objects, which are freed after RSHUTDOWN. */
+static ZEND_MODULE_POST_ZEND_DEACTIVATE_D(aop)
+{
+	aop_fields_post_deactivate();
 
 	return SUCCESS;
 }
@@ -175,7 +201,7 @@ PHP_MINFO_FUNCTION(aop)
 		: (AOP_G(disable_inlining)
 			? "prevented for user functions (aop.disable_inlining=1)"
 			: "allowed (aop.disable_inlining=0): calls to functions that return a constant may not be intercepted"));
-	php_info_print_table_row(2, "Field interception", "not available");
+	php_info_print_table_row(2, "Field interception", aop_hooks_installed ? "available" : "not available");
 	php_info_print_table_end();
 
 	DISPLAY_INI_ENTRIES();
@@ -194,7 +220,7 @@ zend_module_entry aop_module_entry = {
 	PHP_MODULE_GLOBALS(aop),
 	PHP_GINIT(aop),
 	NULL,
-	NULL,
+	ZEND_MODULE_POST_ZEND_DEACTIVATE_N(aop), /* stream G */
 	STANDARD_MODULE_PROPERTIES_EX
 };
 
