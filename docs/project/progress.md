@@ -18,7 +18,7 @@ Work happens on branch `claude/stoic-goodall-rplkuy`; each stream works in its o
 | H | PHP 8.4/8.5 compatibility, test-all on 8.3/8.4/8.5 × NTS/ZTS, opcache inlining, JIT notice | opus | done, merged |
 | I | Docs + examples | haiku | done, merged (G features to be patched after G) |
 | K | Fix stream I's findings (ControlFlowPointcut, ctor matching, modifiers, regexp, `||` bindings, naming) | sonnet | done, merged |
-| L | Fix field interception on PHP 8.4/8.5 (4 phpt fail there, `const` warnings); hooked properties, lazy objects | opus | running |
+| L | Fix field interception on PHP 8.4/8.5 (4 phpt fail there, `const` warnings); hooked properties, lazy objects | opus | done, merged |
 | M | Docs for fields/handler/initialization/introductions, INI settings, CHANGELOG, examples 27–30 | haiku | done, merged |
 | J | Final integration and verification | coordinator | pending |
 
@@ -60,11 +60,12 @@ Work happens on branch `claude/stoic-goodall-rplkuy`; each stream works in its o
 
 - Added `Weaver::declareParents(typePattern, interface, defaultImpl)`, the programmatic form of `declare parents` (the Spring `DefaultIntroductionAdvisor` only routes calls, because its class filter cannot run before the class is compiled; docs point to `declareParents()`). Unit tests + an E2E test against the real engine (`instanceof` true, default implementation answers). Gates: unit 1346, e2e 25/25, phpstan max and cs clean.
 
+- Merged stream L (`abbc72f`): the 4 failures were 8.4 message/closure-name changes and a test predating fields; fixed `const` (8.5 `EG(fake_scope)`) and `-Warray-bounds` warnings; 8.4+ readonly/asymmetric-visibility checks; hooked properties (one join point around the hooked access, backing-value accesses inside hooks are not join points); lazy objects (advice does not initialise; clones); 8.5 `clone with`. New tests 210–212.
+- Re-ran the Docker matrix on the merged branch: 8.4.27 NTS/ZTS 47 plain / 53 opcache, 8.5.12 NTS/ZTS 54 / 55, 0 failures, 0 warnings, packaged with SHA256SUMS. On 8.3: phpt 40 / 46, e2e 25/25, 30 examples match. Docs updated: 8.4/8.5 no longer "in progress".
+
 ## Still to do
-- `docs/limitations.md` still says only PHP 8.3 was built and tested; update after L (8.4/8.5 phpt pass except fields).
 - Opcache inlining with `aop.disable_inlining=0` behaved inconsistently in manual runs (stream M); phpt 200 passes. Investigate.
 - Document the INI settings (`aop.enable`, `aop.disable_inlining`, `aop.weave_autoload`) in README/docs.
-- Merge L (fields on 8.4/8.5) and re-run the Docker matrix.
 - Patch the docs: the experimental features (fields, handler, introductions, ctor-less initialization) now work; add examples.
 - Before the first tag: move the CHANGELOG `Unreleased` entries into a version section (release notes come from it).
 - E2E: re-run after G (ctor-less initialization, fields, handlers, introductions end to end through the Weaver); valgrind run of the phpunit e2e suite.

@@ -34,7 +34,7 @@ Every join point has a kind.
 | `function-call` | `FUNCTION_CALL` | A call site calls a function. | `call(* name(..))` | Stable |
 | `advice-execution` | `ADVICE_EXECUTION` | An advice method runs. | `adviceexecution()` | Stable |
 | `initialization` | `INITIALIZATION` | `new` creates an object of a class without a constructor. | `initialization()` | Implemented |
-| `field-get`, `field-set` | `FIELD_GET`, `FIELD_SET` | A property is read or written. | `get()`, `set()` | Implemented; PHP 8.4 and 8.5 in progress |
+| `field-get`, `field-set` | `FIELD_GET`, `FIELD_SET` | A property is read or written. | `get()`, `set()` | Implemented (PHP 8.4+: hooked properties and lazy objects, see [limitations](limitations.md#fields)) |
 | `exception-handler` | `EXCEPTION_HANDLER` | A `catch` clause catches an exception. | `handler()` | Implemented |
 
 `isCall()` and `isExecution()` tell the two families apart.

@@ -99,8 +99,8 @@ Deep recursion reaches the stack limit sooner than without the extension.
 
 The package supports PHP 8.3, 8.4 and 8.5, the versions in the release matrix.
 [building.md](building.md) describes the Docker matrix that builds and tests them.
-Only PHP 8.3 NTS was built and tested in the development environment for this release.
-Field interception on PHP 8.4 and 8.5 is in progress (see [fields](#fields)).
+The phpt suite passes, plain and with opcache, on PHP 8.3.6/8.3.36, 8.4.27 and 8.5.12, NTS and ZTS (glibc, x86_64), with no compiler warnings. Valgrind is clean for the full suite on 8.3 and for the method/function engine on 8.4 and 8.5.
+The phpunit suites and the examples ran on 8.3; musl, arm64, macOS and Windows are built and tested by the release workflow.
 
 ## Not applicable in PHP
 
@@ -112,8 +112,14 @@ Field interception on PHP 8.4 and 8.5 is in progress (see [fields](#fields)).
 ## Fields, handlers, initialization and introductions
 
 These join points are implemented in the engine.
-The checks behind this section ran on PHP 8.3.6 NTS.
-Field interception on PHP 8.4 and 8.5 is in progress, so do not rely on field advice there yet.
+They work on PHP 8.3, 8.4 and 8.5.
+On PHP 8.4+:
+
+- An access to a hooked property from outside its own hooks is one `get`/`set` join point around the whole hooked access; the hook body runs inside `proceed()`, so advice that does not proceed skips the hook.
+  Accesses from inside the property's own hooks (the backing value) are not join points.
+- Field advice does not initialise a lazy object by itself; proceeding does, as without advice.
+  Lazy objects created with `ReflectionClass::newLazyGhost()`/`newLazyProxy()` are not covered (they are not created with `new`), and accesses a proxy forwards to its real instance show up once, on the proxy.
+- Write fetches (`$o->p[] = 1`, `&$o->p`) on `&get` hooks are not join points.
 
 ### Fields
 
