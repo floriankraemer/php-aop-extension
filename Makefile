@@ -55,11 +55,16 @@ test: ext vendor/autoload.php ## phpunit: unit suite, then e2e with the built ao
 		$(PHP) -d extension=$(CURDIR)/$(EXT_SO) vendor/bin/phpunit --testsuite e2e; \
 	else echo "tests/E2E not present, skipping e2e"; fi
 
+.PHONY: test-examples
+test-examples: ext vendor/autoload.php ## Run every examples/NN-*.php and compare with its expected output
+	$(PHP) scripts/check-examples.php "$(PHP) -d extension=$(CURDIR)/$(EXT_SO)"
+
 .PHONY: check
 check: vendor/autoload.php test-ext ## php-cs-fixer, phpstan, phpt and phpunit
 	$(COMPOSER) cs
 	$(COMPOSER) stan
 	$(MAKE) test
+	$(MAKE) test-examples
 
 .PHONY: clean
 clean: ## Remove build output (ext/ artefacts, dist/, caches)

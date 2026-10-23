@@ -60,6 +60,9 @@ jobs:
             echo "tests/E2E not present yet, skipping"
           fi
 
+      - name: Examples match their documented output
+        run: php scripts/check-examples.php "php -d extension=$PWD/ext/modules/aop.so"
+
       # Static analysis and style do not depend on PHP build flavour: run once.
       - name: PHPStan
         if: matrix.php == '8.3' && matrix.ts == 'nts'
