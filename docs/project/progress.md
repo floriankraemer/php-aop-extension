@@ -17,7 +17,7 @@ Work happens on branch `claude/stoic-goodall-rplkuy`; each stream works in its o
 | G | C experimental: field get/set, handler(), ctor-less initialization, introductions | opus | done, merged |
 | H | PHP 8.4/8.5 compatibility, test-all on 8.3/8.4/8.5 × NTS/ZTS, opcache inlining, JIT notice | opus | done, merged |
 | I | Docs + examples | haiku | done, merged (G features to be patched after G) |
-| K | Fix stream I's findings (ControlFlowPointcut, ctor matching, modifiers, regexp, `||` bindings, naming) | sonnet | running |
+| K | Fix stream I's findings (ControlFlowPointcut, ctor matching, modifiers, regexp, `||` bindings, naming) | sonnet | done, merged |
 | L | Fix field interception on PHP 8.4/8.5 (4 phpt fail there, `const` warnings); hooked properties, lazy objects | opus | running |
 | J | Final integration and verification | coordinator | pending |
 
@@ -52,8 +52,9 @@ Work happens on branch `claude/stoic-goodall-rplkuy`; each stream works in its o
 
 - Valgrind (8.3.6 NTS, `USE_ZEND_ALLOC=0`) over the merged engine: 40 passed plain and 45 with opcache, 0 failed, 0 leaked.
 
+- Merged stream K: Spring `ControlFlowPointcut` restricted to execution kinds and tracked on its own (also inside `ComposablePointcut`/`ExpressionPointcut`); constructors no longer "override" (`execution(* Base::__construct(..))` matches only Base's own constructor, `Base+` for subtypes); method patterns accept `public protected private static final abstract` with `!`; `RegexpMethodPointcut` accepts delimited PCRE and throws `\InvalidArgumentException` on invalid patterns; `||` binding errors name the expression; adapters may return the Spring-style interceptor; `ConfigurableInterceptor` uses `isOutermost()`. Gates: unit 1343, e2e 24/24, phpstan max and cs clean, all 26 examples match.
+
 ## Still to do
-- Fix the remaining findings of stream I: Spring `ControlFlowPointcut` matches call kinds and is never TRACKed; `execution(Base::__construct(..))` matches subclass constructors (constructors do not override in AspectJ); method patterns reject `private`/`static`/`final` modifiers; `RegexpMethodPointcut` silently ignores delimited patterns; `||` branches binding different names are not rejected; docblocks still say "bean"; `AdvisorAdapterInterface::getInterceptor()` naming. (Not a bug: `execution(* Base::run(..))` matching an override of `run` is AspectJ semantics.)
 - Document the INI settings (`aop.enable`, `aop.disable_inlining`, `aop.weave_autoload`) in README/docs.
 - Merge L (fields on 8.4/8.5) and re-run the Docker matrix.
 - Patch the docs: the experimental features (fields, handler, introductions, ctor-less initialization) now work; add examples.

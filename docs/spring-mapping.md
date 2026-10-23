@@ -36,7 +36,7 @@ The status column says whether the feature is supported in this build.
 | AspectJ `adviceexecution()` | `adviceexecution()` | Supported. |
 | AspectJ `handler`, `get`, `set` | Same names | Experimental. Compiles, no effect in this build. |
 | AspectJ `preinitialization`, `staticinitialization` | Rejected with `UnsupportedPointcutDesignatorException` | Not applicable, see below. |
-| `ControlFlowPointcut` (Spring API) | `AOP\Pointcut\Api\ControlFlowPointcut` | Supported with caveats, see [spring-api.md](spring-api.md#control-flow). |
+| `ControlFlowPointcut` (Spring API) | `AOP\Pointcut\Api\ControlFlowPointcut` | Supported. Execution-only and control-flow aware like `cflow()`, see [spring-api.md](spring-api.md#control-flow). |
 
 ## The Spring AOP API
 
@@ -51,7 +51,7 @@ The status column says whether the feature is supported in this build.
 | `DefaultIntroductionAdvisor` | `AOP\Advisor\Api\DefaultIntroductionAdvisor` | Experimental. |
 | `Pointcut`, `ClassFilter`, `MethodMatcher`, `StaticMethodMatcherPointcut`, `DynamicMethodMatcherPointcut` | `AOP\Pointcut\Api\*` | Supported. |
 | `ComposablePointcut`, `Pointcuts` | `AOP\Pointcut\Api\ComposablePointcut`, `Pointcuts` | Supported. |
-| `RegexpMethodPointcut`, `NameMatchMethodPointcut`, `AttributeMatchingPointcut` | Same names in `AOP\Pointcut\Api` | Supported. The regular expression matches the whole name. |
+| `RegexpMethodPointcut`, `NameMatchMethodPointcut`, `AttributeMatchingPointcut` | Same names in `AOP\Pointcut\Api` | Supported. A bare expression matches the whole name; a delimited PCRE (`/Catalog::save/i`) is used as written. |
 | `AdvisorAdapterRegistry`, `AdvisorAdapter` | `AOP\Advisor\Api\AdvisorAdapterRegistry`, `AdvisorAdapterInterface` | Supported. |
 
 ## Target sources
@@ -90,9 +90,9 @@ The status column says whether the feature is supported in this build.
 
 These are not missing features, but the result can surprise someone who knows the Spring version.
 
-- A method pattern matches overrides through the base type (see [limitations.md](limitations.md#known-issues)).
-- `execution()` on a constructor also matches subclass constructors.
+- A method pattern matches overrides through the type that declares the method, like AspectJ.
+  Constructors are not overridden: `execution(* Base::__construct(..))` matches the constructor declared by `Base`, `Base+` also the subclasses'.
   Use `initialization()` for the outermost constructor.
-- `RegexpMethodPointcut` matches the whole name.
+- A bare `RegexpMethodPointcut` pattern matches the whole name; a delimited one is used as written.
 - This library advises every method, including private and static ones.
   Restrict the advice with a pattern when you want only some methods.

@@ -462,14 +462,21 @@ designator      = ...existing...
                 | "get" "(" fieldPattern ")"
                 | "set" "(" fieldPattern ")"
                 | ( "preinitialization" | "staticinitialization" ) "(" ... ")"   (* UnsupportedPointcutDesignatorException *) ;
-methodPattern   = [ "public" | "protected" ] returnType [ typePattern [ "+" ] "::" ] namePattern "(" paramList ")"
-                | [ "public" | "protected" ] typePattern [ "+" ] "::__construct" "(" paramList ")" ;   (* constructor: no return type *)
-ctorPattern     = [ "public" | "protected" ] typePattern [ "+" ] "::__construct" "(" paramList ")" ;
+methodPattern   = { methodModifier } returnType [ typePattern [ "+" ] "::" ] namePattern "(" paramList ")"
+                | { methodModifier } typePattern [ "+" ] "::__construct" "(" paramList ")" ;   (* constructor: no return type *)
+ctorPattern     = { methodModifier } typePattern [ "+" ] "::__construct" "(" paramList ")" ;
+methodModifier  = [ "!" ] ( "public" | "protected" | "private" | "static" | "final" | "abstract" ) ;
 fieldPattern    = { fieldModifier } [ [ "?" ] typePattern [ "+" ] ] typePattern [ "+" ] "::" "$" namePattern ;
-fieldModifier   = "public" | "protected" | "private" | "static" | "readonly" ;
+fieldModifier   = [ "!" ] ( "public" | "protected" | "private" | "static" | "readonly" ) ;
 ```
 
 `methodPattern` is the existing `execution()` pattern; a constructor pattern may omit the return type (also in `execution()`).
+Modifiers are all required to hold (`Pattern\ModifierPattern`, `FieldPattern`); `!` negates one. A plain function counts as public, non-static,
+non-final and non-abstract. A bare word standing where a modifier belongs but not being one (`pubic * Foo::bar(..)`) raises a
+`PointcutSyntaxException` ("Unknown modifier ..."). `ExecutionNode`/`InitializationNode::$modifiers` and `FieldPatternNode::$modifiers` are `list<string>` such as `['public', '!static']`.
+**Constructors do not override** (AspectJ): in `Pattern\MethodPattern` the declaring type of a `__construct` pattern matches the class declaring the executing
+constructor (`Base+`: and its subtypes), or the runtime class when that class inherits the constructor. So `execution(* Base::__construct(..))` never matches a
+subclass' own constructor, but matches the inherited one and the `parent::__construct()` execution. Other methods keep matching through the type that declares the signature.
 `$name` is a new token (`TokenType::Variable`), `*` is allowed in the name. `Lexer::DESIGNATORS` lists all designators, including the two unsupported ones.
 AST: `CallNode`/`WithincodeNode` wrap an `ExecutionNode`; `AtThisNode`, `AtWithincodeNode`, `CflowNode(inner, below)`, `IfNode(?class, method)`,
 `InitializationNode(modifier, declaringType, params)` (the shorthand `Foo+` is the same node with `(..)`), `AdviceExecutionNode`, `HandlerNode`,
@@ -492,7 +499,7 @@ AST: `CallNode`/`WithincodeNode` wrap an `ExecutionNode`; `AtThisNode`, `AtWithi
 | `get(F)` / `set(F)` | `field-get` / `field-set` (class prefilter accepts both field kinds) | no | no | `set`: `args(v)` is the new value |
 | `service(n)` | any kind of a registered service | no | no | - |
 
-`!` refuses bindings (`BindingException`), `||` branches must bind the same names, `&&`/`||`/`!` are runtime when a child is and caller-sensitive when a child is.
+`!` refuses bindings (`BindingException`), `||` branches must bind the same names (`OrPointcut` throws `BindingException` at construction; `PointcutExpressionCompiler::compile()` adds the expression to the message), `&&`/`||`/`!` are runtime when a child is and caller-sensitive when a child is.
 
 ### API for the runtime (stream D)
 
@@ -536,14 +543,15 @@ plus the aspect metadata/instances. Nothing in it needs the engine; the Weaver o
   `matchesRuntime(fn, ?class, array $args)`), `ApiPointcut(ClassFilter, MethodMatcher, ?list<JoinPointKind> $kinds)` (adapter to
   `PointcutInterface`; matches only method/function executions unless `$kinds` says otherwise), `StaticMethodMatcherPointcut` /
   `DynamicMethodMatcherPointcut` (abstract; implement `matches()` / `matchesArguments()`), `ComposablePointcut` (`union`/`intersection`),
-  `Pointcuts` (`union`, `intersection`, `matches(pointcut, fn, ?class, args, ?target, controlFlow)`), `RegexpMethodPointcut`,
+  `Pointcuts` (`union`, `intersection`, `matches(pointcut, fn, ?class, args, ?target, controlFlow)`), `RegexpMethodPointcut` (bare whole-name pattern or a fully delimited PCRE; `\InvalidArgumentException` when it does not compile),
   `NameMatchMethodPointcut`, `AttributeMatchingPointcut`, `ControlFlowPointcut`, `ExpressionPointcut`, constants `TruePointcut::INSTANCE`,
   `TrueClassFilter::INSTANCE`, `TrueMethodMatcher::INSTANCE`.
 - `Advice\Api`: `AdviceInterface`, `MethodInterceptorInterface::invoke(ProceedingJoinPointInterface)`, `MethodBeforeAdviceInterface::before(JoinPointInterface)`,
   `AfterReturningAdviceInterface::afterReturning(mixed, JoinPointInterface)`, `AfterAdviceInterface`, `ThrowsAdviceInterface` (marker; handlers are
   public methods named `afterThrowing*`, one exception type each, most specific type wins), `IntroductionInterceptorInterface`,
   `DelegatingIntroductionInterceptor(object $delegate, ?list<class-string> $interfaces)`; engine bridges in `Advice\Api\Interceptor\*`.
-- `Advisor\Api`: `AdvisorAdapterInterface` (`supportsAdvice`, `getInterceptor`), `TypedAdvisorAdapterInterface` (+ `adviceType`), `ClosureAdvisorAdapter`,
+- `Advisor\Api`: `AdvisorAdapterInterface` (`supportsAdvice`, `getInterceptor(): AOP\Interceptor\MethodInterceptorInterface|AOP\Advice\Api\MethodInterceptorInterface` — the engine-level interface
+  is the real return, a Spring-style interceptor is wrapped in `InterceptorBridge` by the registry, and a wrong return raises a `LogicException` naming the adapter), `TypedAdvisorAdapterInterface` (+ `adviceType`), `ClosureAdvisorAdapter`,
   `AdvisorAdapterRegistry` (`registerAdvisorAdapter`, `supports`, `getInterceptor`, `adviceType`), `DefaultPointcutAdvisor(PointcutInterface|string, object $advice, int $order = PHP_INT_MAX, ?string $id = null, AdvisorAdapterRegistry = new)`,
   `RegexpMethodPointcutAdvisor`, `NameMatchMethodPointcutAdvisor`, `DefaultIntroductionAdvisor`. **Every advisor class has `toAdvisor(): Advisor`**; the Weaver consumes
   `$weaver->addAdvisor($api->toAdvisor())`. The advisor id is the caller's id or `<advice class>#<n>`.
@@ -558,7 +566,9 @@ plus the aspect metadata/instances. Nothing in it needs the engine; the Weaver o
 
 1. **Programmatic advisors**: `addAdvisor(Advisor)` / `removeAdvisor(string $id)` as in §5. Advisors are built once and reused; `Advisor::$pointcut` may be runtime
    (`ControlFlowPointcut`, `DynamicMethodMatcherPointcut`): the Weaver builds chains with `AdvisorChainFactory::chainFor(..., $controlFlow)`, passing the runtime's `ControlFlowInterface`
-   (`ControlFlowPointcut` reads `RuntimeMatchContext::$controlFlow->stack()`; with `EmptyControlFlow` it never matches).
+   (`ControlFlowPointcut` reads `RuntimeMatchContext::$controlFlow->stack()`; with `EmptyControlFlow` it never matches). It matches method and function executions only and implements
+   `ControlFlowAwareInterface` (like `cflow()`): `ControlFlowPointcuts::of()` returns its entry pointcut, so `NativeRuntime` answers TRACK for the executions that make up the flow. `ComposablePointcut` and
+   `ExpressionPointcut` forward `cflowPointcuts()` of what they wrap.
 2. **Per-instance advisors**: `Weaver::advised(object $instance): Runtime\AdvisedInstance` must offer `addAdvisor(Advisor)` (and `removeAdvisor(string $id)`), applying the advisor to
    method executions whose `JoinPointInterface::getThis()` is that very object. `TargetSourceStandIn` relies on it: its advisor's pointcut is runtime, matches exactly `$standIn`
    by identity (weakly held), and must be sorted last (order `PHP_INT_MAX`, id prefix `~~`, so every other advisor wraps it). The engine must dispatch method executions of the
@@ -570,8 +580,8 @@ plus the aspect metadata/instances. Nothing in it needs the engine; the Weaver o
      `removeAspect(class)` must also drop these advisors (they carry `AdviceDefinition::$aspectClass`).
 4. **`#[Configurable]`**: `$weaver->addAdvisor((new ConfigurableAspect($configurer))->toAdvisor())`. It matches `constructor-execution` (and `initialization`) of classes with the attribute
    (nearest attribute up the class hierarchy). Requirements on the runtime:
-   - `constructor-execution` is dispatched for `parent::__construct()` too (§2 says so), each time with the same object as `getThis()`; the aspect counts running constructors per object to find the outermost one
-     because **the join point model does not expose the descriptor's `outermost` flag** (gap: if `JoinPointInterface`/`JoinPointData` gains it, `ConfigurableInterceptor` could use it instead of the counter);
+   - `constructor-execution` is dispatched for `parent::__construct()` too (§2 says so), each time with the same object as `getThis()`; the descriptor's `outermost` flag
+     (false for the `parent::` ones) is exposed by `MethodInvocation::isOutermost()` (`OutermostAwareInterface`), and `ConfigurableInterceptor` configures only on the outermost one (no per-object counting);
    - `initialization` join points (constructor-less classes) must pass the new object as `getThis()` (settled: §1.2 now passes the new object).
 5. Introductions from `DefaultIntroductionAdvisor` run through the normal chain (delegating the introduced interface methods). For true interface introduction the Weaver still has to call
    `Engine::setIntroductions()` (§6) with `introducedInterfaces()`; F does not do that.

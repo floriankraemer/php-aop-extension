@@ -38,6 +38,15 @@ final class ConstructionAspect
     {
         echo 'object of '.$jp->getThis()::class." is being constructed\n";
     }
+
+    // Constructors are not overridden: this matches the constructor declared by Base, whether it runs
+    // for a Base object or through parent::__construct(), and never the constructor of Connection.
+    // Use Base+ to match the subclass constructors as well.
+    #[Before('execution(* Demo\Constructors\Base::__construct(..))')]
+    public function onBaseConstructor(JoinPointInterface $jp): void
+    {
+        echo 'Base constructor runs for '.$jp->getThis()::class."\n";
+    }
 }
 
 $weaver = Weaver::fromAspects([new ConstructionAspect()]);
@@ -52,9 +61,11 @@ $base = new Base('plain');
 /* Expected output:
 --- new Connection
 object of Demo\Constructors\Connection is being constructed
+Base constructor runs for Demo\Constructors\Connection
 Base::__construct(primary)
 Connection::__construct(dsn set)
 --- new Base
 object of Demo\Constructors\Base is being constructed
+Base constructor runs for Demo\Constructors\Base
 Base::__construct(plain)
 */

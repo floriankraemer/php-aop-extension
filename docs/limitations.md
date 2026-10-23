@@ -135,46 +135,6 @@ Set `aop.weave_autoload=1` (any INI level) to weave class loading anyway, with a
 
 Runaway recursion through advised code raises PHP's `Maximum call stack size` `Error` (PHP 8.3+ stack limit) instead of crashing.
 
-### `execution()` matches constructors of subclasses
-
-`execution(* Base::__construct(..))` also matches the constructor of a subclass, and the `parent::__construct()` call inside it.
-So the advice can run several times for one `new`.
-
-Use `initialization(Base+)` to get one advice call per object, for the outermost constructor.
-[`examples/04-constructors.php`](../examples/04-constructors.php) shows both.
-
-### Type patterns match overrides through the base type
-
-`execution(* Base::run(..))` also matches `run()` declared in a subclass that overrides it.
-AspectJ matches only the declared method.
-Write the subclass name when you want only that class.
-
-### Method modifiers are limited
-
-Only `public` and `protected` are accepted as modifiers in a method pattern.
-`private`, `static` and `final` raise a syntax error, and the message does not say why:
-
-```text
-Unexpected "Demo\Mods\Svc", expected "(" at position 20 in pointcut "execution(private * Demo\Mods\Svc::priv(..))".
-```
-
-To select private, static or final methods, leave out the modifier and match by name or type.
-
-### Spring `ControlFlowPointcut` differs from `cflow()`
-
-The Spring form matches call join points as well as executions.
-So advice runs at the call site and again inside the method.
-It also does not register its entry join point with the control-flow stack.
-So it only works when other advice advises the entry point.
-Use the `cflow()` designator instead.
-[`examples/07-cflow.php`](../examples/07-cflow.php) shows it working on its own.
-
-### `RegexpMethodPointcut` takes whole-name patterns
-
-Patterns match the whole `Class::method` name, and they take no delimiters.
-A pattern with delimiters, such as `/Catalog::save/`, does not match and raises no error.
-Write `.*Catalog::save` instead.
-
 ### Compile-time specialisation changes behaviour by namespace
 
 The same call is intercepted in one file and not in another, depending on whether it is namespaced (see [compiler-specialised internal functions](#compiler-specialised-internal-functions)).
