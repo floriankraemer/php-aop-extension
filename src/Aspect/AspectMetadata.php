@@ -21,6 +21,7 @@ final readonly class AspectMetadata
         public array $advices,
         public array $introductions = [],
         public AspectScope $scope = AspectScope::SINGLETON,
+        public ?string $scopePointcut = null,
     ) {
     }
 }

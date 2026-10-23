@@ -8,11 +8,15 @@ use AOP\JoinPoint\JoinPointInterface;
 
 /**
  * Gives advised code and advice access to the join point being executed, like Spring's AopContext.
+ * The stack is kept per Fiber, so a suspended Fiber never disturbs the join points of the code that resumed it.
  */
 final class AopContext
 {
-    /** @var list<JoinPointInterface> */
-    private static array $joinPoints = [];
+    /** @var list<JoinPointInterface> join points of the main (non-Fiber) execution */
+    private static array $main = [];
+
+    /** @var \WeakMap<object, list<JoinPointInterface>>|null */
+    private static ?\WeakMap $fibers = null;
 
     private function __construct()
     {
@@ -23,7 +27,9 @@ final class AopContext
      */
     public static function currentJoinPoint(): ?JoinPointInterface
     {
-        return self::$joinPoints[\count(self::$joinPoints) - 1] ?? null;
+        $stack = self::stack();
+
+        return $stack[\count($stack) - 1] ?? null;
     }
 
     /**
@@ -39,7 +45,9 @@ final class AopContext
      */
     public static function push(JoinPointInterface $joinPoint): void
     {
-        self::$joinPoints[] = $joinPoint;
+        $stack = self::stack();
+        $stack[] = $joinPoint;
+        self::store($stack);
     }
 
     /**
@@ -47,6 +55,33 @@ final class AopContext
      */
     public static function pop(): void
     {
-        array_pop(self::$joinPoints);
+        $stack = self::stack();
+        array_pop($stack);
+        self::store($stack);
+    }
+
+    /**
+     * @return list<JoinPointInterface>
+     */
+    private static function stack(): array
+    {
+        $fiber = \Fiber::getCurrent();
+
+        return null === $fiber ? self::$main : (self::$fibers[$fiber] ?? []);
+    }
+
+    /**
+     * @param list<JoinPointInterface> $stack
+     */
+    private static function store(array $stack): void
+    {
+        $fiber = \Fiber::getCurrent();
+        if (null === $fiber) {
+            self::$main = $stack;
+
+            return;
+        }
+        self::$fibers ??= new \WeakMap();
+        self::$fibers[$fiber] = $stack;
     }
 }
