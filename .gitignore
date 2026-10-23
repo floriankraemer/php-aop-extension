@@ -1,77 +1,55 @@
-# Compiled object files, binaries, and shared libraries
-*.o
-*.lo
-*.la
-*.a
-*.so
-*.dSYM
+# PHP package
+/vendor/
+/composer.lock
+/.phpunit.cache/
+/.php-cs-fixer.cache
+/phpunit.xml
+/var/
+/dist/
 
-# Test logs and results
-tests/*.diff
-tests/*.exp
-tests/*.log
-tests/*.mem
-tests/*.out
-tests/*.php
-tests/*.sh
-tests/*.tmp
+# Extension build output (phpize/configure/make inside ext/)
+/ext/*.o
+/ext/*.lo
+/ext/*.la
+/ext/*.dep
+/ext/.libs/
+/ext/modules/
+/ext/autom4te.cache/
+/ext/build/
+/ext/include/
+/ext/libs/
+/ext/Makefile
+/ext/Makefile.fragments
+/ext/Makefile.global
+/ext/Makefile.objects
+/ext/acinclude.m4
+/ext/aclocal.m4
+/ext/config.guess
+/ext/config.h
+/ext/config.h.in
+/ext/config.log
+/ext/config.nice
+/ext/config.status
+/ext/config.sub
+/ext/configure
+/ext/configure.ac
+/ext/configure~
+/ext/install-sh
+/ext/libtool
+/ext/ltmain.sh
+/ext/missing
+/ext/mkinstalldirs
+/ext/run-tests.php
+/ext/tests/**/*.diff
+/ext/tests/**/*.exp
+/ext/tests/**/*.log
+/ext/tests/**/*.mem
+/ext/tests/**/*.out
+/ext/tests/**/*.php
+/ext/tests/**/*.sh
 
-# PHP test script output
-*.php-test
-
-# Configuration and IDE-specific files
+# IDE / OS
 .idea/
 .vscode/
-*.iml
-
-# Build directories and generated files
-build/
-autom4te.cache/
-Makefile
-Makefile.global
-Makefile.objects
-config.h
-config.nice
-config.status
-configure
-configure.in
-acinclude.m4
-aclocal.m4
-ltmain.sh
-install-sh
-missing
-run-tests.php
-
-# PHP binaries and extension files
-php
-php-cgi
-phpdbg
-php.ini
-modules/
-extensions/
-.libs/
-
-# OS-specific files
 .DS_Store
-Thumbs.db
-
-# Docker-related files
-docker-compose.override.yml
-*.log
-
-# Temporary files and backups
-*.bak
 *.swp
-*.tmp
-*.~*
-*.orig
-*.rej
-
-# Composer dependencies (if applicable)
-vendor/
-composer.lock
-
-# Node.js dependencies (if applicable)
-node_modules/
-npm-debug.log
-yarn.lock
