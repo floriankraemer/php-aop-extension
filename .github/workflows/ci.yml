@@ -132,6 +132,13 @@ jobs:
         php: ["8.3", "8.5"]
     steps:
       - uses: actions/checkout@v7
+        with:
+          path: repo
+
+      # The builder has no working-directory input: it expects config.w32 at the workspace root.
+      - name: Put the extension at the workspace root
+        shell: pwsh
+        run: Copy-Item -Recurse repo/ext/* .
 
       - name: Build and test extension
         uses: php/php-windows-builder/extension@v1
