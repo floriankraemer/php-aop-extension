@@ -26,6 +26,16 @@ final class JoinPointShape
     }
 
     /**
+     * The function whose code contains the join point: the executing function itself for code kinds, the caller's
+     * function for everything that happens inside other code. Null when unknown (top-level code, internal callers,
+     * a class without constructor).
+     */
+    public static function enclosingFunction(StaticMatchContext $ctx, ?\ReflectionFunctionAbstract $function): ?\ReflectionFunctionAbstract
+    {
+        return self::isCode($ctx->kind) ? $function : $ctx->caller?->function;
+    }
+
+    /**
      * Classes whose lexical code contains the join point: the declaring class for executions, the caller's class
      * for everything that happens inside other code. Empty when unknown or for plain functions.
      *

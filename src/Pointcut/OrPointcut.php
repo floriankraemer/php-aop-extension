@@ -6,7 +6,7 @@ namespace AOP\Pointcut;
 
 use AOP\Exception\BindingException;
 
-final class OrPointcut implements PointcutInterface
+final class OrPointcut implements PointcutInterface, ControlFlowAwareInterface
 {
     /**
      * @throws BindingException when the branches bind different names: whichever branch matches, every bound advice parameter needs a value
@@ -51,5 +51,10 @@ final class OrPointcut implements PointcutInterface
     public function isCallerSensitive(): bool
     {
         return $this->left->isCallerSensitive() || $this->right->isCallerSensitive();
+    }
+
+    public function cflowPointcuts(): array
+    {
+        return [...ControlFlowPointcuts::of($this->left), ...ControlFlowPointcuts::of($this->right)];
     }
 }

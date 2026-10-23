@@ -1,0 +1,208 @@
+name: Release
+
+on:
+  push:
+    tags:
+      # Loose glob; the validate job enforces the exact SemVer grammar.
+      - "[0-9]*.[0-9]*.[0-9]*"
+      - "v[0-9]*.[0-9]*.[0-9]*"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate tag
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.semver.outputs.version }}
+      is_prerelease: ${{ steps.semver.outputs.is_prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the tag is a semantic version
+        id: semver
+        run: scripts/semver-check.sh "$GITHUB_REF_NAME" | tee -a "$GITHUB_OUTPUT"
+
+  linux:
+    name: Linux ${{ matrix.libc }} ${{ matrix.arch }} PHP ${{ matrix.php }} ${{ matrix.ts }}
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.3", "8.4", "8.5"]
+        ts: [nts, zts]
+        libc: [glibc, musl]
+        arch: [x86_64, arm64]
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      # Builds inside php:<ver>-<cli|zts>-<bookworm|alpine>, runs the phpt
+      # suite and packages dist/aop-<version>-php<X.Y>-<ts>-linux-<libc>-<arch>.tar.gz
+      - name: Build, test and package
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          PHP_VERSIONS: ${{ matrix.php }}
+          TS_MODES: ${{ matrix.ts }}
+          LIBCS: ${{ matrix.libc }}
+        run: scripts/docker-matrix.sh dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-linux-${{ matrix.libc }}-${{ matrix.arch }}-php${{ matrix.php }}-${{ matrix.ts }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  macos:
+    name: macOS ${{ matrix.arch }} PHP ${{ matrix.php }} ${{ matrix.ts }}
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.3", "8.4", "8.5"]
+        ts: [nts, ts]
+        arch: [arm64, x86_64]
+        include:
+          - arch: arm64
+            runner: macos-14
+          # macos-13 was retired by GitHub in December 2025; macos-15-intel is its x86_64 successor.
+          - arch: x86_64
+            runner: macos-15-intel
+    env:
+      phpts: ${{ matrix.ts }}
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: phpize, php-config
+          coverage: none
+
+      - name: Build extension
+        run: make ext
+
+      - name: Run phpt suite
+        run: make test-ext
+
+      - name: Package
+        run: |
+          name="aop-${VERSION}-php${{ matrix.php }}-${{ matrix.ts }}-macos-${{ matrix.arch }}"
+          mkdir -p "dist/$name"
+          cp ext/modules/aop.so LICENSE "dist/$name/"
+          [ ! -f README.md ] || cp README.md "dist/$name/"
+          printf 'extension=aop\n' > "dist/$name/aop.ini"
+          tar -czf "dist/$name.tar.gz" -C "dist/$name" .
+          rm -rf "dist/$name"
+          ls -l dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-macos-${{ matrix.arch }}-php${{ matrix.php }}-${{ matrix.ts }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: Windows ${{ matrix.arch }} PHP ${{ matrix.php }} ${{ matrix.ts }}
+    needs: validate
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.3", "8.4", "8.5"]
+        ts: [nts, ts]
+        arch: [x64, x86]
+        include:
+          - php: "8.3"
+            vs: vs16
+          - php: "8.4"
+            vs: vs17
+          - php: "8.5"
+            vs: vs17
+    steps:
+      - uses: actions/checkout@v7
+
+      # Builds, runs the phpt suite (run-tests) and uploads its own artifact.
+      - name: Build and test extension
+        uses: php/php-windows-builder/extension@v1
+        with:
+          php-version: ${{ matrix.php }}
+          arch: ${{ matrix.arch }}
+          ts: ${{ matrix.ts }}
+          run-tests: "true"
+
+      # Re-publish under the PIE asset name with the validated version
+      # (the builder would otherwise embed the raw tag, including any "v").
+      - name: Name the asset php_aop-<version>-<php>-<ts>-<vs>-<arch>.zip
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          $target = "php_aop-$env:VERSION-${{ matrix.php }}-${{ matrix.ts }}-${{ matrix.vs }}-${{ matrix.arch }}.zip"
+          $zips = @(Get-ChildItem artifacts -Filter *.zip | Where-Object { $_.Name -notmatch 'debug' })
+          if ($zips.Count -ne 1) {
+            Get-ChildItem artifacts | Out-String | Write-Host
+            throw "expected exactly one release zip in artifacts/, found $($zips.Count)"
+          }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item $zips[0].FullName (Join-Path dist $target)
+          Get-ChildItem dist | Out-String | Write-Host
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-windows-${{ matrix.arch }}-php${{ matrix.php }}-${{ matrix.ts }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [validate, linux, macos, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: assets
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd assets
+          ls -1
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Extract release notes from CHANGELOG.md
+        id: notes
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          if scripts/changelog-notes.sh "$VERSION" CHANGELOG.md > release-notes.md; then
+            echo "has_notes=true" >> "$GITHUB_OUTPUT"
+            cat release-notes.md
+          else
+            echo "No CHANGELOG.md entry for $VERSION, falling back to generated notes"
+            echo "has_notes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: assets/*
+          prerelease: ${{ needs.validate.outputs.is_prerelease == 'true' }}
+          body_path: ${{ steps.notes.outputs.has_notes == 'true' && 'release-notes.md' || '' }}
+          generate_release_notes: ${{ steps.notes.outputs.has_notes != 'true' }}
+          fail_on_unmatched_files: true

@@ -27,6 +27,7 @@
 /ext/config.guess
 /ext/config.h
 /ext/config.h.in
+/ext/config.h.in~
 /ext/config.log
 /ext/config.nice
 /ext/config.status
