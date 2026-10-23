@@ -436,6 +436,7 @@ static void aop_original_call_new(zval *zv, zend_function *func, zend_class_entr
 
 ZEND_METHOD(AOP_OriginalCall, __construct)
 {
+	(void) return_value;
 	ZEND_PARSE_PARAMETERS_NONE();
 	zend_throw_error(NULL, "Cannot directly construct %s", ZSTR_VAL(aop_original_call_ce->name));
 }

@@ -80,7 +80,9 @@ The PHP side type-hints the original as `callable` (tests pass a `\Closure`; see
 - Classes in namespace `AOP\` and calls whose **caller** frame belongs to a class in `AOP\` (the runtime itself).
 - Closures, generator **resumption** (only the call that creates the generator is a join point), eval/include frames,
   functions returning by reference.
-- Internal functions compiled to dedicated opcodes (`strlen`, `count`, `is_*`, …) and PHP 8.4+ frameless calls.
+- Internal functions compiled to dedicated opcodes (`strlen`, `count`, `is_*`, …). (PHP 8.4+ frameless calls are not
+  emitted while the hooks are installed, so those functions *are* intercepted; see "Compat notes (stream H)".)
+- PHP 8.4+ property hook bodies (`$prop::get`/`$prop::set`); their accesses are field join points (§6).
 
 ## 2. Join point descriptor (array)
 
@@ -427,7 +429,8 @@ Known limitations:
 
 - **opcache inlining**: the optimizer (pass 16, part of the default `opcache.optimization_level`) inlines calls
   to functions/methods whose body is only `return <constant>;` (no typed or by-ref parameters). Those calls never
-  reach the engine. Use `opcache.optimization_level=0x7FFE3FFF` to keep them (`ext/tests/025-opcache-inlining.phpt`).
+  reach the engine. Since stream H this is prevented by default (`aop.disable_inlining=1`, see "Compat notes
+  (stream H)"); with `aop.disable_inlining=0` it applies (`ext/tests/200-opcache-inlining-allowed.phpt`).
 - PHP disables the JIT while `zend_execute_ex` is overridden (it warns when the JIT is configured), and every
   user call recurses on the C stack, so very deep recursion hits the stack limit sooner.
 - Advising internal functions that inspect their caller's frame (`compact`, `extract`, `get_defined_vars`,
@@ -577,3 +580,66 @@ aspects like `addAspect()` (aspect instances may be factories: `ScopedAspectReso
 non-singletons) and add the programmatic advisors; `removeAspect()` drops them. `targetSource($class, $source)` creates a `TargetSourceStandIn` and
 attaches its advisor with `advised()`. `configurable($configurer)` adds `ConfigurableAspect::toAdvisor()`. Chains are built with the runtime's
 per-Fiber `ControlFlowInterface`. E2E notes: the scratch `aop.so` of stream A does not emit `initialization` yet, so that E2E test skips itself.
+
+## Compat notes (stream H)
+
+PHP 8.3, 8.4 and 8.5, NTS and ZTS, are supported by the same sources. Version differences are documented (and,
+where code is needed, handled) in `ext/aop_compat.h`; version-specific tests are `ext/tests/2*.phpt` with a
+`--SKIPIF--` on `PHP_VERSION_ID`. Checked against php-8.3.6, php-8.4.27 and php-8.5.12.
+
+**Unchanged** (the frame code in `aop_hook.c` needs no guard): `zend_execute_data`, all `ZEND_CALL_*` flags and
+frame macros, `i_init_func_execute_data()`/`zend_copy_extra_args()` (extra args behind CVs+TMPs), the
+`ZEND_CALL_TOP` function branch of `zend_leave_helper` (8.5 only adds a TAILCALL-VM note), `ZEND_DO_FCALL` and
+`zend_call_function()` around `zend_execute_ex()`, the `zend_execute_ex`/`zend_execute_internal` signatures,
+`zend_fcall_info(_cache)`, `zend_call_known_fcc()`/`zend_call_known_function()`, and every `ZEND_ACC_*` flag the
+engine reads or sets (8.4 renumbers `PROMOTED` and adds property flags, 8.5 adds `NODISCARD` and moves
+`USE_GUARDS`; none is used). The 8.3-generated `aop_arginfo.h` compiles unchanged on 8.4/8.5 (8.4+ `gen_stub.php`
+would use `zend_register_internal_class_with_flags()`; it needs network access to fetch PHP-Parser, so the file was
+not regenerated).
+
+**Differences and how they are handled**
+
+| Version | Difference | Handling |
+|---|---|---|
+| 8.4 | `zend_observer_fcall_end()` became a static inline that checks `EG(current_observed_frame)` | none needed, same call |
+| 8.4 | Frameless internal calls (`ZEND_FRAMELESS_ICALL_0..3`: `strpos`, `str_contains`, `in_array`, `implode`, `min`, `preg_match`, …) bypass `zend_execute_internal` | The compiler only emits them while `zend_execute_internal` is NULL (`find_frameless_function_info()`, 8.4 and 8.5), and the hook is installed in MINIT, so they are never emitted while `aop.enable=1`: those functions are intercepted normally (`206-frameless.phpt`). No user opcode handler is needed. Remaining gap: scripts compiled by a process **without** the hook and loaded from a shared `opcache.file_cache` keep their frameless opcodes. |
+| 8.4 | Property hooks are user functions (`common.prop_info` set, named `$prop::get`/`$prop::set`); the "simple get" VM fast path enters them without `zend_execute_ex` | The fast path is only cached while `zend_execute_ex == execute_ex`, so with the hook every hook call reaches the engine. Hook bodies pass through (`aop_is_property_hook()`): they are not methods (no `ReflectionMethod` by that name) and their accesses are field join points (§6). Calls made *from* a hook report `caller.function` = `$prop::get` with `scope` the declaring class; the PHP side resolves it with `ReflectionProperty::getHook()` (`204-property-hooks.phpt`). |
+| 8.4 | Lazy objects | The engine never reads properties of `$this`, so advising a method of an uninitialized ghost/proxy does not initialize it; the original initializes it on its first property access, as without advice (`205-lazy-objects.phpt`). `class`/`$this` of a proxy are the proxy. |
+| 8.4 | `exit()`/`die()` is an internal function | Advisable like any internal function; proceeding exits (finally blocks of the dispatcher do not run, shutdown functions do) (`207-exit-function.phpt`). |
+| 8.4 | `#[\Deprecated]` user functions (`ZEND_ACC_DEPRECATED`) | The call site reports the deprecation, and `zend_call_function()` reports it again for every `OriginalCall` (`208-deprecated-attribute.phpt`). Same for deprecated internal functions on 8.3. Not suppressed: that would need writing to (possibly shared, read-only) op_arrays. |
+| 8.4 | Closure names in traces are `{closure:file:line}` | Tests match `{closure%S}`. |
+| 8.5 | Pipe operator `\|>` | Compiled to ordinary calls; advised normally (`209-pipe-nodiscard.phpt`). |
+| 8.5 | `#[\NoDiscard]` (`ZEND_ACC_NODISCARD`) | Checked once at the call site; `zend_call_function()` does not check it, so `OriginalCall` does not repeat the warning. |
+| 8.5 | opcache is always built in (`extension_loaded('Zend OPcache')`, no `zend_extension=opcache`) | Tests check `extension_loaded('Zend OPcache')` and enable it with `opcache.enable_cli=1` in `--INI--`. |
+
+**opcache inlining** (`aop.disable_inlining`, `PHP_INI_SYSTEM`, default `1`; only with `aop.enable=1`). In MINIT
+the extension also registers itself as a zend_extension whose `op_array_handler` (run by `pass_two()` for every
+op_array compiled with `ZEND_COMPILE_HANDLE_OP_ARRAY`, which is the default and which opcache sets, before
+opcache's optimizer runs) adds `ZEND_ACC_HAS_TYPE_HINTS` to every named function and method (not closures, not
+property hooks). `zend_try_inline_call()` (pass 16, identical in 8.3–8.5) never inlines such callees. On an untyped
+function the flag only makes the VM execute its `RECV` opcodes, which accept untyped parameters, exactly as for any
+function with one typed and one untyped parameter (`201-opcache-inlining-shapes.phpt` covers by-ref, defaults,
+variadics, named extras and the missing-argument error). Cost: one `RECV` per declared parameter per call.
+The zend_extension has no `startup`, so `php -v` does not list it. Alternatives rejected: changing
+`opcache.optimization_level` from MINIT (only works when loaded before opcache, and turns off the pass for every
+function), `ZEND_COMPILE_EXTENDED_STMT` (EXT_STMT before every statement: slower and visible to debuggers),
+`ZEND_ACC_DEPRECATED` (changes behaviour). What remains: scripts cached by a process without aop (shared
+`opcache.file_cache`, a different `aop.disable_inlining`) keep their inlined calls; SCCP still evaluates calls to
+some internal functions with constant arguments at compile time, and internal functions compiled to dedicated
+opcodes (`strlen`, `count`, …) are unchanged (§1.4). Setting `ZEND_COMPILE_NO_BUILTINS` in RINIT would remove the
+latter at a small cost per builtin; not done.
+
+**JIT**. On every version `zend_jit_check_support()` turns the JIT off when `zend_execute_ex != execute_ex`, which
+is checked in opcache's post-startup, after our MINIT. When the JIT is configured for the current SAPI (opcache
+enabled, `opcache.jit` not `disable`, `opcache.jit_buffer_size` > 0), PHP warns ("JIT is incompatible with third
+party extensions that override zend_execute_ex(). JIT disabled.") and aop adds the startup notice
+`aop: the opcache JIT is disabled because aop interception overrides zend_execute_ex(); set aop.enable=0 to use the JIT`
+(from a `zend_post_startup_cb`, so opcache's INI is registered). `phpinfo()` shows the state in the rows
+"opcache JIT" and "opcache function inlining". With `aop.enable=0` no hook, no zend_extension and no callback is
+installed and the JIT runs (`202-jit-disabled.phpt`, `203-jit-aop-disabled.phpt`; 203 skips under valgrind
+because the JIT's IR compiler itself reports uninitialised reads).
+
+**Testing notes**. `make test` runs with `-n`, so on 8.3/8.4 opcache is not loaded and the opcache/JIT tests
+(025, 200–203) skip; CI should run the phpt suite a second time with
+`TEST_PHP_ARGS="-q -d zend_extension=$(php -r 'echo ini_get("extension_dir");')/opcache.so -d opcache.enable_cli=1"`
+(8.5: only `-d opcache.enable_cli=1`, opcache is built in).
