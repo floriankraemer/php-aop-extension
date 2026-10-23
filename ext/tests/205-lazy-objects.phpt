@@ -35,6 +35,8 @@ var_dump($ghost->count());         // property access in the original initialize
 var_dump($r->isUninitializedLazyObject($ghost));
 
 echo "-- proxy\n";
+// The real instance comes from `new`, so it is wrapped and its constructor's write is a field-set join point;
+// the proxy is not (no `new`), and the engine forwards its property accesses to the instance's std handlers.
 $proxy = $r->newLazyProxy(function (Repo $o) { echo "init proxy\n"; return new Repo(); });
 var_dump($proxy->count());
 var_dump($r->isUninitializedLazyObject($proxy));
@@ -58,6 +60,8 @@ bool(false)
 init proxy
 > Repo::__construct lazy=false
 Repo::__construct
+> Repo::rows lazy=false
+< Repo::rows lazy=false
 < Repo::__construct lazy=false
 < Repo::count lazy=false
 int(2)

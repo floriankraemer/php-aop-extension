@@ -64,10 +64,10 @@ try {
 $m->list[] = 'a';
 var_dump($m->list);
 ?>
---EXPECT--
+--EXPECTF--
   > field-set Money::amount(5) from Money::__construct@9
 modify readonly: Error: Cannot modify readonly property Money::$amount
-readonly by reference: Error: Cannot modify readonly property Money::$amount
+readonly by reference: Error: Cannot %Smodify readonly property Money::$amount
   > field-get Money::amount() from Money::__clone@10
   < 5
   > field-set Money::amount(10) from Money::__clone@10
