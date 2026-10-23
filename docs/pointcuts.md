@@ -185,11 +185,11 @@ Use `initialization()` when you want one advice call per `new`.
 | `cflow(p)` | Some join point matching `p` is active on the stack of the current Fiber, the join point itself included. | the bindings of `p` | `cflow(execution(* App\Import::run(..)))` |
 | `cflowbelow(p)` | As `cflow(p)`, but the join point itself does not count. | the bindings of `p` | `cflowbelow(execution(* App\Import::run(..)))` |
 | `if(C::m())` | A public static method returns `true`. Runs for every join point. | - | `if(App\Flags::enabled())` |
-| `initialization(P)` | The outermost constructor execution of a matching type. | - | `initialization(App\Connection+)` |
+| `initialization(P)` | The outermost constructor execution of a matching type. Needs `aop.interception=hook`. | - | `initialization(App\Connection+)` |
 | `adviceexecution()` | The execution of an advice method. | - | `adviceexecution() && within(App\Audit)` |
 | `service(name)` | The object or class registered under a service name. | - | `service(orders.repository)` |
 | `handler(T)` | A `catch` of T. | `args(e)` | [handler()](#handler) |
-| `get(F)`, `set(F)` | Reads and writes of a property. | `args(v)` for `set` | [get() and set()](#get-and-set) |
+| `get(F)`, `set(F)` | Reads and writes of a property. Need `aop.interception=hook`. | `args(v)` for `set` | [get() and set()](#get-and-set) |
 | `preinitialization(...)`, `staticinitialization(...)` | Nothing. They raise `UnsupportedPointcutDesignatorException`. | - | - |
 
 The designators apply only to the kinds they name.
@@ -282,6 +282,12 @@ initialization(App\Connection+)
 
 A `parent::__construct()` call is not outermost, so it does not match.
 For a class without a constructor, the designator matches the creation of the object (the `initialization` join point).
+
+This designator needs `aop.interception=hook`.
+Under the default `woven` backend, `Weaver::enable()` throws `AspectDefinitionException` for every `initialization(...)` pointcut, also for a class with a constructor.
+Use `execution(* App\Connection::__construct(..))` there.
+See [limitations](limitations.md#backends).
+
 [`examples/29-initialization-without-constructor.php`](../examples/29-initialization-without-constructor.php) shows it.
 
 ### `adviceexecution()`
@@ -321,6 +327,9 @@ get(private * App\Account::$*)
   Throwing from it keeps the old value.
 - A compound assignment (`+=`, `.=`) and an increment (`++`) are a read followed by a write.
 - Writes through a nested or referenced access (`$o->list[] = 1`, `$r = &$o->p`) are only reported as reads, and the advice cannot change them.
+
+`get()` and `set()` need `aop.interception=hook`, which turns the opcache JIT off.
+Under the default `woven` backend, `Weaver::enable()` throws `AspectDefinitionException` for an advisor with such a pointcut; see [limitations](limitations.md#backends).
 
 Fields are covered only for objects created with `new` after `enable()`.
 [limitations](limitations.md#fields) lists what is not covered.

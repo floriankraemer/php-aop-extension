@@ -10,17 +10,68 @@ Each one was checked by running code, unless the text says otherwise.
 
 These are properties of PHP and of the hook design, not bugs.
 
-### JIT
+### Backends
 
-The JIT is disabled while the extension is loaded.
-PHP warns about it when the JIT is configured:
+The setting `aop.interception` (`woven`, `hook` or `auto`, php.ini only) selects how calls reach the engine.
+The choice is made once at startup, before opcache decides about the JIT.
+
+| | `woven` (default) | `hook` |
+|---|---|---|
+| How | A prologue is compiled into every named function and method. Internal functions use `zend_execute_internal`. | `zend_execute_ex()` is overridden, and user opcode handlers for `ZEND_NEW` and `ZEND_CATCH` are installed. |
+| Opcache JIT | Stays on. | Disabled by opcache. |
+| `execution()`, `call()`, `within()`, `cflow()` and the other call-based pointcuts | Supported. | Supported. |
+| `handler()` | Supported (a call woven into each `catch` block). | Supported. |
+| `get()`, `set()` | Not available. | Available. |
+| `initialization()` | Not available, for any class (see below). | Available. |
+| Introductions | Supported. | Supported. |
+| Advice arguments | After parameter coercion, see [woven differences](#woven-differences). | As passed. |
+| Advice on a generator function | At the first resume. | At the call that creates the generator. |
+
+`auto` picks `hook` unless the JIT is configured for the SAPI (opcache enabled, `opcache.jit` not `disable`, `opcache.jit_buffer_size` > 0), then it picks `woven`.
+`opcache.jit=off` counts as configured, because the JIT can be switched on at run time.
+`aop.enable=0` installs neither backend, and the JIT runs.
+`phpinfo()` shows the result in the row "Interception backend".
+
+The hook backend disables the JIT.
+PHP warns about it when the JIT is configured, and the extension adds a notice:
 
 ```text
-PHP Warning:  JIT is incompatible with third party extensions that override zend_execute_ex(). JIT disabled.
+Notice: aop: the opcache JIT is disabled because aop.interception=hook overrides zend_execute_ex(); set aop.interception=woven to keep the JIT
+Warning: JIT is incompatible with third party extensions that override zend_execute_ex(). JIT disabled.
 ```
 
-The extension overrides `zend_execute_ex()`, which the JIT does not allow.
-Turn the JIT off in production if the extension is loaded, to avoid the warning.
+Under `woven`, `Engine::fieldInterceptionAvailable()` returns `false`, and `Weaver::enable()` throws an `AspectDefinitionException` for an advisor that can match `get()`, `set()` or `initialization()`.
+Every `initialization(...)` pointcut is rejected, also one for a class with a constructor, because `enable()` cannot tell classes with and without a constructor apart.
+For a class with a constructor, use `execution(* App\Connection::__construct(..))`.
+The exception names the first such advisor, and `enable()` enables nothing:
+
+```text
+AOP\Exception\AspectDefinitionException: Advisor "A::b" targets field-get, field-set or initialization join points, which the active interception backend cannot intercept. Set aop.interception=hook (or aop.interception=auto without the opcache JIT) in php.ini.
+```
+
+The JIT cannot honour the per-object property handlers that field interception swaps in, which is why fields cannot work under it.
+If you need these pointcuts, set `aop.interception=hook` and run without the JIT, or `auto` if the JIT is off in that environment.
+
+### Woven differences
+
+These apply to `aop.interception=woven` only.
+Each one was checked by running code, unless the text says otherwise.
+
+- Advice sees the arguments after the parameter list ran.
+  Values are coerced to the declared types (`'5'` for an `int` parameter arrives as `5`), and a `TypeError` for a bad argument is raised before the advice runs.
+  Omitted trailing parameters are still absent from the argument array, as under `hook`.
+- Advice on a generator function runs at the first resume, not when the function is called.
+  Proceeding does not run the advice a second time.
+- Exception backtraces and `debug_backtrace()` contain a frame `AOP\Internal\intercept()` (or `AOP\Internal\caught()` for `handler()` advice) between the advised function and the dispatcher.
+- A constructor with promoted properties: the properties are reset to their defaults before the dispatcher runs, so that proceeding can run the promotion again.
+  This also works for `readonly` properties.
+- Default values that are expressions with side effects (`new Foo` as a parameter default) run twice when advice proceeds: once when the function receives its parameters, and again when `proceed()` calls the function.
+  Under `hook` they run once.
+- When `handler()` advice throws, the caught exception stays alive until the replacing exception is freed, because it appears in that exception's trace arguments (`AOP\Internal\caught(Object(RuntimeException), Array)`).
+- `aop.disable_inlining` has no effect: the prologue makes a function body more than `return <constant>;`, so opcache does not inline it.
+- Files that a process in another mode compiled into a shared `opcache.file_cache` keep that process's weaving.
+  Clear the file cache after you change `aop.interception`.
+  No test covers this one.
 
 ### Opcache inlining
 
@@ -75,7 +126,8 @@ First-class callables of methods and functions, such as `$object->method(...)`, 
 
 A generator function is a join point when it is called.
 Resuming the generator is not a join point.
-Advice on a generator runs once, when the generator is created.
+Under `hook`, advice on a generator runs once, when the generator is created.
+Under `woven`, it runs once, at the first resume (see [woven differences](#woven-differences)).
 
 ### The `AOP\` namespace
 
@@ -113,6 +165,7 @@ The phpunit suites and the examples ran on 8.3; musl, arm64, macOS and Windows a
 
 These join points are implemented in the engine.
 They work on PHP 8.3, 8.4 and 8.5.
+Fields and `initialization` need `aop.interception=hook` (see [backends](#backends)); exception handlers and introductions work with both backends.
 On PHP 8.4+:
 
 - An access to a hooked property from outside its own hooks is one `get`/`set` join point around the whole hooked access; the hook body runs inside `proceed()`, so advice that does not proceed skips the hook.
@@ -123,6 +176,7 @@ On PHP 8.4+:
 
 ### Fields
 
+Hook backend only.
 `get()` and `set()` see the accesses listed in [pointcuts](pointcuts.md#get-and-set) (reads, writes, compound assignments and increments).
 They do not see the following.
 
@@ -156,6 +210,8 @@ Known limitation: a property access site that first runs on an uncovered object 
 - A `catch` clause whose class is not loaded never matches.
 
 ### Initialization
+
+Hook backend only: under `woven`, `Weaver::enable()` rejects every `initialization(...)` pointcut, also for classes with a constructor.
 
 - `initialization()` matches `new` of a class without a constructor.
   Abstract classes, interfaces and enums are not covered: the original code raises its usual error.

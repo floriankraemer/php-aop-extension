@@ -19,6 +19,17 @@ Run them all:
 for f in examples/*.php; do php -d extension=/path/to/aop.so "$f" >/dev/null || echo "FAILED $f"; done
 ```
 
+Examples 04, 27 and 29 use field or `initialization()` advice, which needs the hook backend.
+Add `-d aop.interception=hook` for them; the default, `woven`, makes `enable()` throw an `AspectDefinitionException`:
+
+```bash
+php -d extension=/path/to/php-aop-extension/ext/modules/aop.so -d aop.interception=hook examples/27-fields.php
+```
+
+The loop above therefore reports those three as failed.
+`scripts/check-examples.php` sets the option for them.
+All other examples run with either backend.
+
 Without the extension, a script stops at `enable()` with an `AspectDefinitionException` that names `ext-aop`.
 
 Example 30 loads its target class after `enable()`, because introductions apply only to classes compiled afterwards.
