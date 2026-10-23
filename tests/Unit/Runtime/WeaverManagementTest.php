@@ -11,6 +11,8 @@ use AOP\JoinPoint\JoinPointKind;
 use AOP\Pointcut\Expression\PointcutExpressionCompiler;
 use AOP\Runtime\NativeEngineBridge;
 use AOP\Tests\Fixtures\Aspect\IntroductionAspect;
+use AOP\Tests\Fixtures\Introduction\Trackable;
+use AOP\Tests\Fixtures\Introduction\TrackedImpl;
 use AOP\Tests\Fixtures\Log;
 use AOP\Tests\Fixtures\Runtime\Aspect\LogAspect;
 use AOP\Tests\Fixtures\Runtime\Aspect\ServiceAspect;
@@ -294,6 +296,43 @@ final class WeaverManagementTest extends RuntimeTestCase
 
         $weaver->removeAspect(IntroductionAspect::class);
         self::assertSame([], $engine->introductions[1]);
+    }
+
+    #[Test]
+    public function declareParentsRulesAreHandedToTheEngineNextToAspectRules(): void
+    {
+        $engine = new RecordingEngine();
+        $weaver = Weaver::fromAspects([new IntroductionAspect()], $engine);
+        $weaver->declareParents('App\\Reports\\*', Trackable::class, TrackedImpl::class);
+
+        $weaver->enable();
+
+        $rules = $engine->introductions[0];
+        self::assertCount(2, $rules);
+        self::assertSame(['typePattern' => 'App\\Reports\\*', 'interface' => Trackable::class, 'defaultImpl' => TrackedImpl::class], $rules[0]);
+        self::assertSame($weaver->introductionRules(), $rules);
+
+        $weaver->declareParents('App\\Other\\*', Trackable::class, TrackedImpl::class);
+        self::assertCount(3, $engine->introductions[1]);
+    }
+
+    #[Test]
+    public function declareParentsRejectsAnImplementationThatDoesNotImplementTheInterface(): void
+    {
+        $this->expectException(AspectDefinitionException::class);
+        $this->expectExceptionMessage('must be a class implementing');
+
+        (new Weaver(new RecordingEngine()))->declareParents('App\\*', Trackable::class, Log::class);
+    }
+
+    #[Test]
+    public function declareParentsIsRejectedWhenFrozen(): void
+    {
+        $weaver = new Weaver(new RecordingEngine());
+        $weaver->freeze();
+
+        $this->expectException(WeaverFrozenException::class);
+        $weaver->declareParents('App\\*', Trackable::class, TrackedImpl::class);
     }
 
     #[Test]

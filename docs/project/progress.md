@@ -58,8 +58,9 @@ Work happens on branch `claude/stoic-goodall-rplkuy`; each stream works in its o
 - Merged stream M (`8e4db10`): docs for fields, `handler()`, ctor-less initialization and introductions (covered/uncovered semantics), php.ini settings section, CHANGELOG `Added` list, examples 27–30.
 - Added `scripts/check-examples.php` + `make test-examples` (also part of `make check` and CI): all 30 examples match their documented output.
 
+- Added `Weaver::declareParents(typePattern, interface, defaultImpl)`, the programmatic form of `declare parents` (the Spring `DefaultIntroductionAdvisor` only routes calls, because its class filter cannot run before the class is compiled; docs point to `declareParents()`). Unit tests + an E2E test against the real engine (`instanceof` true, default implementation answers). Gates: unit 1346, e2e 25/25, phpstan max and cs clean.
+
 ## Still to do
-- `DefaultIntroductionAdvisor` (Spring API) only routes calls; it does not register an engine introduction, so `instanceof` stays false. Wire it into the Weaver's introduction rules.
 - `docs/limitations.md` still says only PHP 8.3 was built and tested; update after L (8.4/8.5 phpt pass except fields).
 - Opcache inlining with `aop.disable_inlining=0` behaved inconsistently in manual runs (stream M); phpt 200 passes. Investigate.
 - Document the INI settings (`aop.enable`, `aop.disable_inlining`, `aop.weave_autoload`) in README/docs.

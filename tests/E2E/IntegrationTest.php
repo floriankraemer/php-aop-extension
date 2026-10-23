@@ -213,4 +213,20 @@ final class IntegrationTest extends EngineTestCase
         (new Driver())->outer(new Pipeline());
         self::assertSame([], Journal::$entries);
     }
+
+    #[Test]
+    public function declareParentsIntroducesAnInterfaceIntoClassesCompiledAfterwards(): void
+    {
+        require_once __DIR__.'/../Fixtures/Runtime/E2E/declare-parents-types.php';
+        $this->weaver = new Weaver();
+        $this->weaver->declareParents('AopE2E\\Parents\\Invoice', \AopE2E\Parents\Labelled::class, \AopE2E\Parents\DefaultLabel::class);
+        $this->weaver->enable();
+
+        require_once __DIR__.'/../Fixtures/Runtime/E2E/declare-parents-target.php';
+        $invoice = new \AopE2E\Parents\Invoice();
+
+        self::assertInstanceOf(\AopE2E\Parents\Labelled::class, $invoice);
+        self::assertSame('default label', $invoice->label());
+        self::assertSame(42, $invoice->total());
+    }
 }
