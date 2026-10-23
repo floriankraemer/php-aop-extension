@@ -203,7 +203,11 @@ typedef struct {
 	const void *caller_code;
 } aop_caller_key;
 
-static void aop_report_matcher_exception(zend_function *func, zend_class_entry *called)
+/*
+ * Reports the pending matcher exception as a warning and clears it. target names the join point
+ * ("Class::method()", "field-get Class::$prop", ...), consequence what happens instead.
+ */
+static void aop_report_matcher_exception_ex(const char *target, const char *consequence)
 {
 	zend_object *ex = EG(exception);
 	zval tmp, *msg;
@@ -213,24 +217,27 @@ static void aop_report_matcher_exception(zend_function *func, zend_class_entry *
 	zend_clear_exception();
 	msg = zend_read_property_ex(zend_get_exception_base(ex), ex, ZSTR_KNOWN(ZEND_STR_MESSAGE), 1, &tmp);
 	message = zval_get_string(msg);
-	zend_error(E_WARNING, "AOP\\Engine: the matcher threw %s (%s) for %s%s%s(); the call is not intercepted",
-		ZSTR_VAL(ex->ce->name), ZSTR_VAL(message),
-		func->common.scope && called ? ZSTR_VAL(called->name) : "",
-		func->common.scope ? "::" : "",
-		ZSTR_VAL(func->common.function_name));
+	zend_error(E_WARNING, "AOP\\Engine: the matcher threw %s (%s) for %s; %s",
+		ZSTR_VAL(ex->ce->name), ZSTR_VAL(message), target, consequence);
 	zend_string_release(message);
 	OBJ_RELEASE(ex);
 }
 
-/* Calls the matcher with interception suspended. Returns false (decision 0, not cached) when it threw. */
-static bool aop_call_matcher(zval *descriptor, zend_long *result, zend_function *func, zend_class_entry *called)
+static void aop_report_matcher_exception(zend_function *func, zend_class_entry *called)
+{
+	zend_string *target = zend_strpprintf(0, "%s%s%s()",
+		func->common.scope && called ? ZSTR_VAL(called->name) : "",
+		func->common.scope ? "::" : "",
+		ZSTR_VAL(func->common.function_name));
+	aop_report_matcher_exception_ex(ZSTR_VAL(target), "the call is not intercepted");
+	zend_string_release(target);
+}
+
+/* Calls the matcher with interception suspended. Returns false, with the exception still pending, when it threw. */
+static bool aop_invoke_matcher(zval *descriptor, zend_long *result)
 {
 	zend_fcall_info_cache fcc;
 	zval retval;
-
-	if (!AOP_G(registered)) {
-		return false;
-	}
 
 	/* Local copy: the matcher may unregister or re-register while it runs. */
 	fcc = AOP_G(matcher);
@@ -254,12 +261,24 @@ static bool aop_call_matcher(zval *descriptor, zend_long *result, zend_function 
 
 	if (UNEXPECTED(EG(exception))) {
 		zval_ptr_dtor(&retval);
-		aop_report_matcher_exception(func, called);
 		return false;
 	}
 
 	*result = zval_get_long(&retval);
 	zval_ptr_dtor(&retval);
+	return true;
+}
+
+/* Calls the matcher with interception suspended. Returns false (decision 0, not cached) when it threw. */
+static bool aop_call_matcher(zval *descriptor, zend_long *result, zend_function *func, zend_class_entry *called)
+{
+	if (!AOP_G(registered)) {
+		return false;
+	}
+	if (!aop_invoke_matcher(descriptor, result)) {
+		aop_report_matcher_exception(func, called);
+		return false;
+	}
 	return true;
 }
 
@@ -360,6 +379,12 @@ typedef struct {
 	zend_function *func;
 	zend_class_entry *called_scope;
 	zend_object *this_obj;
+	/* stream G: join points that are no calls (fields, handlers, ctor-less initialization) */
+	bool is_native;
+	aop_original_native_fn native;
+	zend_string *native_name;
+	zend_class_entry *native_scope;
+	zend_long native_tag;
 	zend_object std;
 } aop_original_call;
 
@@ -377,6 +402,11 @@ static zend_object *aop_original_call_create(zend_class_entry *ce)
 	oc->func = NULL;
 	oc->called_scope = NULL;
 	oc->this_obj = NULL;
+	oc->is_native = false;
+	oc->native = NULL;
+	oc->native_name = NULL;
+	oc->native_scope = NULL;
+	oc->native_tag = 0;
 	zend_object_std_init(&oc->std, ce);
 	object_properties_init(&oc->std, ce);
 	oc->std.handlers = &aop_original_call_handlers;
@@ -391,6 +421,10 @@ static void aop_original_call_free(zend_object *obj)
 		zend_object *this_obj = oc->this_obj;
 		oc->this_obj = NULL;
 		OBJ_RELEASE(this_obj);
+	}
+	if (oc->native_name) {
+		zend_string_release(oc->native_name);
+		oc->native_name = NULL;
 	}
 	zend_object_std_dtor(obj);
 }
@@ -434,6 +468,28 @@ static void aop_original_call_new(zval *zv, zend_function *func, zend_class_entr
 	}
 }
 
+/*
+ * stream G: an OriginalCall for a join point that is no call. fn (NULL: a no-op returning null) receives
+ * this_obj, name, scope and tag as given here; name is copied, this_obj referenced.
+ */
+void aop_original_call_new_native(zval *zv, aop_original_native_fn fn, zend_object *this_obj,
+		zend_string *name, zend_class_entry *scope, zend_long tag)
+{
+	aop_original_call *oc;
+
+	object_init_ex(zv, aop_original_call_ce);
+	oc = aop_original_call_from_obj(Z_OBJ_P(zv));
+	oc->is_native = true;
+	oc->native = fn;
+	oc->native_name = name ? zend_string_copy(name) : NULL;
+	oc->native_scope = scope;
+	oc->native_tag = tag;
+	if (this_obj) {
+		GC_ADDREF(this_obj);
+		oc->this_obj = this_obj;
+	}
+}
+
 ZEND_METHOD(AOP_OriginalCall, __construct)
 {
 	ZEND_PARSE_PARAMETERS_NONE();
@@ -450,6 +506,16 @@ ZEND_METHOD(AOP_OriginalCall, __invoke)
 	ZEND_PARSE_PARAMETERS_END();
 
 	oc = aop_original_call_from_obj(Z_OBJ_P(ZEND_THIS));
+	if (oc->is_native) {
+		if (oc->native) {
+			oc->native(oc->this_obj, oc->native_name, oc->native_scope, oc->native_tag, args, return_value);
+		}
+		if (Z_ISUNDEF_P(return_value) || EG(exception)) {
+			zval_ptr_dtor(return_value);
+			ZVAL_NULL(return_value);
+		}
+		return;
+	}
 	if (UNEXPECTED(!oc->func)) {
 		zend_throw_error(NULL, "%s is not initialized", ZSTR_VAL(aop_original_call_ce->name));
 		RETURN_THROWS();
@@ -475,28 +541,13 @@ ZEND_METHOD(AOP_OriginalCall, __invoke)
 
 /* {{{ dispatch */
 /*
- * Calls the dispatcher for an advised execution of func. ex is the advised frame (still current),
- * this_obj its $this (NULL for static methods and functions). Takes over args. retval receives the
- * dispatcher's result (UNDEF when it threw).
+ * Calls the dispatcher with params (descriptor, $this, args, original), releases the params and
+ * stores the result in retval (UNDEF when it threw).
  */
-void aop_dispatch(zend_execute_data *ex, zend_function *func, zend_class_entry *called,
-		zend_object *this_obj, zval *args, zval *retval)
+static void aop_call_dispatcher(zval *params, zval *retval)
 {
-	zval params[4];
 	zend_fcall_info_cache fcc;
 	zend_function *handler;
-
-	AOP_CHECK(EG(current_execute_data) == ex);
-	AOP_CHECK(AOP_G(in_matcher) == 0);
-
-	aop_descriptor(&params[0], func, called, aop_caller_frame(ex), AOP_DESC_FULL, this_obj);
-	if (this_obj) {
-		ZVAL_OBJ_COPY(&params[1], this_obj);
-	} else {
-		ZVAL_NULL(&params[1]);
-	}
-	ZVAL_COPY_VALUE(&params[2], args);
-	aop_original_call_new(&params[3], func, func->common.scope ? called : NULL, this_obj);
 
 	fcc = AOP_G(dispatcher);
 	if (fcc.object) {
@@ -534,6 +585,243 @@ void aop_dispatch(zend_execute_data *ex, zend_function *func, zend_class_entry *
 		aop_unwrap_reference(retval);
 	}
 }
+
+/*
+ * Calls the dispatcher for an advised execution of func. ex is the advised frame (still current),
+ * this_obj its $this (NULL for static methods and functions). Takes over args. retval receives the
+ * dispatcher's result (UNDEF when it threw).
+ */
+void aop_dispatch(zend_execute_data *ex, zend_function *func, zend_class_entry *called,
+		zend_object *this_obj, zval *args, zval *retval)
+{
+	zval params[4];
+
+	AOP_CHECK(EG(current_execute_data) == ex);
+	AOP_CHECK(AOP_G(in_matcher) == 0);
+
+	aop_descriptor(&params[0], func, called, aop_caller_frame(ex), AOP_DESC_FULL, this_obj);
+	if (this_obj) {
+		ZVAL_OBJ_COPY(&params[1], this_obj);
+	} else {
+		ZVAL_NULL(&params[1]);
+	}
+	ZVAL_COPY_VALUE(&params[2], args);
+	aop_original_call_new(&params[3], func, func->common.scope ? called : NULL, this_obj);
+
+	aop_call_dispatcher(params, retval);
+}
+/* }}} */
+
+/* {{{ stream G: generic join points (fields, handlers, ctor-less initialization) */
+/*
+ * Same decision protocol (contract §1.1) and dispatcher call as for executions, for join points that
+ * are described by an aop_jp instead of a zend_function. Their decisions live in their own tables
+ * (jp_decisions, jp_caller_decisions), which reset() and unregister() clear together with the others.
+ */
+typedef struct {
+	const void *tag;
+	const void *class_;
+	const void *scope;
+	const void *id1;
+	const void *id2;
+	size_t name_len;
+	/* caller identity (second level only) */
+	const void *caller_class;
+	const void *caller_scope;
+	const void *caller_code;
+} aop_jp_key;
+
+#define AOP_JP_KEY_BUF 192
+
+/* Builds the cache key into buf (or a new allocation when it does not fit). Returns its length. */
+static size_t aop_jp_key_build(const aop_jp *jp, zend_execute_data *caller, char *buf, char **out)
+{
+	aop_jp_key k;
+	zend_string *file = NULL;
+	size_t len;
+	char *p;
+
+	memset(&k, 0, sizeof(k));
+	k.tag = jp->tag ? jp->tag : (const void *) jp->kind;
+	k.class_ = jp->class_;
+	k.scope = jp->scope;
+	k.id1 = jp->id1;
+	k.id2 = jp->id2;
+	k.name_len = ZSTR_LEN(jp->name);
+	if (caller) {
+		zend_function *cfn = caller->func;
+		k.caller_class = aop_frame_class(caller);
+		k.caller_scope = cfn->common.scope;
+		if (cfn->common.function_name) {
+			k.caller_code = cfn->op_array.opcodes;
+		} else {
+			file = cfn->op_array.filename;
+		}
+	}
+
+	len = sizeof(k) + ZSTR_LEN(jp->name) + (file ? ZSTR_LEN(file) : 0);
+	p = len <= AOP_JP_KEY_BUF ? buf : emalloc(len);
+	memcpy(p, &k, sizeof(k));
+	memcpy(p + sizeof(k), ZSTR_VAL(jp->name), ZSTR_LEN(jp->name));
+	if (file) {
+		memcpy(p + sizeof(k) + ZSTR_LEN(jp->name), ZSTR_VAL(file), ZSTR_LEN(file));
+	}
+	*out = p;
+	return len;
+}
+
+static void aop_jp_descriptor(zval *d, const aop_jp *jp, zend_execute_data *caller, aop_desc_mode mode)
+{
+	array_init_size(d, 9);
+	add_assoc_string_ex(d, ZEND_STRL("kind"), jp->kind);
+	aop_add_class_name(d, ZEND_STRL("class"), jp->class_);
+	aop_add_class_name(d, ZEND_STRL("scope"), jp->scope);
+	add_assoc_str_ex(d, ZEND_STRL("name"), zend_string_copy(jp->name));
+	add_assoc_bool_ex(d, ZEND_STRL("static"), jp->is_static);
+	add_assoc_bool_ex(d, ZEND_STRL("internal"), jp->internal);
+	if (mode != AOP_DESC_MATCH && caller && caller->func && ZEND_USER_CODE(caller->func->type)) {
+		zval c;
+		aop_caller_array(&c, caller, mode == AOP_DESC_FULL);
+		add_assoc_zval_ex(d, ZEND_STRL("caller"), &c);
+	} else {
+		add_assoc_null_ex(d, ZEND_STRL("caller"));
+	}
+}
+
+static bool aop_jp_call_matcher(zval *descriptor, zend_long *result, const aop_jp *jp)
+{
+	zend_string *target;
+
+	if (!AOP_G(registered)) {
+		return false;
+	}
+	if (aop_invoke_matcher(descriptor, result)) {
+		return true;
+	}
+	if (strncmp(jp->kind, "field-", sizeof("field-") - 1) == 0) {
+		target = zend_strpprintf(0, "%s %s::$%s", jp->kind,
+			jp->class_ ? ZSTR_VAL(jp->class_->name) : "", ZSTR_VAL(jp->name));
+	} else if (strcmp(jp->kind, "exception-handler") == 0) {
+		target = zend_strpprintf(0, "%s catch(%s)", jp->kind, ZSTR_VAL(jp->name));
+	} else {
+		target = zend_strpprintf(0, "%s %s", jp->kind,
+			jp->class_ ? ZSTR_VAL(jp->class_->name) : ZSTR_VAL(jp->name));
+	}
+	aop_report_matcher_exception_ex(ZSTR_VAL(target), "the join point is not intercepted");
+	zend_string_release(target);
+	return false;
+}
+
+/*
+ * The decision for jp, accessed/entered from caller (the user frame whose code contains the join
+ * point, or NULL). With jp->no_caller the CALLER_SENSITIVE bit is ignored (class probes).
+ */
+zend_long aop_decide_jp(const aop_jp *jp, zend_execute_data *caller)
+{
+	char buf[AOP_JP_KEY_BUF];
+	char *key;
+	size_t key_len;
+	zval *cached, v, d;
+	zend_long flags = 0;
+	bool ok = true;
+
+	if (!AOP_G(registered)) {
+		return 0;
+	}
+
+	key_len = aop_jp_key_build(jp, NULL, buf, &key);
+	cached = zend_hash_str_find(&AOP_G(jp_decisions), key, key_len);
+	if (EXPECTED(cached)) {
+		flags = Z_LVAL_P(cached);
+	} else {
+		aop_jp_descriptor(&d, jp, NULL, AOP_DESC_MATCH);
+		ok = aop_jp_call_matcher(&d, &flags, jp);
+		zval_ptr_dtor(&d);
+		if (ok) {
+			ZVAL_LONG(&v, flags);
+			zend_hash_str_update(&AOP_G(jp_decisions), key, key_len, &v);
+		}
+	}
+	if (key != buf) {
+		efree(key);
+	}
+	if (!ok) {
+		return 0;
+	}
+
+	if (EXPECTED(!(flags & AOP_CALLER_SENSITIVE))) {
+		return flags;
+	}
+	if (jp->no_caller || !caller || !caller->func || !ZEND_USER_CODE(caller->func->type)) {
+		return flags & ~AOP_CALLER_SENSITIVE;
+	}
+
+	key_len = aop_jp_key_build(jp, caller, buf, &key);
+	cached = zend_hash_str_find(&AOP_G(jp_caller_decisions), key, key_len);
+	if (cached) {
+		flags = Z_LVAL_P(cached);
+	} else {
+		aop_jp_descriptor(&d, jp, caller, AOP_DESC_MATCH_CALLER);
+		ok = aop_jp_call_matcher(&d, &flags, jp);
+		zval_ptr_dtor(&d);
+		if (ok) {
+			flags &= ~AOP_CALLER_SENSITIVE;
+			ZVAL_LONG(&v, flags);
+			zend_hash_str_update(&AOP_G(jp_caller_decisions), key, key_len, &v);
+		} else {
+			flags = 0;
+		}
+	}
+	if (key != buf) {
+		efree(key);
+	}
+	return flags;
+}
+
+/*
+ * Calls the dispatcher for jp. caller is the user frame containing the join point (reported as the
+ * descriptor's caller), extra_key/extra an optional additional descriptor entry ("value",
+ * "exception"). Takes over args and original. retval receives the result (UNDEF when it threw).
+ */
+void aop_dispatch_jp(const aop_jp *jp, zend_execute_data *caller, zend_object *this_obj,
+		const char *extra_key, zval *extra, zval *args, zval *original, zval *retval)
+{
+	zval params[4];
+
+	AOP_CHECK(AOP_G(in_matcher) == 0);
+
+	aop_jp_descriptor(&params[0], jp, caller, AOP_DESC_FULL);
+	if (extra_key) {
+		Z_TRY_ADDREF_P(extra);
+		add_assoc_zval(&params[0], extra_key, extra);
+	}
+	if (this_obj) {
+		ZVAL_OBJ_COPY(&params[1], this_obj);
+	} else {
+		ZVAL_NULL(&params[1]);
+	}
+	ZVAL_COPY_VALUE(&params[2], args);
+	ZVAL_COPY_VALUE(&params[3], original);
+
+	aop_call_dispatcher(params, retval);
+}
+
+/* True when the code running now (the current frame, or for internal frames the nearest user frame below) is in AOP\. */
+bool aop_current_code_in_aop_ns(void)
+{
+	zend_execute_data *ex = EG(current_execute_data);
+
+	while (ex && !ex->func) {
+		ex = ex->prev_execute_data;
+	}
+	if (!ex) {
+		return false;
+	}
+	if (aop_function_in_aop_ns(ex->func)) {
+		return true;
+	}
+	return !ZEND_USER_CODE(ex->func->type) && aop_caller_in_aop_ns(ex);
+}
 /* }}} */
 
 /* {{{ lifecycle */
@@ -559,6 +847,9 @@ void aop_engine_rinit(void)
 	AOP_G(bypass) = NULL;
 	zend_hash_init(&AOP_G(decisions), 64, NULL, NULL, 0);
 	zend_hash_init(&AOP_G(caller_decisions), 16, NULL, NULL, 0);
+	/* stream G */
+	zend_hash_init(&AOP_G(jp_decisions), 16, NULL, NULL, 0);
+	zend_hash_init(&AOP_G(jp_caller_decisions), 8, NULL, NULL, 0);
 	ZVAL_UNDEF(&AOP_G(introductions));
 }
 
@@ -566,6 +857,9 @@ void aop_engine_reset(void)
 {
 	zend_hash_clean(&AOP_G(decisions));
 	zend_hash_clean(&AOP_G(caller_decisions));
+	/* stream G */
+	zend_hash_clean(&AOP_G(jp_decisions));
+	zend_hash_clean(&AOP_G(jp_caller_decisions));
 }
 
 void aop_engine_unregister(void)
@@ -583,6 +877,9 @@ void aop_engine_rshutdown(void)
 	aop_engine_unregister();
 	zend_hash_destroy(&AOP_G(decisions));
 	zend_hash_destroy(&AOP_G(caller_decisions));
+	/* stream G */
+	zend_hash_destroy(&AOP_G(jp_decisions));
+	zend_hash_destroy(&AOP_G(jp_caller_decisions));
 	zval_ptr_dtor(&AOP_G(introductions));
 	ZVAL_UNDEF(&AOP_G(introductions));
 }
