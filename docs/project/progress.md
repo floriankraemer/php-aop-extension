@@ -19,7 +19,7 @@ Work happens on branch `initial-implementation`; each stream works in its own lo
 | I | Docs + examples | haiku | done, merged (G features to be patched after G) |
 | K | Fix stream I's findings (ControlFlowPointcut, ctor matching, modifiers, regexp, `||` bindings, naming) | sonnet | done, merged |
 | L | Fix field interception on PHP 8.4/8.5 (4 phpt fail there, `const` warnings); hooked properties, lazy objects | opus | running |
-| M | Docs for fields/handler/initialization/introductions, INI settings, CHANGELOG, examples 27–30 | haiku | running |
+| M | Docs for fields/handler/initialization/introductions, INI settings, CHANGELOG, examples 27–30 | haiku | done, merged |
 | J | Final integration and verification | coordinator | pending |
 
 ## Log
@@ -55,7 +55,13 @@ Work happens on branch `initial-implementation`; each stream works in its own lo
 
 - Merged stream K: Spring `ControlFlowPointcut` restricted to execution kinds and tracked on its own (also inside `ComposablePointcut`/`ExpressionPointcut`); constructors no longer "override" (`execution(* Base::__construct(..))` matches only Base's own constructor, `Base+` for subtypes); method patterns accept `public protected private static final abstract` with `!`; `RegexpMethodPointcut` accepts delimited PCRE and throws `\InvalidArgumentException` on invalid patterns; `||` binding errors name the expression; adapters may return the Spring-style interceptor; `ConfigurableInterceptor` uses `isOutermost()`. Gates: unit 1343, e2e 24/24, phpstan max and cs clean, all 26 examples match.
 
+- Merged stream M (`8e4db10`): docs for fields, `handler()`, ctor-less initialization and introductions (covered/uncovered semantics), php.ini settings section, CHANGELOG `Added` list, examples 27–30.
+- Added `scripts/check-examples.php` + `make test-examples` (also part of `make check` and CI): all 30 examples match their documented output.
+
 ## Still to do
+- `DefaultIntroductionAdvisor` (Spring API) only routes calls; it does not register an engine introduction, so `instanceof` stays false. Wire it into the Weaver's introduction rules.
+- `docs/limitations.md` still says only PHP 8.3 was built and tested; update after L (8.4/8.5 phpt pass except fields).
+- Opcache inlining with `aop.disable_inlining=0` behaved inconsistently in manual runs (stream M); phpt 200 passes. Investigate.
 - Document the INI settings (`aop.enable`, `aop.disable_inlining`, `aop.weave_autoload`) in README/docs.
 - Merge L (fields on 8.4/8.5) and re-run the Docker matrix.
 - Patch the docs: the experimental features (fields, handler, introductions, ctor-less initialization) now work; add examples.
