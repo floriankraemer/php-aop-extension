@@ -41,6 +41,15 @@ final class RuntimeMatchContext
         return $this->joinPoint->getArgs();
     }
 
+    /**
+     * Is a `constructor-execution` the object's outermost constructor? True unless the runtime says otherwise by
+     * making the join point an OutermostAwareInterface.
+     */
+    public function isOutermost(): bool
+    {
+        return !$this->joinPoint instanceof OutermostAwareInterface || $this->joinPoint->isOutermost();
+    }
+
     public function function(): ?\ReflectionFunctionAbstract
     {
         return $this->staticContext->function;

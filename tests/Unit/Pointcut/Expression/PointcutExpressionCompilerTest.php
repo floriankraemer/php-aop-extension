@@ -322,10 +322,10 @@ final class PointcutExpressionCompilerTest extends TestCase
     public function syntaxErrorsAndUnsupportedDesignatorsPropagate(): void
     {
         try {
-            $this->compile('call(Foo)');
+            $this->compile('preinitialization(Foo)');
             self::fail('expected exception');
         } catch (UnsupportedPointcutDesignatorException $e) {
-            self::assertStringContainsString('call', $e->getMessage());
+            self::assertStringContainsString('preinitialization', $e->getMessage());
         }
 
         $this->expectException(PointcutSyntaxException::class);
