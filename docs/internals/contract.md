@@ -274,3 +274,67 @@ and `callFunction(string $function, array $args = [], ?array $caller = null)` bu
 args as C (§2, §3), apply the same decision and caller-sensitive protocol (§1.1), and pass a `\Closure` that
 invokes the original through reflection. So PHP streams test the runtime end to end without the compiled
 extension. E2E tests in `tests/E2E` use the real extension (`extension_loaded('aop')`, else skipped).
+
+## Engine notes (stream A)
+
+Decisions the sections above leave open, as implemented by `ext/` for PHP 8.3 (tests: `ext/tests/0*.phpt`).
+
+- **Pass-through order** (both hooks): `AOP_G(bypass) == func` (cleared, then pass) → no pair registered, matcher
+  running, or an exception pending → generator resumption / top-level, include, eval code → closures, trampolines,
+  return-by-reference → callee scope or runtime class in `AOP\` (functions: name in `AOP\`) → caller in `AOP\` →
+  decision. Matching on `AOP\` is case-insensitive.
+- **"Caller in `AOP\`"** walks down the stack through internal frames to the nearest user frame, so a call the
+  runtime makes through `call_user_func`, `array_map`, `ReflectionMethod::invoke`, … is still the runtime's.
+  Because `OriginalCall::__invoke` is itself an `AOP\` frame, the call it makes is never intercepted even without
+  the bypass.
+- **`caller`** is the nearest frame below the advised one. If it runs internal code (e.g. `array_map`,
+  `ReflectionMethod::invoke`, a non-inlined `call_user_func`) it is `null`, as the table says. Note that
+  `call_user_func()` with a literal callable in a non-namespaced (or `\call_user_func`) call is compiled to
+  opcodes, so there the user code is the caller. Top-level/include/eval code: `function => null`; `class`/`scope`
+  are those of the including method if any. `line` is the line of the call in the caller.
+- **CALLER_SENSITIVE**: with an internal or missing caller the second question is not asked; the first answer
+  without the `CALLER_SENSITIVE` bit is used (it was already asked with `caller => null`). The second-level cache
+  key is (callee runtime class, callee function, caller runtime class, caller scope, caller code), where the caller
+  code is the calling function's opcodes (all closure objects of one declaration share them) or, for
+  top-level/include/eval code, its file name.
+- The matcher result is cast to int. A matcher exception becomes the warning
+  `AOP\Engine: the matcher threw <class> (<message>) for <Class::method>(); the call is not intercepted`.
+  If an error handler turns that warning into an exception, the intercepted call fails with it.
+- **Arguments**: the VM fills parameters skipped by named arguments with their defaults *before* the function is
+  entered, so `f(1, c: 3)` for `f($a, $b = 'B', $c = 'C')` gives `[1, 'B', 3]` (int keys). Only omitted
+  *trailing* parameters are absent. Should a slot still be undefined, later parameters are keyed by name.
+  Values are raw: no coercion or type check has run (it runs when the original runs; never if nobody proceeds).
+- **Fake closures** (`$obj->m(...)`, `Closure::fromCallable([$obj, 'm'])`, `strrev(...)`) are advised as the
+  underlying method/function (same decision and descriptor). Real closures and arrow functions are not.
+- **Magic calls**: the `__call`/`__callStatic` trampoline is not a join point, the `__call`/`__callStatic`
+  method itself is (name `__call`, args `[$name, $arguments]`).
+- **Results**: the dispatcher's return value is not checked against the declared return type; a returned
+  reference is dereferenced; constructors ignore it. After an exception the call has no result.
+- A dispatcher (or matcher) that is a non-closure user method is never intercepted itself.
+- `outermost` is false only when the immediate caller frame is a `__construct` running on the same object.
+- `register()` replaces a registered pair and clears the decision cache; with `aop.enable=0` it throws
+  `RuntimeException`. `unregister()` and `reset()` clear the cache. All three are safe inside the matcher or
+  the dispatcher (running calls keep their own reference to the callables).
+- `OriginalCall` cannot be constructed (`new`, reflection, `unserialize`, `clone` all fail), has no properties,
+  is callable (`$original($args)`, `Closure::fromCallable($original)`). Argument errors are the engine's
+  (`Cannot use positional argument after named argument`, `Unknown named parameter $x`, `ArgumentCountError`).
+  It does not reference the function: user and internal functions/methods live for the whole request.
+- `setIntroductions()` only stores a copy of the rules; `fieldInterceptionAvailable()` returns false (stream G).
+- Version-specific code (frame layout, frame teardown) is confined to `ext/aop_hook.c`. The generated
+  `aop_arginfo.h` uses typed class constants (8.3+). It was generated from a copy of `aop.stub.php` without the
+  generic `@param` docblocks, which the 8.3 `gen_stub.php` cannot parse.
+- Build with `CFLAGS=-DAOP_DEBUG` for internal consistency checks that do not need a debug PHP.
+
+Known limitations:
+
+- **opcache inlining**: the optimizer (pass 16, part of the default `opcache.optimization_level`) inlines calls
+  to functions/methods whose body is only `return <constant>;` (no typed or by-ref parameters). Those calls never
+  reach the engine. Use `opcache.optimization_level=0x7FFE3FFF` to keep them (`ext/tests/025-opcache-inlining.phpt`).
+- PHP disables the JIT while `zend_execute_ex` is overridden (it warns when the JIT is configured), and every
+  user call recurses on the C stack, so very deep recursion hits the stack limit sooner.
+- Advising internal functions that inspect their caller's frame (`compact`, `extract`, `get_defined_vars`,
+  `func_get_args` called dynamically) breaks them: through `OriginalCall` their caller is `OriginalCall::__invoke`.
+- The matcher guard is per request, not per fiber: suspending a fiber inside the matcher keeps interception
+  suspended until the matcher returns.
+- Observer end handlers are called for advised user frames (`zend_observer_fcall_end`), but this is not covered
+  by the tests (no observer extension available in the test setup).
