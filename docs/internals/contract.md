@@ -614,7 +614,7 @@ not regenerated).
 | Version | Difference | Handling |
 |---|---|---|
 | 8.4 | `zend_observer_fcall_end()` became a static inline that checks `EG(current_observed_frame)` | none needed, same call |
-| 8.4 | Frameless internal calls (`ZEND_FRAMELESS_ICALL_0..3`: `strpos`, `str_contains`, `in_array`, `implode`, `min`, `preg_match`, …) bypass `zend_execute_internal` | The compiler only emits them while `zend_execute_internal` is NULL (`find_frameless_function_info()`, 8.4 and 8.5), and the internal hook is installed in the post-startup callback (both backends), before any script compiles, so they are never emitted while `aop.enable=1`: those functions are intercepted normally (`206-frameless.phpt`). No user opcode handler is needed. Remaining gap: scripts compiled by a process **without** the hook and loaded from a shared `opcache.file_cache` keep their frameless opcodes. |
+| 8.4 | Frameless internal calls (`ZEND_FRAMELESS_ICALL_0..3`: `strpos`, `str_contains`, `in_array`, `implode`, `min`, `preg_match`, …) bypass `zend_execute_internal` | The compiler only emits them while `zend_execute_internal` is NULL (`find_frameless_function_info()`, 8.4 and 8.5), and the internal hook is installed in the post-startup callback (both backends), before any script compiles, so they are never emitted while `aop.enable=1`: those functions are intercepted normally (`206-frameless.phpt`). No user opcode handler is needed. A process without the hook has another system id, so it never shares cached bytecode with one that has it. |
 | 8.4 | Property hooks are user functions (`common.prop_info` set, named `$prop::get`/`$prop::set`); the "simple get" VM fast path enters them without `zend_execute_ex` | The fast path is only cached while `zend_execute_ex == execute_ex`, so with the hook every hook call reaches the engine. Hook bodies pass through (`aop_is_property_hook()`): they are not methods (no `ReflectionMethod` by that name) and their accesses are field join points (§6). Calls made *from* a hook report `caller.function` = `$prop::get` with `scope` the declaring class; the PHP side resolves it with `ReflectionProperty::getHook()` (`204-property-hooks.phpt`). |
 | 8.4 | Lazy objects | The engine never reads properties of `$this`, so advising a method of an uninitialized ghost/proxy does not initialize it; the original initializes it on its first property access, as without advice (`205-lazy-objects.phpt`). `class`/`$this` of a proxy are the proxy. |
 | 8.4 | `exit()`/`die()` is an internal function | Advisable like any internal function; proceeding exits (finally blocks of the dispatcher do not run, shutdown functions do) (`207-exit-function.phpt`). |
@@ -635,8 +635,7 @@ variadics, named extras and the missing-argument error). Cost: one `RECV` per de
 The zend_extension has no `startup`, so `php -v` does not list it. Alternatives rejected: changing
 `opcache.optimization_level` from MINIT (only works when loaded before opcache, and turns off the pass for every
 function), `ZEND_COMPILE_EXTENDED_STMT` (EXT_STMT before every statement: slower and visible to debuggers),
-`ZEND_ACC_DEPRECATED` (changes behaviour). What remains: scripts cached by a process without aop (shared
-`opcache.file_cache`, a different `aop.disable_inlining`) keep their inlined calls; SCCP still evaluates calls to
+`ZEND_ACC_DEPRECATED` (changes behaviour). What remains: SCCP still evaluates calls to
 some internal functions with constant arguments at compile time, and internal functions compiled to dedicated
 opcodes (`strlen`, `count`, …) are unchanged (§1.4). Setting `ZEND_COMPILE_NO_BUILTINS` in RINIT would remove the
 latter at a small cost per builtin; not done.
@@ -697,7 +696,11 @@ MINIT therefore chains `aop_post_startup()` into `zend_post_startup_cb`; that ca
 4. raises the `E_NOTICE` in hook mode when the JIT is configured.
 
 Nothing compiles or runs between MINIT and this callback, so installing late misses nothing.
-The mode is process-wide and fixed at startup (`aop_interception_mode`); the zend_extension for `aop.disable_inlining` and the `zend_ast_process` hook (`aop_ast_minit()`) are set up in MINIT for both backends.
+The mode is process-wide and fixed at startup (`aop_interception_mode`); the zend_extension (`op_array_handler` for `aop.disable_inlining` and the constructor prologue move) and the `zend_ast_process` hook (`aop_ast_minit()`) are set up in MINIT for both backends.
+
+When the module is loaded by `dl()` (`type == MODULE_TEMPORARY` in MINIT) startup is over and `zend_post_startup_cb` never fires.
+MINIT then calls `aop_install_backend()` directly: `auto` resolves against the INI entries of the running opcache, and the backend takes effect for code compiled from then on (`325-dl-runtime-load.phpt`).
+`AOP\Engine::register()` throws "interception is disabled (aop.enable=0)" when `aop.enable=0`, and "interception is not installed" in the remaining case where the backend is missing.
 
 ### Prologue shapes
 
@@ -729,7 +732,10 @@ The prologue's line number is the declaration's.
   For `never` functions `result()` raises the engine's "must not implicitly return" `TypeError` unless an exception is pending.
   For generator functions it must be an array or a `Traversable`, otherwise `TypeError` `f(): the advice of a generator function must return an array or a Traversable, <type> returned`.
 - Argument collection (`aop_collect_woven_args()`) reads the frame after the `RECV` opcodes: declared parameters (the coerced values; omitted trailing parameters are absent), the variadic array spread (string keys become named arguments), and extra positional arguments behind the CVs and TMPs.
-  For a constructor it also resets promoted properties (declared by the class itself) to their defaults, because the promotion assignments ran before the prologue; this lets `OriginalCall` run the constructor again, also for `readonly` properties, and leaves the object as unconstructed when the dispatcher does not proceed.
+  Promoted constructor parameters are not touched: the compiler emits `RECV*`, then one `ASSIGN_OBJ`/`ASSIGN_OBJ_REF` + `OP_DATA` per promoted parameter, then the body, so the prologue would run after the promotion (a repeated call fails on `readonly` properties, the 8.4+ `set` hooks run twice, earlier values are lost).
+  `aop_hoist_prologue()` (the zend_extension's `op_array_handler`, which runs at the start of `pass_two()`, before jump targets become relative) therefore moves the assignment block behind the prologue and retargets the prologue's single `JMPZ`; the body starts at the same opline index.
+  It only acts when the op_array has exactly that shape (`RECV*`, assignment pairs, `INIT_FCALL*` of `AOP\Internal\intercept`, a `JMPZ`, no other jump in the prologue) and is skipped otherwise.
+  Result: skipping the constructor leaves the object unconstructed and a second call keeps the earlier values, as under `hook` (`316`, `317`).
 - `aop_execute_internal()` recognises the handlers of `intercept`, `result` and `caught` with one pointer comparison and passes them through, so the woven calls cost no join point checks; an unregistered request pays one internal call per user function call.
 - The advised frame stays on the stack below the `intercept()` frame while the dispatcher runs, so traces and `debug_backtrace()` show `AOP\Internal\intercept()` (or `caught()`) between the dispatcher and the advised function.
 - `caught($e, [A::class, B::class])` is the first statement of every `catch` block outside `AOP`.
@@ -751,7 +757,13 @@ The table is freed in RSHUTDOWN.
 - Arguments after `RECV`: coerced; a `TypeError` for a bad argument is raised before the advice; a default value that is an expression with side effects (`new Foo`) runs twice when advice proceeds.
 - Generator advice at the first resume; `getReturn()`/`send()` work, proceeding does not recurse (`307`).
 - `aop.disable_inlining` is moot: the prologue makes the body more than `return <constant>;` (`ext/tests/200`, run with woven and `aop.disable_inlining=0`, shows the call advised).
-- A file compiled by a process in the other mode and kept in a shared `opcache.file_cache` keeps that weaving (not covered by a test).
+- Cached bytecode is keyed by `zend_system_id`, which opcache's `zend_finalize_system_id()` computes before `zend_post_startup_cb`, i.e. before the backend is installed.
+  The system id hashes the `zend_execute_ex`/`zend_execute_internal`/`zend_ast_process` overrides and the user opcode handlers, so alone it would not tell woven, hook and `aop.enable=0` apart (hook bytecode dispatches `ZEND_NEW`/`ZEND_CATCH` to `ZEND_USER_OPCODE`, a NULL call in a process without the handlers: a segmentation fault).
+  MINIT therefore calls `zend_add_system_entropy("aop", "interception", ...)` with the SAPI name and the raw configuration values `aop.enable`, `aop.interception`, `aop.disable_inlining`, `opcache.enable`, `opcache.enable_cli`, `opcache.jit`, `opcache.jit_buffer_size` (`cfg_get_string()`, because opcache's INI entries do not exist yet).
+  The mode that `aop_resolve_mode()` computes in the post-startup callback is a function of exactly these values (plus per-version defaults), so equal ids imply equal backends and the two resolutions cannot disagree.
+  Different spellings of one effective configuration only cost a recompile.
+  A `dl()` load happens after the id is final and adds nothing: such a process shares its cache with processes without aop (documented in limitations.md).
+  Covered by `326-file-cache-system-id.phpt` (hook, woven and `aop.enable=0` against one `opcache.file_cache`: three variants, no crash).
 
 ## Engine notes (stream G)
 

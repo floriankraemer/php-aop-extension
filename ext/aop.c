@@ -11,6 +11,8 @@
 #include "php.h"
 #include "php_ini.h"
 #include "ext/standard/info.h"
+#include "zend_system_id.h"
+#include "SAPI.h"
 #include "zend_exceptions.h"
 #include "ext/spl/spl_exceptions.h"
 #include "php_aop.h"
@@ -70,8 +72,9 @@ ZEND_METHOD(AOP_Engine, register)
 	ZEND_PARSE_PARAMETERS_END();
 
 	if (!aop_hooks_installed) {
-		zend_throw_exception(spl_ce_RuntimeException,
-			"AOP\\Engine::register(): interception is disabled (aop.enable=0)", 0);
+		zend_throw_exception(spl_ce_RuntimeException, AOP_G(enable)
+			? "AOP\\Engine::register(): interception is not installed (the extension did not finish starting up)"
+			: "AOP\\Engine::register(): interception is disabled (aop.enable=0)", 0);
 		RETURN_THROWS();
 	}
 
@@ -136,6 +139,38 @@ static PHP_GINIT_FUNCTION(aop)
 	ZVAL_UNDEF(&aop_globals->introductions);
 }
 
+/*
+ * opcache keys cached bytecode (shared memory and opcache.file_cache) by zend_system_id, which hashes the VM
+ * hooks and user opcode handlers present when it is finalized. That happens before zend_post_startup_cb, where
+ * the backend is installed, so aop contributes what decides the backend: aop.enable, aop.interception, the SAPI
+ * and, because `auto` depends on it, the raw opcache settings of the configuration. The resolved mode is a
+ * function of exactly these values, so equal ids always mean equal backends (hook bytecode holds user opcode
+ * dispatches that crash a process without the handlers). Raw values, not defaults, are hashed: differently
+ * spelled but equivalent configurations only cost a recompile.
+ */
+static void aop_add_system_entropy(void)
+{
+	static const char *const keys[] = {
+		"aop.enable", "aop.interception", "aop.disable_inlining", "opcache.enable", "opcache.enable_cli", "opcache.jit", "opcache.jit_buffer_size"
+	};
+	char buf[512];
+	size_t len = 0, i;
+
+	len += snprintf(buf + len, sizeof(buf) - len, "sapi=%s;", sapi_module.name);
+	for (i = 0; i < sizeof(keys) / sizeof(keys[0]) && len < sizeof(buf); i++) {
+		char *value = NULL;
+
+		if (cfg_get_string(keys[i], &value) != SUCCESS || !value) {
+			value = "";
+		}
+		len += snprintf(buf + len, sizeof(buf) - len, "%s=%s;", keys[i], value);
+	}
+	if (len >= sizeof(buf)) {
+		len = sizeof(buf) - 1;
+	}
+	zend_add_system_entropy("aop", "interception", buf, len);
+}
+
 PHP_MINIT_FUNCTION(aop)
 {
 	REGISTER_INI_ENTRIES();
@@ -144,12 +179,19 @@ PHP_MINIT_FUNCTION(aop)
 	aop_original_call_ce = register_class_AOP_OriginalCall();
 	aop_engine_minit();
 
+	if (type != MODULE_TEMPORARY) {
+		aop_add_system_entropy();
+	}
 	if (AOP_G(enable)) {
-		if (AOP_G(disable_inlining)) {
-			aop_compile_hooks_install();
+		/* The op_array handler serves aop.disable_inlining and the woven backend's constructor prologue. */
+		aop_compile_hooks_install();
+		if (type == MODULE_TEMPORARY) {
+			/* dl(): startup is over, zend_post_startup_cb never fires. Nothing was compiled by this extension yet. */
+			aop_install_backend();
+		} else {
+			/* The backend is chosen and installed there: aop.interception=auto needs opcache's INI entries. */
+			aop_post_startup_install();
 		}
-		/* The backend is chosen and installed there: aop.interception=auto needs opcache's INI entries. */
-		aop_post_startup_install();
 	}
 	aop_ast_minit(AOP_G(enable)); /* stream G */
 

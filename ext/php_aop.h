@@ -136,6 +136,7 @@ bool aop_current_code_in_aop_ns(void);
 void aop_hook_uninstall(void);
 void aop_compile_hooks_install(void);
 void aop_post_startup_install(void);
+void aop_install_backend(void);
 bool aop_jit_requested(void);
 void aop_woven_rinit(void);
 void aop_woven_rshutdown(void);
