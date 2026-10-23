@@ -149,4 +149,6 @@ jobs:
           php-version: ${{ matrix.php }}
           arch: x64
           ts: nts
+          # The builder only derives configure options from PIE metadata in composer.json, which ext/ has none of.
+          args: --enable-aop=shared
           run-tests: "true"
