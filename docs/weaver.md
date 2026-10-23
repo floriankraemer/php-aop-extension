@@ -23,6 +23,17 @@ $weaver->enable();
 A Weaver created without the extension loaded still works as a configuration object.
 `enable()` then throws `AspectDefinitionException` and names `ext-aop`.
 
+`enable()` also throws `AspectDefinitionException` when an advisor can match `get()`, `set()` or `initialization()` join points and the active backend cannot intercept them.
+This is the case under the default `aop.interception=woven`.
+The message names the advisor and the setting:
+
+```text
+Advisor "A::b" targets field-get, field-set or initialization join points, which the active interception backend cannot intercept. Set aop.interception=hook (or aop.interception=auto without the opcache JIT) in php.ini.
+```
+
+Nothing is enabled in that case.
+See [limitations](limitations.md#backends).
+
 ## Creating a Weaver
 
 | Method | Purpose |

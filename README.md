@@ -15,7 +15,7 @@ The PHP package in `src/`, namespace `AOP\`, holds the model, the pointcut langu
 
 - Advice on private, protected, static and final methods, and on final classes.
 - Self-invocation is advised: a method calling its own private method goes through the advice.
-- Constructors, with `initialization()` for the outermost one.
+- Constructors, with `initialization()` for the outermost one (needs `aop.interception=hook`).
 - Plain functions and internal functions, such as `str_repeat()`.
 - `call()` and `execution()`, `withincode()` and `within()`.
 - `cflow()` and `cflowbelow()` for control flow.
@@ -27,7 +27,8 @@ The PHP package in `src/`, namespace `AOP\`, holds the model, the pointcut langu
 - Aspects without attributes: a configuration array in the shape of Spring's XML schema.
 - `#[Configurable]` for objects created with `new`.
 - Per-object advice with `Weaver::advised()`.
-- Field access with `get()` and `set()`, exception handlers with `handler()`, and constructor-less `initialization()`.
+- Exception handlers with `handler()`.
+- Field access with `get()` and `set()`, and constructor-less `initialization()`; both need `aop.interception=hook`, which turns the JIT off.
 - Introductions with `#[DeclareParents]`: a class gets an interface and a default implementation, at compile time.
 
 ## Requirements
@@ -80,11 +81,12 @@ php -m | grep aop
 
 ## Configuration (php.ini)
 
-Three INI settings control the extension:
+Four INI settings control the extension:
 
 | Setting | Default | Changeable | Meaning |
 |---|---|---|---|
-| `aop.enable` | `1` | php.ini or `-d` only | `0` turns interception off. The hooks are not installed, the JIT runs, and `Weaver::enable()` throws a `RuntimeException`. |
+| `aop.enable` | `1` | php.ini or `-d` only | `0` turns interception off. Nothing is installed (no backend, no hooks), the JIT runs, and `Weaver::enable()` throws a `RuntimeException`. |
+| `aop.interception` | `woven` | php.ini or `-d` only | The interception backend. `woven` works with the opcache JIT but has no field or `initialization()` join points. `hook` has all join points and turns the JIT off. `auto` is `hook` unless the JIT is configured, then `woven`. An invalid value raises a warning and keeps `woven`. See [limitations](docs/limitations.md#backends). |
 | `aop.disable_inlining` | `1` | php.ini or `-d` only | `1` keeps opcache from inlining calls to user functions and methods, so their advice runs. `0` lets opcache inline a function that only returns a constant, and then its advice may not run. |
 | `aop.weave_autoload` | `0` | any time, also with `ini_set()` | `1` weaves class loading too. By default the autoloader and the code it runs are not woven. |
 
@@ -92,6 +94,7 @@ Three INI settings control the extension:
 ; php.ini
 extension=/path/to/php-aop-extension/ext/modules/aop.so
 aop.enable=1
+aop.interception=woven
 aop.disable_inlining=1
 aop.weave_autoload=0
 ```
@@ -206,12 +209,12 @@ The proxy column describes what that library documents about its proxies.
 | Final methods | Skipped by the subclass strategy. | Advised. |
 | Final classes | Need the interface strategy, so the proxy is not an instance of the class. | Advised. The object stays an instance of its class. |
 | Self-invocation (`$this->method()`) | Advised with the subclass strategy, not with the interface strategy. | Advised. |
-| Constructors | Never advised. | Advised, with `initialization()` for the outermost one. |
+| Constructors | Never advised. | Advised, with `initialization()` for the outermost one (needs `aop.interception=hook`). |
 | Plain functions | Not supported. | Advised. |
 | Internal functions and methods | Not supported. | Advised, with the limits described in [limitations](docs/limitations.md). |
 | `call()` join points | Not supported. | Supported. |
 | `cflow()`, `cflowbelow()`, `if()` | Not supported. | Supported. |
-| `initialization()` | Not supported. | Supported, for constructors and for classes without a constructor. |
+| `initialization()` | Not supported. | Supported, for constructors and for classes without a constructor. Needs `aop.interception=hook`. |
 | Requirements | PHP only. | PHP 8.3 to 8.5, and the extension. |
 | Install | Composer. | Composer and the extension (PIE or a prebuilt archive). |
 | Spring AOP API and aspect attributes | Supported. | Supported. |
@@ -221,7 +224,8 @@ The proxy column describes what that library documents about its proxies.
 The full list is in [docs/limitations.md](docs/limitations.md).
 The most relevant points:
 
-- The JIT is disabled while the extension is loaded.
+- The default backend (`aop.interception=woven`) runs with the JIT, but it cannot intercept field access (`get()`, `set()`) or `initialization()`; those need `aop.interception=hook`, which turns the JIT off.
+- Under `woven`, advice sees arguments after parameter coercion, and advice on a generator function runs at the first resume.
 - Opcache inlining of functions that only return a constant is prevented by default (`aop.disable_inlining=1`).
 - Calls compiled to dedicated opcodes, such as `strlen()` in the global namespace, are not intercepted.
 - Functions that inspect their caller's frame, such as `compact()`, fail when advised.
