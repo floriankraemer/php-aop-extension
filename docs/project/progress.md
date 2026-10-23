@@ -14,7 +14,7 @@ Work happens on branch `initial-implementation`; each stream works in its own lo
 | D | NativeRuntime + Weaver, instantiation models, precedence, declare warning/error, per-instance advice | sonnet | done, merged |
 | E | New designators: call, withincode, @withincode, @this, cflow, cflowbelow, if, initialization, adviceexecution, handler, get, set | sonnet | done, merged |
 | F | Spring API layer: pointcut/advice/advisor APIs, adapters, target sources, array config, #[Configurable] | sonnet | done, merged |
-| G | C experimental: field get/set, handler(), ctor-less initialization, introductions | opus | running |
+| G | C experimental: field get/set, handler(), ctor-less initialization, introductions | opus | done, merged |
 | H | PHP 8.4/8.5 compatibility, test-all on 8.3/8.4/8.5 × NTS/ZTS, opcache inlining, JIT notice | opus | done, merged |
 | I | Docs + examples | haiku | done, merged (G features to be patched after G) |
 | K | Fix stream I's findings (ControlFlowPointcut, ctor matching, modifiers, regexp, `||` bindings, naming) | sonnet | running |
@@ -45,10 +45,13 @@ Work happens on branch `initial-implementation`; each stream works in its own lo
 - Merged stream I (`20df1e9`): README, `docs/` user guide (concepts, pointcuts, advice, weaver, spring-api, target-sources, configuration, spring-mapping, limitations, building), 26 runnable examples in `examples/` whose output is checked. While writing them it found bugs (below).
 - Fixed a segfault found by stream I: `execution(* *(..))` advised the internal functions the Composer autoloader calls while the runtime autoloaded its own classes, recursing until the C stack overflowed. The engine now skips interception while a class is being autoloaded (INI `aop.weave_autoload`, default 0) and passes through when the PHP 8.3+ stack limit is reached, so runaway recursion raises PHP's stack `Error`. Tests 026, 027.
 
+- Merged stream G (`1284cec`, `a7e1bf2`, `c81ee9a`): field get/set via a `ZEND_NEW` opcode handler and per-class wrapped object handlers (reads, writes, compound assignments; isset/unset/static properties/`get_properties` users not covered), ctor-less `initialization`, `exception-handler` via `ZEND_CATCH` (before-only; a dispatcher exception replaces the caught one), introductions by compile-time AST weaving (`zend_ast_process`) with lazily created default implementations. Contract section "Engine notes (stream G)". Merge conflicts with H resolved (both kept). After the merge on 8.3: phpt 40 plain / 46 with opcache, 0 failures; e2e 21/21 (ctor-less `#[Configurable]` now passes against the real engine); unit 1146.
+
 ## Still to do
 - Fix the remaining findings of stream I: Spring `ControlFlowPointcut` matches call kinds and is never TRACKed; `execution(Base::__construct(..))` matches subclass constructors (constructors do not override in AspectJ); method patterns reject `private`/`static`/`final` modifiers; `RegexpMethodPointcut` silently ignores delimited patterns; `||` branches binding different names are not rejected; docblocks still say "bean"; `AdvisorAdapterInterface::getInterceptor()` naming. (Not a bug: `execution(* Base::run(..))` matching an override of `run` is AspectJ semantics.)
 - Document the INI settings (`aop.enable`, `aop.disable_inlining`, `aop.weave_autoload`) in README/docs.
-- Merge G and H.
+- Verify G's code on PHP 8.4/8.5 (G built only on 8.3) and run valgrind on the merged engine.
+- Patch the docs: the experimental features (fields, handler, introductions, ctor-less initialization) now work; add examples.
 - Before the first tag: move the CHANGELOG `Unreleased` entries into a version section (release notes come from it).
 - E2E: re-run after G (ctor-less initialization, fields, handlers, introductions end to end through the Weaver); valgrind run of the phpunit e2e suite.
 - CI green on all cells after the push (musl, arm64, macOS, Windows, phpunit in containers were not verifiable in the sandbox).
