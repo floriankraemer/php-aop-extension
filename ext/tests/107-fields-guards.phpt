@@ -102,10 +102,10 @@ string(4) "item"
 string(3) "own"
 dispatcher exceptions:
   ? field-get Item::other caller=null
-  > field-get other from {closure}@51
+  > field-get other from {closure%S}@51
   dispatcher broke on field-get
   ? field-set Item::other caller=null
-  > field-set other from {closure}@51
+  > field-set other from {closure%S}@51
   dispatcher broke on field-set
 string(5) "other"
 matcher exception:

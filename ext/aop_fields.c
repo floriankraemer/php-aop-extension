@@ -18,6 +18,7 @@
  * zend_assign_op_overloaded_property, zend_pre/post_incdec_overloaded_property (Zend/zend_execute.c);
  * zend_std_read/write_property, zend_std_get_property_ptr_ptr, zend_get_property_info,
  * zend_get_property_offset (Zend/zend_object_handlers.c); zend_objects_clone_obj (Zend/zend_objects.c).
+ * ZEND_NEW is unchanged in 8.4/8.5 (only the order of an exception check after get_constructor()).
  */
 #ifdef HAVE_CONFIG_H
 # include "config.h"
@@ -31,16 +32,42 @@
 #include "zend_object_handlers.h"
 #include "php_aop.h"
 #include "aop_g.h"
-
-#if PHP_VERSION_ID >= 80400
-/* PHP 8.4 adds property hooks and lazy objects, which have their own paths through these handlers
- * (zend_std_read_property calls hooks, lazy objects initialize in them). The wrappers delegate to the
- * original handlers, so hooks run as part of the original access; lazy objects are created without
- * ZEND_NEW and are therefore never wrapped. Not verified against 8.4 sources beyond that. */
+#include "aop_compat.h"
+#if AOP_HAVE_LAZY_OBJECTS
+# include "zend_lazy_objects.h"
 #endif
+
+/*
+ * PHP 8.4/8.5 (verified against php-8.4.27 and php-8.5.12, whose property handlers are identical but for one
+ * line): zend_std_read_property/write_property/get_property_ptr_ptr with property hooks, asymmetric
+ * visibility (readonly is implicitly protected(set)) and lazy objects; zend_objects_clone_obj /
+ * zend_lazy_object_clone; 8.5 zend_objects_clone_obj_with (clone with), which writes through
+ * handlers->write_property, so "clone with" assignments are field-set join points.
+ *
+ * Hooked properties: an access from outside the property's own hooks is one field-get / field-set join point
+ * around the whole hooked access; the hook body runs inside OriginalCall (the original handler calls it, and
+ * aop_execute_ex() passes hook bodies through). Accesses to the backing value from inside the property's own
+ * hooks (zend_std_*'s zend_should_call_hook() == false, also through parent::$p::get()) are no join points.
+ * Write fetches ($o->p[] = 1, $o->p->q = 1, &$o->p) of a hooked property: get_property_ptr_ptr returns NULL
+ * and the VM reads with BP_VAR_W, so that read is the field-get join point (value hooks: the dispatcher's
+ * result is used as the value, and as without advice a non-object result is "Indirect modification"); a
+ * by-reference get hook (&get) has no join point on write fetches (its reference cannot pass through
+ * OriginalCall). The runtime cache: hooked properties use slot 1 for the offset/"simple get/read/write" bits
+ * and slot 2 for the property info, as plain ones; slot 0 stays cleared, so the VM's hook fast paths
+ * (ZEND_FETCH_OBJ_R simple get, ZEND_ASSIGN_OBJ simple write) never apply to wrapped objects.
+ *
+ * Lazy objects: created without ZEND_NEW (ReflectionClass::newLazyGhost/newLazyProxy), so not wrapped; a
+ * wrapped object reset with resetAsLazyGhost()/resetAsLazyProxy() stays wrapped. Asking the matcher or
+ * dispatching never initializes it; the original handler does (when the dispatcher proceeds). A proxy forwards
+ * to its real instance with zend_std_* directly, so the instance's own wrapper never sees those accesses.
+ */
 
 static user_opcode_handler_t aop_prev_new_handler = NULL;
 static zend_string *aop_str_construct = NULL;
+/* &zend_pass_function as a zend_function (set in MINIT): pushing the dummy constructor frame through a
+ * pointer the compiler cannot trace keeps GCC's -Warray-bounds quiet (zend_pass_function is only a
+ * zend_internal_function, which is all the frame code reads of it). */
+static zend_function *aop_pass_function = NULL;
 
 static const char aop_kind_get[] = "field-get";
 static const char aop_kind_set[] = "field-set";
@@ -78,10 +105,66 @@ static zend_execute_data *aop_access_frame(void)
 	return ex && ZEND_USER_CODE(ex->func->type) ? ex : NULL;
 }
 
+/* EG(fake_scope) is const since 8.5; the descriptor and OriginalCall take a plain pointer and never write through it. */
 static zend_always_inline zend_class_entry *aop_access_scope(void)
 {
-	return EG(fake_scope) ? EG(fake_scope) : zend_get_executed_scope();
+	return EG(fake_scope) ? (zend_class_entry *) EG(fake_scope) : zend_get_executed_scope();
 }
+
+/* The object whose slots hold the property values: obj itself, the real instance of an initialized lazy
+ * proxy, or NULL when they are not known yet (an uninitialized lazy object, which initializes in the original). */
+static zend_object *aop_slot_owner(zend_object *obj)
+{
+#if AOP_HAVE_LAZY_OBJECTS
+	if (UNEXPECTED(zend_object_is_lazy(obj))) {
+		zend_object *instance;
+
+		if (!zend_lazy_object_initialized(obj)) {
+			return NULL;
+		}
+		instance = zend_lazy_object_init(obj); /* initialized proxy: returns the instance, no side effects */
+		return instance && instance->ce == obj->ce ? instance : NULL;
+	}
+#endif
+	return obj;
+}
+
+#if AOP_HAVE_PROPERTY_HOOKS
+/* Mirrors zend_should_call_hook() == false: an access to the backing value of info from inside one of its own
+ * hooks (or a parent::$p::get()/set() trampoline) on the same object. */
+static bool aop_is_backing_access(zend_object *zobj, const zend_property_info *info)
+{
+	zend_execute_data *ex = EG(current_execute_data);
+	const zend_property_info *hook_info;
+	zend_object *self;
+
+	if (!info || !info->hooks || !ex || !ex->func || !(hook_info = ex->func->common.prop_info)) {
+		return false;
+	}
+	if (hook_info->prototype != info->prototype || Z_TYPE(ex->This) != IS_OBJECT) {
+		return false;
+	}
+	self = Z_OBJ(ex->This);
+	if (self == zobj) {
+		return true;
+	}
+	return zend_object_is_lazy_proxy(self) && zend_lazy_object_initialized(self)
+		&& zend_lazy_object_init(self) == zobj;
+}
+
+/* A hooked access that fails anyway: reading a virtual property without get hook, writing a virtual property
+ * without set hook, or writing without set access (private(set)/protected(set)). */
+static bool aop_hooked_access_fails(const zend_property_info *info, bool write)
+{
+	if (!write) {
+		return (info->flags & ZEND_ACC_VIRTUAL) && !info->hooks[ZEND_PROPERTY_HOOK_GET];
+	}
+	if ((info->flags & ZEND_ACC_VIRTUAL) && !info->hooks[ZEND_PROPERTY_HOOK_SET]) {
+		return true;
+	}
+	return (info->flags & ZEND_ACC_PPP_SET_MASK) && !zend_asymmetric_property_has_set_access(info);
+}
+#endif
 
 static zend_always_inline bool aop_fields_active(void)
 {
@@ -104,6 +187,12 @@ static bool aop_field_jp(aop_jp *jp, zend_object *zobj, zend_string *name, const
 	if (info && (info->flags & ZEND_ACC_STATIC)) {
 		info = NULL; /* accessed as an instance property: a dynamic one for the handlers */
 	}
+#if AOP_HAVE_PROPERTY_HOOKS
+	if (info && info->hooks && (aop_is_backing_access(zobj, info)
+			|| (kind == aop_kind_get && aop_hooked_access_fails(info, false)))) {
+		return false;
+	}
+#endif
 	memset(jp, 0, sizeof(*jp));
 	jp->kind = kind;
 	jp->class_ = zobj->ce;
@@ -115,16 +204,40 @@ static bool aop_field_jp(aop_jp *jp, zend_object *zobj, zend_string *name, const
 	return true;
 }
 
-/* Mirrors the readonly checks of zend_std_write_property: true when this write fails anyway. */
-static bool aop_readonly_violation(zend_object *zobj, zend_property_info *info, zend_string *name)
+/* Mirrors the readonly (8.4+: and asymmetric visibility, hooked) checks of zend_std_write_property: true when
+ * this write fails anyway. */
+static bool aop_write_fails(zend_object *zobj, zend_property_info *info, zend_string *name)
 {
+	zend_object *owner;
 	zval *slot;
-	zend_class_entry *scope;
 
-	if (!info || !(info->flags & ZEND_ACC_READONLY)) {
+	if (!info) {
 		return false;
 	}
-	slot = OBJ_PROP(zobj, info->offset);
+#if PHP_VERSION_ID >= 80400
+	if (info->hooks) {
+		return aop_hooked_access_fails(info, true);
+	}
+	if (!(info->flags & (ZEND_ACC_READONLY | ZEND_ACC_PPP_SET_MASK)) || !(owner = aop_slot_owner(zobj))) {
+		return false;
+	}
+	slot = OBJ_PROP(owner, info->offset);
+	if (Z_TYPE_P(slot) == IS_UNDEF && !(Z_PROP_FLAG_P(slot) & IS_PROP_UNINIT) && owner->ce->__set
+			&& !((*zend_get_property_guard(owner, name)) & ZEND_GUARD_PROPERTY_SET)) {
+		return false; /* an unset() property: the write goes to __set() */
+	}
+	if ((info->flags & ZEND_ACC_READONLY) && Z_TYPE_P(slot) != IS_UNDEF && !(Z_PROP_FLAG_P(slot) & IS_PROP_REINITABLE)) {
+		return true;
+	}
+	/* Public readonly properties are implicitly protected(set). */
+	return (info->flags & ZEND_ACC_PPP_SET_MASK) && !zend_asymmetric_property_has_set_access(info);
+#else
+	zend_class_entry *scope;
+
+	if (!(info->flags & ZEND_ACC_READONLY) || !(owner = aop_slot_owner(zobj))) {
+		return false;
+	}
+	slot = OBJ_PROP(owner, info->offset);
 	if (Z_TYPE_P(slot) != IS_UNDEF) {
 		return !(Z_PROP_FLAG_P(slot) & IS_PROP_REINITABLE);
 	}
@@ -139,19 +252,35 @@ static bool aop_readonly_violation(zend_object *zobj, zend_property_info *info, 
 		}
 	}
 	return true;
+#endif
 }
 
-/* A write fetch ($o->ro[] = 1, &$o->ro) of a readonly property fails unless it holds an object or may be re-initialized (__clone). */
-static bool aop_readonly_fetch_fails(zend_object *zobj, zend_property_info *info)
+/* A write fetch ($o->ro[] = 1, &$o->ro) of a readonly property fails unless it holds an object (8.3: or may be
+ * re-initialized, in __clone); 8.4+ the same for a property without set access. */
+static bool aop_write_fetch_fails(zend_object *zobj, zend_property_info *info)
 {
+	zend_object *owner;
 	zval *slot;
 
-	if (!info || !(info->flags & ZEND_ACC_READONLY)) {
+	if (!info) {
 		return false;
 	}
-	slot = OBJ_PROP(zobj, info->offset);
+#if PHP_VERSION_ID >= 80400
+	if (info->hooks || !(info->flags & (ZEND_ACC_READONLY | ZEND_ACC_PPP_SET_MASK))
+			|| (!(info->flags & ZEND_ACC_READONLY) && zend_asymmetric_property_has_set_access(info))
+			|| !(owner = aop_slot_owner(zobj))) {
+		return false;
+	}
+	slot = OBJ_PROP(owner, info->offset);
+	return Z_TYPE_P(slot) != IS_OBJECT;
+#else
+	if (!(info->flags & ZEND_ACC_READONLY) || !(owner = aop_slot_owner(zobj))) {
+		return false;
+	}
+	slot = OBJ_PROP(owner, info->offset);
 	return Z_TYPE_P(slot) == IS_UNDEF
 		|| (Z_TYPE_P(slot) != IS_OBJECT && !(Z_PROP_FLAG_P(slot) & IS_PROP_REINITABLE));
+#endif
 }
 
 /* The original handlers run with a private cache; only slot 2 (typed property info) is published. */
@@ -171,7 +300,7 @@ static bool aop_readonly_fetch_fails(zend_object *zobj, zend_property_info *info
 static void aop_field_original_get(zend_object *obj, zend_string *name, zend_class_entry *scope,
 		zend_long tag, HashTable *args, zval *return_value)
 {
-	zend_class_entry *old_scope = EG(fake_scope);
+	AOP_FAKE_SCOPE_T *old_scope = EG(fake_scope);
 	zval rv, *p;
 
 	(void) args;
@@ -200,7 +329,7 @@ static void aop_field_original_get(zend_object *obj, zend_string *name, zend_cla
 static void aop_field_original_set(zend_object *obj, zend_string *name, zend_class_entry *scope,
 		zend_long tag, HashTable *args, zval *return_value)
 {
-	zend_class_entry *old_scope = EG(fake_scope);
+	AOP_FAKE_SCOPE_T *old_scope = EG(fake_scope);
 	zval *value = NULL, tmp;
 
 	(void) return_value;
@@ -223,6 +352,17 @@ static void aop_field_original_set(zend_object *obj, zend_string *name, zend_cla
 		/* The access was in a strict_types file. The write below runs from this internal frame, which
 		 * the engine treats as coercive, so check the type strictly first (same TypeError as the VM's). */
 		zend_property_info *info = zend_get_property_info(obj->ce, name, 1);
+#if AOP_HAVE_PROPERTY_HOOKS
+		zend_property_info hook_param;
+
+		if (info && info != ZEND_WRONG_PROPERTY_INFO && info->hooks && info->hooks[ZEND_PROPERTY_HOOK_SET]) {
+			/* The set hook's $value parameter is checked instead (its type may be wider than the
+			 * property's). Same rules as the hook's RECV in strict mode; the message names the property. */
+			hook_param = *info;
+			hook_param.type = info->hooks[ZEND_PROPERTY_HOOK_SET]->common.arg_info[0].type;
+			info = &hook_param;
+		}
+#endif
 		if (info && info != ZEND_WRONG_PROPERTY_INFO && ZEND_TYPE_IS_SET(info->type)
 				&& !(info->flags & ZEND_ACC_STATIC) && !zend_verify_property_type(info, &tmp, true)) {
 			EG(fake_scope) = old_scope;
@@ -237,6 +377,24 @@ static void aop_field_original_set(zend_object *obj, zend_string *name, zend_cla
 /* }}} */
 
 /* {{{ wrapped handlers */
+/* A write fetch (BP_VAR_W/RW/UNSET read) of a hooked property, which get_property_ptr_ptr() leaves to
+ * read_property(); not for by-reference get hooks, whose reference cannot pass through OriginalCall. */
+static zend_always_inline bool aop_hooked_write_fetch(const zend_property_info *info)
+{
+#if AOP_HAVE_PROPERTY_HOOKS
+	const zend_function *get;
+
+	if (!AOP_PROP_IS_HOOKED(info)) {
+		return false;
+	}
+	get = info->hooks[ZEND_PROPERTY_HOOK_GET];
+	return !get || !(get->common.fn_flags & ZEND_ACC_RETURN_REFERENCE);
+#else
+	(void) info;
+	return false;
+#endif
+}
+
 static zval *aop_field_read(zend_object *zobj, zend_string *name, int type, void **cache_slot, zval *rv)
 {
 	const zend_object_handlers *orig = aop_field_orig(zobj);
@@ -244,25 +402,33 @@ static zval *aop_field_read(zend_object *zobj, zend_string *name, int type, void
 	aop_jp jp;
 	zval *ret;
 
-	/* W/RW/UNSET reads only follow a get_property_ptr_ptr() that returned NULL, which already dispatched. */
-	if ((type == BP_VAR_R || type == BP_VAR_IS) && aop_fields_active()
-			&& aop_field_jp(&jp, zobj, name, aop_kind_get, &info)) {
+	/* W/RW/UNSET reads only follow a get_property_ptr_ptr() that returned NULL, which already dispatched,
+	 * except for hooked properties (see the top of the file). */
+	if (aop_fields_active() && aop_field_jp(&jp, zobj, name, aop_kind_get, &info)
+			&& (type == BP_VAR_R || type == BP_VAR_IS || aop_hooked_write_fetch(info))) {
 		zend_execute_data *frame = aop_access_frame();
 		zend_long flags = aop_decide_jp(&jp, frame);
+		bool fetch = type != BP_VAR_R && type != BP_VAR_IS;
 
 		if (UNEXPECTED(EG(exception))) {
-			return &EG(uninitialized_zval);
+			return fetch ? &EG(error_zval) : &EG(uninitialized_zval);
 		}
 		if ((flags & AOP_INTERCEPT) && AOP_G(registered)) {
 			zval args, original, result;
 
 			array_init(&args);
-			aop_original_call_new_native(&original, aop_field_original_get, zobj, name, aop_access_scope(), type);
+			aop_original_call_new_native(&original, aop_field_original_get, zobj, name, aop_access_scope(),
+				fetch ? BP_VAR_R : type);
 			aop_dispatch_jp(&jp, frame, zobj, NULL, NULL, &args, &original, &result);
 			if (Z_ISUNDEF(result)) {
-				return &EG(uninitialized_zval);
+				return fetch ? &EG(error_zval) : &EG(uninitialized_zval);
 			}
 			ZVAL_COPY_VALUE(rv, &result);
+			if (fetch && Z_TYPE_P(rv) != IS_OBJECT) {
+				/* As zend_std_read_property() for a hooked property fetched for writing. */
+				zend_throw_error(NULL, "Indirect modification of %s::$%s is not allowed",
+					ZSTR_VAL(zobj->ce->name), ZSTR_VAL(name));
+			}
 			return rv;
 		}
 	}
@@ -283,7 +449,7 @@ static zval *aop_field_write(zend_object *zobj, zend_string *name, zval *value, 
 	zval *ret;
 
 	if (aop_fields_active() && aop_field_jp(&jp, zobj, name, aop_kind_set, &info)
-			&& !aop_readonly_violation(zobj, info, name)) {
+			&& !aop_write_fails(zobj, info, name)) {
 		zend_execute_data *frame = aop_access_frame();
 		zend_long flags = aop_decide_jp(&jp, frame);
 
@@ -349,7 +515,7 @@ static zval *aop_field_ptr_ptr(zend_object *zobj, zend_string *name, int type, v
 			if (UNEXPECTED(EG(exception))) {
 				return &EG(error_zval);
 			}
-			if (!(flags & AOP_INTERCEPT) && !aop_readonly_violation(zobj, info, name)) {
+			if (!(flags & AOP_INTERCEPT) && !aop_write_fails(zobj, info, name)) {
 				jp.kind = aop_kind_set;
 				flags = aop_decide_jp(&jp, frame);
 				if (UNEXPECTED(EG(exception))) {
@@ -359,10 +525,11 @@ static zval *aop_field_ptr_ptr(zend_object *zobj, zend_string *name, int type, v
 			if ((flags & AOP_INTERCEPT) && AOP_G(registered)) {
 				return NULL;
 			}
-		} else {
+		} else if (!AOP_PROP_IS_HOOKED(info)) {
 			/* $o->x[] = 1, $r = &$o->x, foreach ($o->x as &$v), f($o->x) by reference, $o->x->y = 1:
-			 * a get-only join point; the access then works on the property itself. */
-			flags = aop_readonly_fetch_fails(zobj, info) ? 0 : aop_decide_jp(&jp, frame);
+			 * a get-only join point; the access then works on the property itself. (A hooked property
+			 * returns NULL below and is read by read_property() with BP_VAR_W, which dispatches.) */
+			flags = aop_write_fetch_fails(zobj, info) ? 0 : aop_decide_jp(&jp, frame);
 			if (UNEXPECTED(EG(exception))) {
 				return &EG(error_zval);
 			}
@@ -393,6 +560,27 @@ static zend_object *aop_field_clone(zend_object *old)
 	const zend_object_handlers *orig = aop_field_orig(old);
 	zend_object *new_obj;
 
+#if AOP_HAVE_LAZY_OBJECTS
+	if (orig->clone_obj == zend_objects_clone_obj && UNEXPECTED(zend_object_is_lazy(old))) {
+		/* As zend_lazy_object_clone(): an uninitialized ghost is initialized first, then cloned like any
+		 * object (below); a proxy is cloned by the engine (proxy and instance), then wrapped. */
+		if (!zend_object_is_lazy_proxy(old)) {
+			if (!zend_lazy_object_init(old)) {
+				zval zv;
+				/* Clone handlers must return an object; it is discarded because of the exception. */
+				object_init_ex(&zv, old->ce);
+				GC_ADD_FLAGS(Z_OBJ(zv), IS_OBJ_DESTRUCTOR_CALLED);
+				return Z_OBJ(zv);
+			}
+		} else {
+			new_obj = orig->clone_obj(old);
+			if (new_obj && new_obj->handlers == orig) {
+				new_obj->handlers = old->handlers;
+			}
+			return new_obj;
+		}
+	}
+#endif
 	if (orig->clone_obj == zend_objects_clone_obj) {
 		/* zend_objects_clone_obj() with the wrapped handlers installed before __clone() runs. */
 		new_obj = zend_objects_new(old->ce);
@@ -580,7 +768,7 @@ static int aop_new_handler(zend_execute_data *execute_data)
 			EX(opline) = opline + 2;
 			return ZEND_USER_OPCODE_CONTINUE;
 		}
-		call = zend_vm_stack_push_call_frame(ZEND_CALL_FUNCTION, (zend_function *) &zend_pass_function,
+		call = zend_vm_stack_push_call_frame(ZEND_CALL_FUNCTION, aop_pass_function,
 			opline->extended_value, NULL);
 	} else {
 		if (EXPECTED(constructor->type == ZEND_USER_FUNCTION) && UNEXPECTED(!RUN_TIME_CACHE(&constructor->op_array))) {
@@ -602,6 +790,7 @@ static int aop_new_handler(zend_execute_data *execute_data)
 void aop_fields_minit(void)
 {
 	aop_str_construct = zend_string_init_interned("__construct", sizeof("__construct") - 1, 1);
+	aop_pass_function = (zend_function *) &zend_pass_function;
 	aop_prev_new_handler = zend_get_user_opcode_handler(ZEND_NEW);
 	zend_set_user_opcode_handler(ZEND_NEW, aop_new_handler);
 }
