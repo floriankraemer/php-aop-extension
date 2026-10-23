@@ -16,7 +16,7 @@ Work happens on branch `initial-implementation`; each stream works in its own lo
 | F | Spring API layer: pointcut/advice/advisor APIs, adapters, target sources, array config, #[Configurable] | sonnet | done, merged |
 | G | C experimental: field get/set, handler(), ctor-less initialization, introductions | opus | running |
 | H | PHP 8.4/8.5 compatibility, test-all on 8.3/8.4/8.5 × NTS/ZTS, opcache inlining, JIT notice | opus | running |
-| I | Docs + examples | haiku | waits for D, E, F, G |
+| I | Docs + examples | haiku | running (G features documented as experimental, patched after G) |
 | J | Final integration and verification | coordinator | pending |
 
 ## Log
