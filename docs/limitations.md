@@ -175,7 +175,7 @@ Known limitation: a property access site that first runs on an uncovered object 
 - A `final` parent method with the same name is an inheritance error.
 - A woven class implements an interface, so it is no longer early-bound: it cannot be used before its declaration in the same file.
 - Parameter attributes are not copied to the introduced methods.
-- The Spring `DefaultIntroductionAdvisor` does not introduce the interface. `instanceof` stays `false`, and the interface's methods are not defined on the class. Use `#[DeclareParents]` or `declare-parents` instead.
+- The Spring `DefaultIntroductionAdvisor` does not introduce the interface. `instanceof` stays `false`, and the interface's methods are not defined on the class. Use `#[DeclareParents]`, `declare-parents` or `Weaver::declareParents()` instead.
 
 ## Known issues
 

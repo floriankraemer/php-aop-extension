@@ -55,6 +55,9 @@ final class Weaver
     /** @var array<string, Advisor> programmatic advisors by id */
     private array $programmatic = [];
 
+    /** @var list<array{typePattern: string, interface: class-string, defaultImpl: class-string}> programmatic declare-parents rules */
+    private array $declaredParents = [];
+
     /** @var list<TypePattern> */
     private array $includes = [];
 
@@ -352,19 +355,39 @@ final class Weaver
         return $this->enabled;
     }
 
+    /**
+     * Programmatic `#[DeclareParents]` (AspectJ `declare parents`): classes matching $typePattern that are compiled
+     * after this call implement $interface; methods they do not declare delegate to a $defaultImpl instance per object.
+     *
+     * @param class-string $interface
+     * @param class-string $defaultImpl
+     */
+    public function declareParents(string $typePattern, string $interface, string $defaultImpl): void
+    {
+        $this->assertMutable();
+        if (!interface_exists($interface)) {
+            throw new AspectDefinitionException(sprintf('declareParents(): "%s" is not an interface.', $interface));
+        }
+        if (!class_exists($defaultImpl) || !is_a($defaultImpl, $interface, true)) {
+            throw new AspectDefinitionException(sprintf('declareParents(): the default implementation "%s" must be a class implementing %s.', $defaultImpl, $interface));
+        }
+        $this->declaredParents[] = ['typePattern' => trim($typePattern), 'interface' => $interface, 'defaultImpl' => $defaultImpl];
+        $this->changed();
+    }
+
     public function compiler(): PointcutExpressionCompiler
     {
         return $this->compiler;
     }
 
     /**
-     * The `#[DeclareParents]` rules handed to the engine.
+     * The `#[DeclareParents]` and declareParents() rules handed to the engine.
      *
      * @return list<array{typePattern: string, interface: class-string, defaultImpl: class-string}>
      */
     public function introductionRules(): array
     {
-        $rules = [];
+        $rules = $this->declaredParents;
         foreach ($this->aspects as $aspect) {
             array_push($rules, ...$aspect['rawIntroductions']);
         }
@@ -419,6 +442,9 @@ final class Weaver
             array_push($rules, ...$aspect['rules']);
             array_push($entries, ...$aspect['entries']);
             array_push($introductions, ...$aspect['introductions']);
+        }
+        foreach ($this->declaredParents as $rule) {
+            $introductions[] = new IntroductionAdvisor(self::class, self::pattern($rule['typePattern']), $rule['interface'], $rule['defaultImpl'], PHP_INT_MAX);
         }
         $this->runtime->configure(new RuntimeSettings($this->allAdvisors(), $precedence, $rules, $entries, $introductions, $this->includes, $this->excludes, $this->classServices));
     }

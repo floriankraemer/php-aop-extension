@@ -161,7 +161,17 @@ See [pointcuts.md](pointcuts.md#compiling-expressions-directly).
 
 ## Introductions
 
-`introductionRules()` returns the `#[DeclareParents]` and `declare-parents` rules of the registered aspects.
+`declareParents(string $typePattern, string $interface, string $defaultImpl)` is the programmatic form of AspectJ's `declare parents`, without an aspect class:
+
+```php
+$weaver->declareParents('App\Billing\*Invoice', Labelled::class, DefaultLabel::class);
+$weaver->enable();
+require 'src/Billing/Invoice.php'; // compiled after the rule: implements Labelled
+```
+
+`$defaultImpl` must be a class implementing `$interface`; the woven class delegates the interface methods it does not declare to one instance of it per object.
+
+`introductionRules()` returns these rules together with the `#[DeclareParents]` and `declare-parents` rules of the registered aspects.
 `enable()` sends them to the engine.
 They apply to the classes compiled afterwards (see [limitations](limitations.md#introductions)).
 

@@ -202,6 +202,7 @@ caller got: a name is required
 
 `IntroductionInterceptorInterface` and `DelegatingIntroductionInterceptor` answer the calls of an introduced interface.
 `DefaultIntroductionAdvisor` attaches one, but it does not add the interface to the class: `instanceof` stays `false`.
+To add the interface, use `Weaver::declareParents()` (programmatic `declare parents`), `#[DeclareParents]` or the `declare-parents` configuration key.
 To make a class implement an interface, use `#[DeclareParents]` or `declare-parents` (see [weaver.md](weaver.md#introductions) and [limitations](limitations.md#introductions)).
 
 ## Advisors

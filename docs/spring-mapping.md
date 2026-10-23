@@ -48,7 +48,7 @@ The status column says whether the feature is supported in this build.
 | `AopContext.currentProxy()` | `AopContext::currentObject()`, `AopContext::currentJoinPoint()` | Supported. There is no proxy to expose. |
 | `MethodInterceptor`, `MethodBeforeAdvice`, `AfterReturningAdvice`, `ThrowsAdvice`, `IntroductionInterceptor` | The interfaces in `AOP\Advice\Api` | Supported. |
 | `DefaultPointcutAdvisor`, `RegexpMethodPointcutAdvisor`, `NameMatchMethodPointcutAdvisor` | The classes in `AOP\Advisor\Api` | Supported. |
-| `DefaultIntroductionAdvisor` | `AOP\Advisor\Api\DefaultIntroductionAdvisor` | Routes calls only; it does not add the interface. Use `#[DeclareParents]` to introduce one. |
+| `DefaultIntroductionAdvisor` | `AOP\Advisor\Api\DefaultIntroductionAdvisor` | Routes calls only; it does not add the interface. Use `#[DeclareParents]` or `Weaver::declareParents()` to introduce one. |
 | `Pointcut`, `ClassFilter`, `MethodMatcher`, `StaticMethodMatcherPointcut`, `DynamicMethodMatcherPointcut` | `AOP\Pointcut\Api\*` | Supported. |
 | `ComposablePointcut`, `Pointcuts` | `AOP\Pointcut\Api\ComposablePointcut`, `Pointcuts` | Supported. |
 | `RegexpMethodPointcut`, `NameMatchMethodPointcut`, `AttributeMatchingPointcut` | Same names in `AOP\Pointcut\Api` | Supported. A bare expression matches the whole name; a delimited PCRE (`/Catalog::save/i`) is used as written. |
