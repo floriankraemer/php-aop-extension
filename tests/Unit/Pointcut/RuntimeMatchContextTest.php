@@ -4,12 +4,11 @@ declare(strict_types=1);
 
 namespace AOP\Tests\Unit\Pointcut;
 
+use AOP\JoinPoint\JoinPointKind;
+use AOP\Pointcut\ControlFlowInterface;
+use AOP\Pointcut\EmptyControlFlow;
 use AOP\Pointcut\RuntimeMatchContext;
-use AOP\Pointcut\StaticMatchContext;
-use AOP\Proxy\ProxyClassWriter;
-use AOP\Proxy\SubclassProxyGenerator;
-use AOP\Tests\Fixtures\Binding\TaggedService;
-use AOP\Tests\Fixtures\Pointcut\Reflect;
+use AOP\Tests\Fixtures\Jp;
 use AOP\Tests\Fixtures\Service\UserService;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -17,70 +16,77 @@ use PHPUnit\Framework\TestCase;
 final class RuntimeMatchContextTest extends TestCase
 {
     #[Test]
-    public function exposesConstructorValues(): void
+    public function exposesTheJoinPointAndStaticContext(): void
     {
-        $proxy = new UserService();
         $target = new UserService();
-        $method = new \ReflectionMethod(UserService::class, 'findUser');
+        $joinPoint = Jp::invocation($target, 'findUser', [42]);
+        $static = Jp::ctx(UserService::class, 'findUser');
 
-        $context = new RuntimeMatchContext($proxy, $target, $method, [42]);
+        $context = new RuntimeMatchContext($joinPoint, $static);
 
-        self::assertSame($proxy, $context->proxy);
-        self::assertSame($target, $context->target);
-        self::assertSame($method, $context->method);
-        self::assertSame([42], $context->args);
+        self::assertSame($joinPoint, $context->joinPoint);
+        self::assertSame($static, $context->staticContext);
+        self::assertSame($target, $context->this());
+        self::assertSame($target, $context->target());
+        self::assertSame([42], $context->args());
+        self::assertSame($static->function, $context->function());
+        self::assertSame($static->targetClass, $context->targetClass());
+    }
+
+    #[Test]
+    public function controlFlowDefaultsToEmpty(): void
+    {
+        $context = Jp::runtime(new UserService(), 'findUser');
+
+        self::assertInstanceOf(EmptyControlFlow::class, $context->controlFlow);
+        self::assertSame([], $context->controlFlow->stack());
+    }
+
+    #[Test]
+    public function usesTheGivenControlFlow(): void
+    {
+        $joinPoint = Jp::invocation(new UserService(), 'findUser');
+        $flow = new class($joinPoint) implements ControlFlowInterface {
+            public function __construct(private readonly \AOP\JoinPoint\JoinPointInterface $joinPoint)
+            {
+            }
+
+            public function stack(): array
+            {
+                return [$this->joinPoint];
+            }
+        };
+
+        $context = new RuntimeMatchContext($joinPoint, Jp::ctx(UserService::class, 'findUser'), $flow);
+
+        self::assertSame([$joinPoint], $context->controlFlow->stack());
+    }
+
+    #[Test]
+    public function nonMethodJoinPointsHaveNoFunctionOrTargetClass(): void
+    {
+        $static = new \AOP\Pointcut\StaticMatchContext(JoinPointKind::FUNCTION_EXECUTION, null);
+        $context = new RuntimeMatchContext(Jp::invocation(new UserService(), 'findUser'), $static);
+
+        self::assertNull($context->function());
+        self::assertNull($context->targetClass());
     }
 
     #[Test]
     public function boundIsEmptyInitially(): void
     {
-        $context = $this->context();
-
-        self::assertSame([], $context->bound());
+        self::assertSame([], Jp::runtime(new UserService(), 'findUser')->bound());
     }
 
     #[Test]
     public function bindStoresValuesByName(): void
     {
-        $context = $this->context();
+        $context = Jp::runtime(new UserService(), 'findUser');
         $user = new UserService();
 
         $context->bind('user', $user);
         $context->bind('id', 42);
 
         self::assertSame(['user' => $user, 'id' => 42], $context->bound());
-    }
-
-    #[Test]
-    public function targetClassPrefersTheWeaveTimeTargetClass(): void
-    {
-        $static = new StaticMatchContext(Reflect::cls(TaggedService::class));
-        $context = new RuntimeMatchContext(new UserService(), new UserService(), new \ReflectionMethod(UserService::class, 'findUser'), [], $static);
-
-        self::assertSame($static->targetClass, $context->targetClass());
-    }
-
-    #[Test]
-    public function targetClassSkipsGeneratedProxyClassesAndTheirSubclasses(): void
-    {
-        $proxyClass = ProxyClassWriter::load((new SubclassProxyGenerator())->generate(new \ReflectionClass(TaggedService::class), ['own'], 'target-class'));
-        $proxy = new $proxyClass();
-        $ghostLike = eval('return new class extends '.$proxyClass.' {};');
-        self::assertIsObject($ghostLike);
-        $method = new \ReflectionMethod(TaggedService::class, 'own');
-
-        self::assertSame(TaggedService::class, (new RuntimeMatchContext($proxy, $proxy, $method, []))->targetClass()->getName());
-        self::assertSame(TaggedService::class, (new RuntimeMatchContext($ghostLike, $ghostLike, $method, []))->targetClass()->getName());
-        self::assertSame(UserService::class, $this->context()->targetClass()->getName());
-    }
-
-    private function context(): RuntimeMatchContext
-    {
-        return new RuntimeMatchContext(
-            new UserService(),
-            new UserService(),
-            new \ReflectionMethod(UserService::class, 'findUser'),
-            [],
-        );
     }
 }

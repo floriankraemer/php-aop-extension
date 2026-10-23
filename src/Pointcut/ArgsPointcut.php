@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AOP\Pointcut;
 
+use AOP\JoinPoint\JoinPointKind;
 use AOP\Pointcut\Expression\Ast\ParamListNode;
 use AOP\Pointcut\Expression\Ast\TypePatternNode;
 use AOP\Pointcut\Pattern\ArgumentMatcher;
@@ -36,10 +37,16 @@ final class ArgsPointcut implements PointcutInterface
         }
     }
 
-    public function matchesMethod(\ReflectionMethod $method, StaticMatchContext $ctx): bool
+    public function matchesMethod(?\ReflectionFunctionAbstract $method, StaticMatchContext $ctx): bool
     {
-        if (!$this->arityFeasible($method)) {
+        if (!$this->arityFeasible($method, $ctx)) {
             return false;
+        }
+        if (null === $method) {
+            // field-set: the declared property type constrains the value; a handler's argument is the exception
+            $matcher = $this->matchers[0] ?? null;
+
+            return null === $matcher || JoinPointKind::FIELD_SET !== $ctx->kind || self::compatible($matcher, $ctx->property?->getType());
         }
         $parameters = $method->getParameters();
         foreach ($this->matchers as $i => $matcher) {
@@ -54,7 +61,7 @@ final class ArgsPointcut implements PointcutInterface
 
     public function matchesRuntime(RuntimeMatchContext $ctx): bool
     {
-        $args = array_values($ctx->args);
+        $args = array_values($ctx->args());
         if (!$this->runtimeArityMatches($args)) {
             return false;
         }

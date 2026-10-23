@@ -29,14 +29,14 @@ final class AtArgsPointcut implements PointcutInterface
         return true; // attribute presence depends on the argument's class
     }
 
-    public function matchesMethod(\ReflectionMethod $method, StaticMatchContext $ctx): bool
+    public function matchesMethod(?\ReflectionFunctionAbstract $method, StaticMatchContext $ctx): bool
     {
-        return $this->arityFeasible($method);
+        return $this->arityFeasible($method, $ctx);
     }
 
     public function matchesRuntime(RuntimeMatchContext $ctx): bool
     {
-        $args = array_values($ctx->args);
+        $args = array_values($ctx->args());
         if (!$this->runtimeArityMatches($args)) {
             return false;
         }

@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace AOP\Tests\Unit\Pointcut;
 
+use AOP\JoinPoint\FieldSignature;
+use AOP\JoinPoint\JoinPointData;
+use AOP\JoinPoint\JoinPointKind;
+use AOP\JoinPoint\MethodInvocation;
+use AOP\JoinPoint\StaticPart;
 use AOP\Pointcut\BindingKind;
 use AOP\Pointcut\Expression\PointcutExpressionCompiler;
 use AOP\Pointcut\PointcutInterface;
@@ -12,8 +17,10 @@ use AOP\Pointcut\StaticMatchContext;
 use AOP\Tests\Fixtures\Hierarchy\Plain;
 use AOP\Tests\Fixtures\Hierarchy\RepositoryInterface;
 use AOP\Tests\Fixtures\Hierarchy\UserRepository;
+use AOP\Tests\Fixtures\Jp;
 use AOP\Tests\Fixtures\Pointcut\Reflect;
 use AOP\Tests\Fixtures\Service\UserService;
+use AOP\Tests\Fixtures\Targets\KindShapes;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -33,7 +40,7 @@ final class ArgsPointcutTest extends TestCase
      */
     private function static(PointcutInterface $pc, string $class, string $method): bool
     {
-        $ctx = new StaticMatchContext(Reflect::cls($class));
+        $ctx = Jp::ctx($class, $method);
 
         return $pc->matchesClass($ctx->targetClass, $ctx) && $pc->matchesMethod(new \ReflectionMethod($class, $method), $ctx);
     }
@@ -43,7 +50,7 @@ final class ArgsPointcutTest extends TestCase
      */
     private function runtime(PointcutInterface $pc, array $args, string $method = 'find'): RuntimeMatchContext
     {
-        $ctx = new RuntimeMatchContext(new UserRepository(), new UserRepository(), new \ReflectionMethod(UserRepository::class, $method), $args);
+        $ctx = Jp::runtime(new UserRepository(), $method, $args);
         $pc->matchesRuntime($ctx);
 
         return $ctx;
@@ -55,7 +62,7 @@ final class ArgsPointcutTest extends TestCase
     private function argsMatch(string $expression, array $args, string $method = 'find'): bool
     {
         $pc = $this->pc($expression);
-        $ctx = new RuntimeMatchContext(new UserRepository(), new UserRepository(), new \ReflectionMethod(UserRepository::class, $method), $args);
+        $ctx = Jp::runtime(new UserRepository(), $method, $args);
 
         return $pc->matchesRuntime($ctx);
     }
@@ -225,7 +232,7 @@ final class ArgsPointcutTest extends TestCase
     public function bindsSeveralArguments(): void
     {
         $pc = $this->pc('args(a, int, b)', ['a', 'b']);
-        $ctx = new RuntimeMatchContext(new UserRepository(), new UserRepository(), new \ReflectionMethod(UserRepository::class, 'intThenAny'), ['x', 2, null]);
+        $ctx = Jp::runtime(new UserRepository(), 'intThenAny', ['x', 2, null]);
 
         self::assertTrue($pc->matchesRuntime($ctx));
         self::assertSame(['a' => 'x', 'b' => null], $ctx->bound());
@@ -235,14 +242,14 @@ final class ArgsPointcutTest extends TestCase
     public function bindingTypeRestrictionFiltersAtRuntime(): void
     {
         $pc = $this->pc('args(id)', ['id' => 'int']);
-        $ctx = new RuntimeMatchContext(new UserRepository(), new UserRepository(), new \ReflectionMethod(UserRepository::class, 'find'), ['nope']);
+        $ctx = Jp::runtime(new UserRepository(), 'find', ['nope']);
         self::assertFalse($pc->matchesRuntime($ctx));
 
         $ok = $this->runtime($pc, [5]);
         self::assertSame(['id' => 5], $ok->bound());
 
         $class = $this->pc('args(p)', ['p' => Plain::class]);
-        $ctx = new RuntimeMatchContext(new UserRepository(), new UserRepository(), new \ReflectionMethod(UserRepository::class, 'find'), [new UserRepository()]);
+        $ctx = Jp::runtime(new UserRepository(), 'find', [new UserRepository()]);
         self::assertFalse($class->matchesRuntime($ctx));
     }
 
@@ -250,7 +257,7 @@ final class ArgsPointcutTest extends TestCase
     public function nullableRestrictionAcceptsNull(): void
     {
         $pc = $this->pc('args(p)', ['p' => '?'.Plain::class]);
-        $ctx = new RuntimeMatchContext(new UserRepository(), new UserRepository(), new \ReflectionMethod(UserRepository::class, 'find'), [null]);
+        $ctx = Jp::runtime(new UserRepository(), 'find', [null]);
 
         self::assertTrue($pc->matchesRuntime($ctx));
         self::assertSame(['p' => null], $ctx->bound());
@@ -271,5 +278,53 @@ final class ArgsPointcutTest extends TestCase
     public function nonBindingIdentifierIsATypePattern(): void
     {
         self::assertSame([], $this->pc('args(string)', ['id'])->bindings());
+    }
+
+    #[Test]
+    public function fieldSetTakesTheValueAsItsOnlyArgument(): void
+    {
+        $set = new StaticMatchContext(JoinPointKind::FIELD_SET, Reflect::cls(KindShapes::class), null, new \ReflectionProperty(KindShapes::class, 'count'));
+        $get = new StaticMatchContext(JoinPointKind::FIELD_GET, Reflect::cls(KindShapes::class), null, new \ReflectionProperty(KindShapes::class, 'count'));
+
+        self::assertTrue($this->pc('args(int)')->matchesMethod(null, $set));
+        self::assertFalse($this->pc('args(string)')->matchesMethod(null, $set), 'the property is an int');
+        self::assertTrue($this->pc('args(*)')->matchesMethod(null, $set));
+        self::assertFalse($this->pc('args(*, *)')->matchesMethod(null, $set));
+        self::assertTrue($this->pc('args(..)')->matchesMethod(null, $set));
+        self::assertFalse($this->pc('args(int)')->matchesMethod(null, $get), 'a read has no arguments');
+        self::assertTrue($this->pc('args()')->matchesMethod(null, $get));
+    }
+
+    #[Test]
+    public function exceptionHandlersTakeTheExceptionAsTheirOnlyArgument(): void
+    {
+        $handler = new StaticMatchContext(JoinPointKind::EXCEPTION_HANDLER, null, null, null, Reflect::cls(\RuntimeException::class));
+
+        self::assertTrue($this->pc('args(Throwable+)')->matchesMethod(null, $handler));
+        self::assertFalse($this->pc('args(*, *)')->matchesMethod(null, $handler));
+        self::assertFalse($this->pc('args()')->matchesMethod(null, $handler));
+    }
+
+    #[Test]
+    public function matchesRuntimeAgainstTheValueOfAFieldWrite(): void
+    {
+        $static = new StaticMatchContext(JoinPointKind::FIELD_SET, Reflect::cls(KindShapes::class), null, new \ReflectionProperty(KindShapes::class, 'count'));
+        $joinPoint = new MethodInvocation(
+            new JoinPointData(JoinPointKind::FIELD_SET, new KindShapes(), new KindShapes(), new FieldSignature(KindShapes::class, 'count'), new StaticPart(JoinPointKind::FIELD_SET, new FieldSignature(KindShapes::class, 'count'))),
+            [7],
+            [],
+            static fn (array $args): null => null,
+        );
+        $ctx = new RuntimeMatchContext($joinPoint, $static);
+
+        self::assertTrue($this->pc('args(int)')->matchesRuntime($ctx));
+        self::assertFalse($this->pc('args(string)')->matchesRuntime($ctx));
+    }
+
+    #[Test]
+    public function isNotCallerSensitive(): void
+    {
+        self::assertFalse($this->pc('args(int)')->isCallerSensitive());
+        self::assertFalse((new PointcutExpressionCompiler())->compile('@args(Foo)')->isCallerSensitive());
     }
 }

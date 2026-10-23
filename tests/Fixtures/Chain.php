@@ -11,7 +11,6 @@ use AOP\Binding\BindingPlan;
 use AOP\Binding\ParameterBinder;
 use AOP\Interceptor\MethodInterceptorInterface;
 use AOP\JoinPoint\MethodInvocation;
-use AOP\JoinPoint\MethodSignature;
 use AOP\Pointcut\Expression\PointcutExpressionCompiler;
 use AOP\Tests\Fixtures\Aspect\ProbeAspect;
 use AOP\Tests\Fixtures\Service\Greeter;
@@ -36,16 +35,7 @@ final class Chain
      */
     public static function invocation(array $interceptors, \Closure $target, array $args = ['World']): MethodInvocation
     {
-        $greeter = new Greeter();
-
-        return new MethodInvocation(
-            $greeter,
-            $greeter,
-            MethodSignature::fromReflection(new \ReflectionMethod(Greeter::class, 'greet')),
-            $args,
-            $interceptors,
-            $target,
-        );
+        return Jp::invocation(new Greeter(), 'greet', $args, $interceptors, $target);
     }
 
     public static function resolver(ProbeAspect $probe): ArrayAspectInstanceResolver

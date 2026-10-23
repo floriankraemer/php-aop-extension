@@ -4,14 +4,16 @@ declare(strict_types=1);
 
 namespace AOP\Tests\Unit\Pointcut;
 
+use AOP\JoinPoint\JoinPointKind;
 use AOP\Pointcut\ExecutionPointcut;
 use AOP\Pointcut\Expression\Ast\ParamListNode;
+use AOP\Pointcut\Expression\Ast\TypePatternNode;
 use AOP\Pointcut\Pattern\ModifierPattern;
 use AOP\Pointcut\Pattern\NamePattern;
 use AOP\Pointcut\Pattern\ParameterPattern;
 use AOP\Pointcut\Pattern\TypePattern;
 use AOP\Pointcut\StaticMatchContext;
-use AOP\Proxy\ProxyStrategy;
+use AOP\Tests\Fixtures\Functions\ConstructedService;
 use AOP\Tests\Fixtures\Hierarchy\Plain;
 use AOP\Tests\Fixtures\Hierarchy\ReadableInterface;
 use AOP\Tests\Fixtures\Hierarchy\RepositoryInterface;
@@ -20,6 +22,7 @@ use AOP\Tests\Fixtures\Hierarchy\UserRepository;
 use AOP\Tests\Fixtures\Introduction\Auditable;
 use AOP\Tests\Fixtures\Introduction\ClashingPrivateTarget;
 use AOP\Tests\Fixtures\Introduction\WorkTarget;
+use AOP\Tests\Fixtures\Jp;
 use AOP\Tests\Fixtures\Pointcut\Reflect;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -27,6 +30,11 @@ use PHPUnit\Framework\TestCase;
 
 final class ExecutionPointcutTest extends TestCase
 {
+    public static function setUpBeforeClass(): void
+    {
+        require_once __DIR__.'/../../Fixtures/Functions/functions.php';
+    }
+
     /**
      * @param 'public'|'protected'|null $modifier
      */
@@ -52,7 +60,7 @@ final class ExecutionPointcutTest extends TestCase
     private function executes(ExecutionPointcut $pointcut, string $class, string $method): bool
     {
         $reflection = Reflect::cls($class);
-        $ctx = new StaticMatchContext($reflection);
+        $ctx = Jp::ctx($class, $method);
 
         return $pointcut->matchesClass($reflection, $ctx) && $pointcut->matchesMethod($reflection->getMethod($method), $ctx);
     }
@@ -188,7 +196,7 @@ final class ExecutionPointcutTest extends TestCase
         $pointcut = $this->pointcut(declaring: new TypePattern(ReadableInterface::class));
         $plain = Reflect::cls(Plain::class);
 
-        self::assertFalse($pointcut->matchesClass($plain, new StaticMatchContext($plain)));
+        self::assertFalse($pointcut->matchesClass($plain, Jp::ctx(Plain::class)));
     }
 
     #[Test]
@@ -204,14 +212,14 @@ final class ExecutionPointcutTest extends TestCase
     public function introducedMethodsBelongToTheIntroducedInterfaceOnly(): void
     {
         $target = Reflect::cls(WorkTarget::class);
-        $ctx = new StaticMatchContext($target, null, ProxyStrategy::SUBCLASS, [Auditable::class]);
+        $ctx = Jp::ctx($target->getName(), introduced: [Auditable::class]);
         $introduced = new \ReflectionMethod(Auditable::class, 'recordAudit');
         $ofInterface = $this->pointcut(declaring: new TypePattern(Auditable::class));
         $ofTarget = $this->pointcut(declaring: new TypePattern(WorkTarget::class));
 
         self::assertTrue($ofInterface->matchesClass($target, $ctx) && $ofInterface->matchesMethod($introduced, $ctx));
         self::assertFalse($ofInterface->matchesMethod($target->getMethod('work'), $ctx), 'methods of the target are not declared by the introduced interface');
-        self::assertFalse($ofInterface->matchesClass($target, new StaticMatchContext($target)), 'without the introduction the target has no such ancestor');
+        self::assertFalse($ofInterface->matchesClass($target, Jp::ctx($target->getName())), 'without the introduction the target has no such ancestor');
         self::assertFalse($ofTarget->matchesMethod($introduced, $ctx), 'the target type does not declare introduced methods');
         self::assertTrue($this->pointcut()->matchesMethod($introduced, $ctx));
     }
@@ -220,8 +228,100 @@ final class ExecutionPointcutTest extends TestCase
     public function aNonPublicTargetMethodDoesNotHideTheIntroducedOneOfTheSameName(): void
     {
         $target = Reflect::cls(ClashingPrivateTarget::class);
-        $ctx = new StaticMatchContext($target, null, ProxyStrategy::SUBCLASS, [Auditable::class]);
+        $ctx = Jp::ctx($target->getName(), introduced: [Auditable::class]);
 
         self::assertTrue($this->pointcut(declaring: new TypePattern(Auditable::class))->matchesMethod(new \ReflectionMethod(Auditable::class, 'recordAudit'), $ctx));
+    }
+
+    #[Test]
+    public function matchesFunctionsByNamespacedName(): void
+    {
+        $ctx = new StaticMatchContext(JoinPointKind::FUNCTION_EXECUTION, null, new \ReflectionFunction('AOP\Tests\Fixtures\Functions\fmt'));
+        $function = $ctx->function;
+
+        self::assertTrue($this->pointcut(name: 'AOP\Tests\Fixtures\Functions\fmt*')->matchesMethod($function, $ctx));
+        self::assertTrue($this->pointcut(name: '*')->matchesMethod($function, $ctx));
+        self::assertFalse($this->pointcut(name: 'fmt*')->matchesMethod($function, $ctx), 'the name is namespaced');
+        self::assertFalse($this->pointcut(name: 'AOP\Tests\Other\*')->matchesMethod($function, $ctx));
+        self::assertTrue($this->pointcut()->matchesClass(null, $ctx));
+    }
+
+    #[Test]
+    public function matchesInternalFunctions(): void
+    {
+        $function = new \ReflectionFunction('str_replace');
+        $ctx = new StaticMatchContext(JoinPointKind::FUNCTION_EXECUTION, null, $function);
+
+        self::assertTrue($this->pointcut(name: 'str_*')->matchesMethod($function, $ctx));
+        self::assertFalse($this->pointcut(name: 'array_*')->matchesMethod($function, $ctx));
+    }
+
+    #[Test]
+    public function functionsCheckParametersAndReturnType(): void
+    {
+        $function = new \ReflectionFunction('AOP\Tests\Fixtures\Functions\fmt');
+        $ctx = new StaticMatchContext(JoinPointKind::FUNCTION_EXECUTION, null, $function);
+
+        self::assertTrue($this->pointcut(return: new TypePattern('string'), params: new ParamListNode([new TypePatternNode('string')]))->matchesMethod($function, $ctx));
+        self::assertFalse($this->pointcut(return: new TypePattern('int'))->matchesMethod($function, $ctx));
+        self::assertFalse($this->pointcut(params: new ParamListNode([]))->matchesMethod($function, $ctx));
+    }
+
+    #[Test]
+    public function functionsHaveNoModifierAndNoDeclaringType(): void
+    {
+        $function = new \ReflectionFunction('AOP\Tests\Fixtures\Functions\fmt');
+        $ctx = new StaticMatchContext(JoinPointKind::FUNCTION_EXECUTION, null, $function);
+
+        self::assertFalse($this->pointcut(modifier: 'public')->matchesMethod($function, $ctx));
+        self::assertFalse($this->pointcut(declaring: new TypePattern('*'))->matchesMethod($function, $ctx));
+        self::assertFalse($this->pointcut(declaring: new TypePattern('*'))->matchesClass(null, $ctx));
+    }
+
+    #[Test]
+    public function aMethodDoesNotMatchAsFunctionExecutionNorTheReverse(): void
+    {
+        $method = new \ReflectionMethod(UserRepository::class, 'find');
+        $asFunction = Jp::ctx(UserRepository::class, 'find', JoinPointKind::FUNCTION_EXECUTION);
+        $function = new \ReflectionFunction('str_replace');
+        $asMethod = new StaticMatchContext(JoinPointKind::METHOD_EXECUTION, null, $function);
+
+        self::assertFalse($this->pointcut()->matchesMethod($method, $asFunction));
+        self::assertFalse($this->pointcut()->matchesMethod($function, $asMethod));
+    }
+
+    #[Test]
+    public function matchesConstructorsAsMagicMethodName(): void
+    {
+        $class = Reflect::cls(ConstructedService::class);
+        $constructor = $class->getConstructor();
+        self::assertNotNull($constructor);
+        $ctx = Jp::ctx(ConstructedService::class, '__construct', JoinPointKind::CONSTRUCTOR_EXECUTION);
+
+        $byName = $this->pointcut(declaring: new TypePattern(ConstructedService::class), name: '__construct');
+        self::assertTrue($byName->matchesClass($class, $ctx) && $byName->matchesMethod($constructor, $ctx));
+        self::assertTrue($this->pointcut(return: null, name: '__construct')->matchesMethod($constructor, $ctx), 'the return type pattern * matches constructors');
+        self::assertFalse($this->pointcut(return: new TypePattern('void'), name: '__construct')->matchesMethod($constructor, $ctx), 'constructors declare no return type');
+        self::assertFalse($this->pointcut(name: 'build')->matchesMethod($constructor, $ctx));
+    }
+
+    #[Test]
+    public function onlyAppliesToExecutionKinds(): void
+    {
+        $method = new \ReflectionMethod(UserRepository::class, 'find');
+        $pointcut = $this->pointcut();
+
+        foreach ([JoinPointKind::METHOD_CALL, JoinPointKind::FIELD_GET, JoinPointKind::FIELD_SET, JoinPointKind::EXCEPTION_HANDLER, JoinPointKind::INITIALIZATION, JoinPointKind::CONSTRUCTOR_CALL, JoinPointKind::FUNCTION_CALL] as $kind) {
+            $ctx = Jp::ctx(UserRepository::class, 'find', $kind);
+            self::assertFalse($pointcut->matchesClass(Reflect::cls(UserRepository::class), $ctx), $kind->value);
+            self::assertFalse($pointcut->matchesMethod($method, $ctx), $kind->value);
+        }
+        self::assertFalse($pointcut->matchesMethod(null, Jp::ctx(UserRepository::class, null, JoinPointKind::FIELD_GET)));
+    }
+
+    #[Test]
+    public function isNotCallerSensitive(): void
+    {
+        self::assertFalse($this->pointcut()->isCallerSensitive());
     }
 }

@@ -11,7 +11,6 @@ use AOP\Aspect\AspectMetadata;
 use AOP\Aspect\AspectMetadataReader;
 use AOP\Aspect\IntroductionDefinition;
 use AOP\Exception\PointcutSyntaxException;
-use AOP\Pointcut\StaticMatchContext;
 use AOP\Tests\Fixtures\Aspect\CrossReferenceAspect;
 use AOP\Tests\Fixtures\Aspect\IntroductionOnlyAspect;
 use AOP\Tests\Fixtures\Aspect\NamedPointcutAspect;
@@ -20,6 +19,7 @@ use AOP\Tests\Fixtures\Introduction\Auditable;
 use AOP\Tests\Fixtures\Introduction\AuditTrail;
 use AOP\Tests\Fixtures\Introduction\BareTarget;
 use AOP\Tests\Fixtures\Introduction\FinalWorkTarget;
+use AOP\Tests\Fixtures\Jp;
 use AOP\Tests\Fixtures\Pointcut\Reflect;
 use AOP\Tests\Fixtures\Service\Greeter;
 use PHPUnit\Framework\Attributes\Test;
@@ -55,11 +55,11 @@ final class AdvisorFactoryTest extends TestCase
 
         self::assertCount(5, $advisors);
         self::assertSame(RecordingAspectA::class.'::around', $advisors[0]->id);
-        self::assertSame(AdviceType::AROUND, $advisors[0]->advice->type);
+        self::assertSame(AdviceType::AROUND, $advisors[0]->advice?->type);
         self::assertSame(1, $advisors[0]->order);
 
         $class = Reflect::cls(Greeter::class);
-        $ctx = new StaticMatchContext($class);
+        $ctx = Jp::ctx(Greeter::class, 'greet');
         self::assertTrue($advisors[0]->pointcut->matchesClass($class, $ctx));
         self::assertTrue($advisors[0]->pointcut->matchesMethod($class->getMethod('greet'), $ctx));
     }

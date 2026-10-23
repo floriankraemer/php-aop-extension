@@ -6,22 +6,38 @@ namespace AOP\JoinPoint;
 
 interface JoinPointInterface
 {
+    public function getKind(): JoinPointKind;
+
+    /**
+     * The executing object; for call kinds the caller's object. Null for static code and functions.
+     */
+    public function getThis(): ?object;
+
+    /**
+     * The object the member belongs to; null for static members and functions.
+     */
+    public function getTarget(): ?object;
+
     /**
      * @return array<int|string, mixed>
      */
     public function getArgs(): array;
 
-    /**
-     * The proxy the call was made on.
-     */
-    public function getThis(): object;
+    public function getSignature(): SignatureInterface;
+
+    public function getStaticPart(): StaticPart;
 
     /**
-     * The wrapped target instance.
+     * The code containing the join point (the caller), when known.
      */
-    public function getTarget(): object;
+    public function getEnclosingStaticPart(): ?StaticPart;
 
-    public function getSignature(): MethodSignature;
+    /**
+     * The call site, when known.
+     */
+    public function getSourceLocation(): ?SourceLocation;
 
     public function toShortString(): string;
+
+    public function toLongString(): string;
 }

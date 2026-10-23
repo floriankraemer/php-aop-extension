@@ -137,8 +137,17 @@ interface SignatureInterface {            // MethodSignature, ConstructorSignatu
     public function toLongString(): string;
 }
 
-final readonly class SourceLocation { public ?string $file; public ?int $line; public ?string $class; public ?string $function; }
-final readonly class StaticPart { public JoinPointKind $kind; public SignatureInterface $signature; public ?SourceLocation $sourceLocation; }
+final readonly class SourceLocation { public ?string $file; public ?int $line; public ?string $class; public ?string $function; }  // all ctor args optional; toString()
+final readonly class StaticPart {    // toShortString(): "method-execution(UserService::find(..))", toLongString()
+    public function __construct(public JoinPointKind $kind, public SignatureInterface $signature, public ?SourceLocation $sourceLocation = null) {}
+}
+// Signatures (all final readonly except MethodSignature, which AdviceSignature extends):
+//   MethodSignature(string $className, string $methodName, \ReflectionMethod $method)  + static fromReflection()
+//   ConstructorSignature(string $className, ?\ReflectionMethod $constructor = null)
+//   FunctionSignature(string $functionName, ?\ReflectionFunction $function = null)
+//   FieldSignature(string $className, string $propertyName, ?\ReflectionProperty $property = null)
+//   CatchClauseSignature(string $caughtType, ?string $declaringClass = null)
+//   AdviceSignature(string $className, string $methodName, \ReflectionMethod $method)   // short: adviceexecution(Aspect::method(..))
 
 interface JoinPointInterface {
     public function getKind(): JoinPointKind;
@@ -157,7 +166,9 @@ interface ProceedingJoinPointInterface extends JoinPointInterface { public funct
 
 `MethodInvocation` (kept name, generalised) is constructed as
 `new MethodInvocation(JoinPointData $data, array $args, list<MethodInterceptorInterface> $interceptors, \Closure $targetInvoker)`
-where `JoinPointData` is a readonly value object `{kind, this, target, signature, staticPart, enclosingStaticPart, sourceLocation}`.
+where `JoinPointData` is a readonly value object, constructed as
+`new JoinPointData(JoinPointKind $kind, ?object $thisObject, ?object $target, SignatureInterface $signature, StaticPart $staticPart, ?StaticPart $enclosingStaticPart = null, ?SourceLocation $sourceLocation = null)`
+(`$this` cannot be a parameter or promoted property name, hence `thisObject`).
 Advice parameters typed `StaticPart` bind the join point's static part (AspectJ `thisJoinPointStaticPart`).
 
 ```php
@@ -170,7 +181,7 @@ final class StaticMatchContext {          // the "shadow": everything known with
         public readonly ?\ReflectionFunctionAbstract $function = null,  // method/ctor/function; null for fields/handlers
         public readonly ?\ReflectionProperty $property = null,          // fields
         public readonly ?\ReflectionClass $caughtType = null,           // handlers
-        public readonly ?EnclosingContext $caller = null,               // {?ReflectionClass $class, ?ReflectionFunctionAbstract $function, ?string $file}
+        public readonly ?EnclosingContext $caller = null,               // AOP\Pointcut\EnclosingContext(?ReflectionClass $class = null, ?ReflectionFunctionAbstract $function = null, ?string $file = null)
         public readonly ?string $serviceName = null,
         public readonly array $introducedInterfaces = [],
     ) {}
@@ -183,7 +194,7 @@ interface PointcutInterface {
     public function matchesRuntime(RuntimeMatchContext $ctx): bool;
     /** @return array<string, BindingSpec> */
     public function bindings(): array;
-    public function isCallerSensitive(): bool;   // static result depends on $ctx->caller (call, withincode, within on call kinds, ...)
+    public function isCallerSensitive(): bool;   // static result depends on $ctx->caller. true: within, @within, this (all read the caller for call kinds, field accesses and handlers); false: execution, target, args, @args, @annotation, @target, service. And/Or: either child; Not: the child.
 }
 
 final class RuntimeMatchContext {
@@ -196,15 +207,23 @@ final class RuntimeMatchContext {
 }
 
 interface ControlFlowInterface {
-    /** Active join points of the current Fiber, outermost first, the current one last. */
+    /** Active join points of the current Fiber, outermost first, the current one last. @return list<JoinPointInterface> */
     public function stack(): array;
 }
+final class EmptyControlFlow implements ControlFlowInterface {}   // stack() === []
 ```
 
 Designator semantics per kind follow AspectJ: `execution` → *-execution kinds; `call` → *-call kinds; `within`/`withincode`
 look at the executing code for execution kinds and at the caller for call kinds; `this` is the executing (call kinds:
 calling) object, `target` the callee object; `args` is the argument list (field-set: the value; handler: the exception).
-A designator that cannot apply to a kind returns false (never throws).
+A designator that cannot apply to a kind returns false (never throws). In detail:
+`execution` only on the three execution kinds (a function pattern has no `Type::`, may be namespaced, `public`/`protected` and a declaring type never match
+functions; a constructor is the method name `__construct`, so `*` also matches it, and the return type pattern `*` matches it); `within`/`@within` use the
+declaring class of the executing method for execution kinds (functions are within nothing) and the caller's class (the declaring class of the caller's
+method when known) for everything else, false while the caller is unknown; `this` is false for static methods, functions, static callers and while the
+caller is unknown; `target` is false for static members, functions and handlers; `@annotation` reads the method/function/constructor or, for
+field kinds, the property; `args` on `field-get` takes no arguments, on `field-set` one (the property type constrains it), on handlers one.
+Runtime: `this()`/`target()` bindings fail the match when the object is null.
 
 ```php
 namespace AOP\Advisor;
@@ -220,9 +239,26 @@ final readonly class Advisor {   // aspect-declared OR programmatic: exactly one
     ) {}
 }
 ```
-`AdvisorChainFactory::chainFor()` uses `$interceptor` as-is when present (still wrapped in `RuntimeGuardInterceptor`
-when the pointcut is runtime). `AdvisorOrderComparator` sorts by order, then source (aspect class or id), then type
-precedence, then declaration index.
+The constructor throws `AspectDefinitionException` unless exactly one of `$advice`/`$interceptor` is set; `source()` is the aspect class or the id,
+`adviceType()` the advice's type, else `$type`, else AROUND.
+`AdvisorChainFactory::chainFor(list<Advisor>, StaticMatchContext, ControlFlowInterface = new EmptyControlFlow())` uses `$interceptor` as-is when present
+(still wrapped in `RuntimeGuardInterceptor` when the pointcut is runtime; it takes the same optional control flow). `AdvisorOrderComparator` sorts by order,
+then `source()`, then `adviceType()->precedence()`, then declaration index (0 for programmatic advisors).
+
+```php
+namespace AOP\Runtime;
+final class AopContext {   // innermost join point of the current call stack
+    public static function currentJoinPoint(): ?JoinPointInterface;
+    public static function currentObject(): ?object;            // currentJoinPoint()?->getThis()
+    public static function push(JoinPointInterface $jp): void;  // @internal
+    public static function pop(): void;                         // @internal
+}
+final class ReturnTypeCheck {
+    // `static` = $thisObject::class for instance methods, else $calledClass; `self` = $declaringClass
+    public static function accepts(?\ReflectionType $type, mixed $value, ?object $thisObject, string $declaringClass, ?string $calledClass = null): bool;
+}
+```
+Advice parameters typed `AOP\JoinPoint\StaticPart` are not pointcut bindings; `BindingPlan` fills them with `$jp->getStaticPart()`.
 
 ## 5. Weaver extension points (owned by stream D, used by F)
 

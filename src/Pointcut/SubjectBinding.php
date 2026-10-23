@@ -37,15 +37,20 @@ trait SubjectBinding
         return null !== $this->binding;
     }
 
+    public function isCallerSensitive(): bool
+    {
+        return false;
+    }
+
     public function bindings(): array
     {
         return null === $this->binding ? [] : [$this->binding->name => $this->binding];
     }
 
     /**
-     * @param \ReflectionClass<object>|\ReflectionMethod ...$reflectors
+     * @param \ReflectionClass<object>|\ReflectionFunctionAbstract|\ReflectionProperty ...$reflectors
      */
-    private function hasAttribute(\ReflectionClass|\ReflectionMethod ...$reflectors): bool
+    private function hasAttribute(\ReflectionClass|\ReflectionFunctionAbstract|\ReflectionProperty ...$reflectors): bool
     {
         foreach ($reflectors as $reflector) {
             if (null !== $this->findAttribute($reflector)) {
@@ -59,11 +64,11 @@ trait SubjectBinding
     /**
      * First attribute matching the subject type (any attribute when the subject is an untyped binding).
      *
-     * @param \ReflectionClass<object>|\ReflectionMethod $reflector
+     * @param \ReflectionClass<object>|\ReflectionFunctionAbstract|\ReflectionProperty $reflector
      *
      * @return \ReflectionAttribute<object>|null
      */
-    private function findAttribute(\ReflectionClass|\ReflectionMethod $reflector): ?\ReflectionAttribute
+    private function findAttribute(\ReflectionClass|\ReflectionFunctionAbstract|\ReflectionProperty $reflector): ?\ReflectionAttribute
     {
         foreach ($reflector->getAttributes() as $attribute) {
             if (null === $this->subjectType || $this->subjectType->matchesName($attribute->getName())) {
@@ -77,9 +82,9 @@ trait SubjectBinding
     /**
      * Binds the first matching attribute among the reflectors; false when there is none.
      *
-     * @param \ReflectionClass<object>|\ReflectionMethod ...$reflectors
+     * @param \ReflectionClass<object>|\ReflectionFunctionAbstract|\ReflectionProperty ...$reflectors
      */
-    private function bindAttribute(RuntimeMatchContext $ctx, \ReflectionClass|\ReflectionMethod ...$reflectors): bool
+    private function bindAttribute(RuntimeMatchContext $ctx, \ReflectionClass|\ReflectionFunctionAbstract|\ReflectionProperty ...$reflectors): bool
     {
         $binding = $this->binding;
         foreach ($reflectors as $reflector) {

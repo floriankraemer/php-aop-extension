@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace AOP\Tests\Fixtures\Targets;
 
-interface ContextProbeInterface
+class KindShapesChild extends KindShapes
 {
-    public function probe(): void;
 }

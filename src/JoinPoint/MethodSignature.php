@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace AOP\JoinPoint;
 
-final readonly class MethodSignature
+readonly class MethodSignature implements SignatureInterface
 {
     public function __construct(
         public string $className,
@@ -18,15 +18,22 @@ final readonly class MethodSignature
         return new self($method->getDeclaringClass()->getName(), $method->getName(), $method);
     }
 
+    public function getName(): string
+    {
+        return $this->methodName;
+    }
+
+    public function getDeclaringTypeName(): ?string
+    {
+        return $this->className;
+    }
+
     /**
      * Example: UserService::findUser(..).
      */
     public function toShortString(): string
     {
-        $position = strrpos($this->className, '\\');
-        $shortName = false === $position ? $this->className : substr($this->className, $position + 1);
-
-        return sprintf('%s::%s(..)', $shortName, $this->methodName);
+        return sprintf('%s::%s(..)', SignatureNames::shortName($this->className), $this->methodName);
     }
 
     /**
@@ -34,16 +41,6 @@ final readonly class MethodSignature
      */
     public function toLongString(): string
     {
-        $parameters = array_map(
-            static function (\ReflectionParameter $parameter): string {
-                $type = $parameter->getType();
-                $typeName = null === $type ? 'mixed' : (string) $type;
-
-                return ($parameter->isVariadic() ? '...' : '').$typeName;
-            },
-            $this->method->getParameters(),
-        );
-
-        return sprintf('%s::%s(%s)', $this->className, $this->methodName, implode(', ', $parameters));
+        return sprintf('%s::%s(%s)', $this->className, $this->methodName, SignatureNames::parameterList($this->method->getParameters()));
     }
 }

@@ -11,7 +11,7 @@ namespace AOP\Runtime;
 interface EngineBridgeInterface
 {
     /**
-     * @param callable(array<string, mixed>): int                                              $matcher
+     * @param callable(array<string, mixed>): int                                                $matcher
      * @param callable(array<string, mixed>, ?object, array<int|string, mixed>, callable): mixed $dispatcher
      */
     public function register(callable $matcher, callable $dispatcher): void;

@@ -37,6 +37,17 @@ final class AdvisorRegistryTest extends TestCase
         self::assertSame([], $r->forAspect('Nope'));
     }
 
+    public function testProgrammaticAdvisorsAreSortedButBelongToNoAspect(): void
+    {
+        $a = AdvisorOrderComparatorTest::advisor(...);
+        $programmatic = new \AOP\Advisor\Advisor('prog', null, 0, new \AOP\Tests\Fixtures\Pointcut\StubPointcut(), new \AOP\Tests\Fixtures\Pointcut\PassThroughInterceptor());
+        $r = new AdvisorRegistry([$a('A', 'm', AdviceType::BEFORE, 1, 0), $programmatic]);
+
+        self::assertSame(['prog', 'A::m'], array_map(static fn ($x) => $x->id, $r->all()));
+        self::assertSame(['A::m'], array_map(static fn ($x) => $x->id, $r->forAspect('A')));
+        self::assertSame([], $r->forAspect('prog'));
+    }
+
     /**
      * @param class-string $interface
      */

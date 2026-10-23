@@ -8,6 +8,7 @@ use AOP\Advice\AdviceType;
 use AOP\Aspect\AspectInstanceResolverInterface;
 use AOP\Binding\BindingPlan;
 use AOP\Binding\ParameterBinder;
+use AOP\Exception\AspectDefinitionException;
 use AOP\Interceptor\AfterAdviceInterceptor;
 use AOP\Interceptor\AfterReturningAdviceInterceptor;
 use AOP\Interceptor\AfterThrowingAdviceInterceptor;
@@ -15,6 +16,8 @@ use AOP\Interceptor\AroundAdviceInterceptor;
 use AOP\Interceptor\BeforeAdviceInterceptor;
 use AOP\Interceptor\MethodInterceptorInterface;
 use AOP\Interceptor\RuntimeGuardInterceptor;
+use AOP\Pointcut\ControlFlowInterface;
+use AOP\Pointcut\EmptyControlFlow;
 use AOP\Pointcut\StaticMatchContext;
 
 final class AdvisorChainFactory
@@ -30,11 +33,11 @@ final class AdvisorChainFactory
     }
 
     /**
-     * @param \ReflectionClass<object> $class
+     * @param \ReflectionClass<object>|null $class
      *
      * @return list<Advisor>
      */
-    public function matchedAdvisors(\ReflectionClass $class, \ReflectionMethod $method, StaticMatchContext $ctx): array
+    public function matchedAdvisors(?\ReflectionClass $class, ?\ReflectionFunctionAbstract $method, StaticMatchContext $ctx): array
     {
         return array_values(array_filter(
             $this->registry->all(),
@@ -43,28 +46,28 @@ final class AdvisorChainFactory
     }
 
     /**
-     * @param \ReflectionClass<object> $class
+     * @param \ReflectionClass<object>|null $class
      *
      * @return list<MethodInterceptorInterface>
      */
-    public function chain(\ReflectionClass $class, \ReflectionMethod $method, StaticMatchContext $ctx): array
+    public function chain(?\ReflectionClass $class, ?\ReflectionFunctionAbstract $method, StaticMatchContext $ctx, ControlFlowInterface $controlFlow = new EmptyControlFlow()): array
     {
-        return $this->chainFor($this->matchedAdvisors($class, $method, $ctx), $ctx);
+        return $this->chainFor($this->matchedAdvisors($class, $method, $ctx), $ctx, $controlFlow);
     }
 
     /**
-     * Interceptors for advisors already matched statically, in that order.
+     * Interceptors for advisors already matched statically, in that order. A programmatic interceptor is used as is.
      *
      * @param list<Advisor> $advisors
      *
      * @return list<MethodInterceptorInterface>
      */
-    public function chainFor(array $advisors, StaticMatchContext $ctx): array
+    public function chainFor(array $advisors, StaticMatchContext $ctx, ControlFlowInterface $controlFlow = new EmptyControlFlow()): array
     {
         $chain = [];
         foreach ($advisors as $advisor) {
             $interceptor = $this->interceptor($advisor);
-            $chain[] = $advisor->pointcut->isRuntime() ? new RuntimeGuardInterceptor($advisor->pointcut, $interceptor, $ctx) : $interceptor;
+            $chain[] = $advisor->pointcut->isRuntime() ? new RuntimeGuardInterceptor($advisor->pointcut, $interceptor, $ctx, $controlFlow) : $interceptor;
         }
 
         return $chain;
@@ -73,6 +76,9 @@ final class AdvisorChainFactory
     private function interceptor(Advisor $advisor): MethodInterceptorInterface
     {
         $advice = $advisor->advice;
+        if (null === $advice) {
+            return $advisor->interceptor ?? throw new AspectDefinitionException(sprintf('Advisor "%s" has neither advice nor interceptor.', $advisor->id));
+        }
         $plan = $this->plans[$advisor->id] ??= $this->binder->plan(new \ReflectionMethod($advice->aspectClass, $advice->methodName), $advice, $advisor->pointcut);
         $args = [$this->aspects, $advice->aspectClass, $advice->methodName, $plan, $advice->scope];
 
