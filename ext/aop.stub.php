@@ -64,3 +64,9 @@ function intercept(): bool {}
 
 /** The advice result for the enclosing function, after intercept() returned true. */
 function result(): mixed {}
+
+/**
+ * Woven catch blocks (aop.interception=woven) call it with the caught exception and the classes of the catch
+ * clause; it dispatches the exception-handler join point.
+ */
+function caught(\Throwable $exception, array $classes): void {}

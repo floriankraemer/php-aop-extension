@@ -428,7 +428,8 @@ static void aop_execute_internal(zend_execute_data *ex, zval *return_value)
 	zif_handler handler = ex->func->internal_function.handler;
 
 	/* The woven backend's own calls: one pointer comparison instead of the join point checks. */
-	if (handler == ZEND_FN(AOP_Internal_intercept) || handler == ZEND_FN(AOP_Internal_result)) {
+	if (handler == ZEND_FN(AOP_Internal_intercept) || handler == ZEND_FN(AOP_Internal_result)
+			|| handler == ZEND_FN(AOP_Internal_caught)) {
 		aop_call_internal(ex, return_value);
 		return;
 	}
