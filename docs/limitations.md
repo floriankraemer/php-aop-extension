@@ -43,11 +43,28 @@ Warning: JIT is incompatible with third party extensions that override zend_exec
 Under `woven`, `Engine::fieldInterceptionAvailable()` returns `false`, and `Weaver::enable()` throws an `AspectDefinitionException` for an advisor that can match `get()`, `set()` or `initialization()`.
 Every `initialization(...)` pointcut is rejected, also one for a class with a constructor, because `enable()` cannot tell classes with and without a constructor apart.
 For a class with a constructor, use `execution(* App\Connection::__construct(..))`.
-The exception names the first such advisor, and `enable()` enables nothing:
+The exception names the first such advisor, and `enable()` enables nothing.
+Without the extension, or with `aop.enable=0`, `enable()` reports that instead (the extension is not loaded, or interception is disabled); the hook hint appears only when the woven backend is active.
+The message:
 
 ```text
 AOP\Exception\AspectDefinitionException: Advisor "A::b" targets field-get, field-set or initialization join points, which the active interception backend cannot intercept. Set aop.interception=hook (or aop.interception=auto without the opcache JIT) in php.ini.
 ```
+
+The check looks at the pointcut, not at the code it will meet, so it has these edges:
+
+- `@annotation(Attr)` is a field pointcut when `Attr` is an attribute that can only target properties.
+  An attribute that can also target methods, functions or classes (`#[Attribute]` targets everything) is accepted, and under `woven` it does not see annotated properties.
+  A wildcard, `+` or untyped subject is accepted for the same reason.
+- `true`, `within()`, `this()` and `target()` are accepted.
+  Under `woven` they simply do not see field join points.
+  Rejecting them would make every catch-all advisor unusable under the default backend.
+- `weaver->configurable()` is accepted.
+  A class with a constructor is configured through its constructor execution, which `woven` serves.
+  A constructor-less `#[Configurable]` class needs `initialization`, and the woven backend never asks about the creation of such a class, so `enable()` cannot know it exists.
+  Instead the pointcut throws `AspectDefinitionException` when the engine asks about any other join point of that class, such as a method execution; the engine turns this into a warning naming the class, and the call is not intercepted.
+  A constructor-less class without methods is not noticed.
+  Give such a class a constructor, or use `hook`.
 
 The JIT cannot honour the per-object property handlers that field interception swaps in, which is why fields cannot work under it.
 If you need these pointcuts, set `aop.interception=hook` and run without the JIT, or `auto` if the JIT is off in that environment.
@@ -63,15 +80,21 @@ Each one was checked by running code, unless the text says otherwise.
 - Advice on a generator function runs at the first resume, not when the function is called.
   Proceeding does not run the advice a second time.
 - Exception backtraces and `debug_backtrace()` contain a frame `AOP\Internal\intercept()` (or `AOP\Internal\caught()` for `handler()` advice) between the advised function and the dispatcher.
-- A constructor with promoted properties: the properties are reset to their defaults before the dispatcher runs, so that proceeding can run the promotion again.
-  This also works for `readonly` properties.
+- A constructor with promoted properties: the extension moves the promotion assignments behind the prologue when it compiles the constructor.
+  Advice that skips the constructor or runs it again sees the same object as under `hook`: `readonly` properties are not touched twice, earlier values stay, and `set` hooks (8.4+) run once, when the original runs.
+  Only code that runs between the parameter list and the prologue differs, which is nothing but the parameter coercion.
 - Default values that are expressions with side effects (`new Foo` as a parameter default) run twice when advice proceeds: once when the function receives its parameters, and again when `proceed()` calls the function.
   Under `hook` they run once.
 - When `handler()` advice throws, the caught exception stays alive until the replacing exception is freed, because it appears in that exception's trace arguments (`AOP\Internal\caught(Object(RuntimeException), Array)`).
 - `aop.disable_inlining` has no effect: the prologue makes a function body more than `return <constant>;`, so opcache does not inline it.
-- Files that a process in another mode compiled into a shared `opcache.file_cache` keep that process's weaving.
-  Clear the file cache after you change `aop.interception`.
-  No test covers this one.
+- `opcache.file_cache` and the shared memory cache are keyed by opcache's system id, to which the extension adds `aop.enable`, `aop.interception`, `aop.disable_inlining`, the SAPI and the raw `opcache.enable`, `opcache.enable_cli`, `opcache.jit` and `opcache.jit_buffer_size` settings.
+  Processes with different backends therefore never load each other's bytecode: switching `aop.interception` or `aop.enable` recompiles, and the old cache directory stays unused (`326-file-cache-system-id.phpt`).
+  Settings that are spelled differently but resolve to the same backend (for example `opcache.jit=tracing` and `function`) also get separate cache directories.
+  Preloaded files are compiled in the running process, so they always match its backend.
+- `dl()` loads the extension after startup.
+  The backend is installed at once, and `auto` resolves against the JIT configuration at that time.
+  The system id is final by then, so a process that loaded the extension with `dl()` shares its cache with processes that have no aop: do not combine `dl()` with a shared `opcache.file_cache`.
+  Only code compiled after `dl()` is intercepted completely: functions compiled before have no prologue, and under `hook` a call that the compiler already emitted as a direct call (`DO_UCALL`) skips `zend_execute_ex()`.
 
 ### Opcache inlining
 
@@ -83,9 +106,8 @@ The setting `aop.disable_inlining` (default `1`, see [building.md](building.md#c
 With `aop.disable_inlining=0`, opcache may inline such a call at compile time, and the advice does not run.
 The extension's tests show both settings: `ext/tests/025-opcache-inlining.phpt` (default: the call is advised) and `ext/tests/200-opcache-inlining-allowed.phpt` (allowed: the call is inlined).
 
-Two cases remain with the default setting:
+One case remains with the default setting:
 
-- Scripts compiled by a process without the extension, and cached in a shared `opcache.file_cache`, keep their inlined calls.
 - Internal functions compiled to dedicated opcodes are not affected by the setting (see the next section).
 
 ### Compiler-specialised internal functions
@@ -212,6 +234,8 @@ Known limitation: a property access site that first runs on an uncovered object 
 ### Initialization
 
 Hook backend only: under `woven`, `Weaver::enable()` rejects every `initialization(...)` pointcut, also for classes with a constructor.
+`enable()` does not know which classes have a constructor, and the woven backend never reports the creation of a constructor-less class, so there is no later point at which a mismatch could be reported either.
+Rejecting early is the only way to avoid advice that silently never runs.
 
 - `initialization()` matches `new` of a class without a constructor.
   Abstract classes, interfaces and enums are not covered: the original code raises its usual error.

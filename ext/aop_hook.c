@@ -211,48 +211,10 @@ static void aop_collect_internal_args(zend_execute_data *ex, zval *args)
 }
 
 /*
- * A constructor's promoted parameters are assigned to their properties by opcodes right after the RECVs,
- * i.e. before the prologue runs. The original, run again by OriginalCall, would assign them a second time
- * (an Error for readonly ones), and a dispatcher that skips the original must leave the object as the
- * hook backend does: with the constructor not run. So put them back to their declared defaults
- * (uninitialized for typed ones) before dispatching.
- */
-static void aop_reset_promoted_properties(zend_execute_data *ex)
-{
-	zend_function *func = ex->func;
-	zend_class_entry *scope = func->common.scope;
-	zend_object *obj;
-	uint32_t i;
-
-	if (!scope || !(func->common.fn_flags & ZEND_ACC_CTOR) || Z_TYPE(ex->This) != IS_OBJECT) {
-		return;
-	}
-	obj = Z_OBJ(ex->This);
-	for (i = 0; i < func->common.num_args; i++) {
-		zend_property_info *info = zend_hash_find_ptr(&scope->properties_info, func->op_array.arg_info[i].name);
-		zval *slot;
-
-		if (!info || !(info->flags & ZEND_ACC_PROMOTED) || info->ce != scope) {
-			continue;
-		}
-		slot = OBJ_PROP(obj, info->offset);
-		if (Z_TYPE_P(slot) == IS_UNDEF) {
-			continue;
-		}
-		if (Z_ISREF_P(slot) && ZEND_REF_HAS_TYPE_SOURCES(Z_REF_P(slot))) {
-			ZEND_REF_DEL_TYPE_SOURCE(Z_REF_P(slot), info);
-		}
-		zval_ptr_dtor(slot);
-		ZVAL_COPY_PROP(slot, &obj->ce->default_properties_table[OBJ_PROP_TO_NUM(info->offset)]);
-	}
-}
-
-/*
  * Arguments of a woven frame, read by the prologue after the RECV opcodes ran: the declared parameters
  * hold the coerced values (and the defaults of omitted ones, which are left out here), extra positional
  * arguments sit behind the CVs and TMPs as before. A variadic parameter is already an array: its string keys
  * are the extra named arguments (RECV_VARIADIC moved them there), so extra_named_params is not read again.
- * Called once the call is going to be advised, which is why it also undoes the constructor promotion.
  */
 static void aop_collect_woven_args(zend_execute_data *ex, zval *args)
 {
@@ -288,7 +250,6 @@ static void aop_collect_woven_args(zend_execute_data *ex, zval *args)
 			zend_hash_next_index_insert(Z_ARRVAL_P(args), extra);
 		}
 	}
-	aop_reset_promoted_properties(ex);
 }
 /* }}} */
 
@@ -585,7 +546,65 @@ void aop_woven_rshutdown(void)
 }
 /* }}} */
 
-/* {{{ compile time: opcache inlining (aop.disable_inlining) */
+/* {{{ compile time: op_array handler */
+/*
+ * Woven constructors with promoted parameters. The compiler emits RECV..., then one ASSIGN_OBJ (+ OP_DATA) per
+ * promoted parameter, then the body, which starts with the prologue. Advice that skips the constructor, or runs
+ * it again through OriginalCall, must not see the promotion done (a readonly property cannot be assigned twice,
+ * a set hook would run twice), so the assignments move behind the prologue:
+ *
+ *   before: RECV* ASSIGN_OBJ* [INIT_FCALL intercept, DO_FCALL, JMPZ end, ...] end: body
+ *   after:  RECV* [INIT_FCALL intercept, DO_FCALL, JMPZ assigns, ...] assigns: ASSIGN_OBJ* body
+ *
+ * pass_two() has not made jump targets relative yet; the prologue's JMPZ is the only jump into or out of the
+ * moved range, and the body starts at the same index as before.
+ */
+static void aop_hoist_prologue(zend_op_array *op_array)
+{
+	zend_op *ops = op_array->opcodes;
+	uint32_t first_assign, prologue, end, jmpz, i, assigns_len, prologue_len;
+	zend_op *tmp;
+
+	for (first_assign = 0; first_assign < op_array->last && (ops[first_assign].opcode == ZEND_RECV
+			|| ops[first_assign].opcode == ZEND_RECV_INIT || ops[first_assign].opcode == ZEND_RECV_VARIADIC); first_assign++) {}
+	for (prologue = first_assign; prologue + 1 < op_array->last
+			&& (ops[prologue].opcode == ZEND_ASSIGN_OBJ || ops[prologue].opcode == ZEND_ASSIGN_OBJ_REF)
+			&& ops[prologue + 1].opcode == ZEND_OP_DATA; prologue += 2) {}
+	if (prologue == first_assign || prologue >= op_array->last) {
+		return;
+	}
+	if ((ops[prologue].opcode != ZEND_INIT_FCALL && ops[prologue].opcode != ZEND_INIT_FCALL_BY_NAME
+			&& ops[prologue].opcode != ZEND_INIT_NS_FCALL_BY_NAME)
+			|| ops[prologue].op2_type != IS_CONST
+			|| Z_TYPE_P(CT_CONSTANT_EX(op_array, ops[prologue].op2.constant)) != IS_STRING
+			|| !zend_string_equals_literal_ci(Z_STR_P(CT_CONSTANT_EX(op_array, ops[prologue].op2.constant)),
+				"AOP\\Internal\\intercept")) {
+		return;
+	}
+	for (jmpz = prologue; jmpz < op_array->last && jmpz < prologue + 8 && ops[jmpz].opcode != ZEND_JMPZ; jmpz++) {}
+	if (jmpz >= op_array->last || ops[jmpz].opcode != ZEND_JMPZ) {
+		return;
+	}
+	end = ops[jmpz].op2.opline_num;
+	if (end <= jmpz || end > op_array->last) {
+		return;
+	}
+	for (i = prologue; i < end; i++) {
+		/* A jump out of the prologue other than the guard, or a return type check, would need its own fix-up. */
+		if (i != jmpz && (ops[i].opcode == ZEND_JMP || ops[i].opcode == ZEND_JMPZ || ops[i].opcode == ZEND_JMPNZ)) {
+			return;
+		}
+	}
+	assigns_len = prologue - first_assign;
+	prologue_len = end - prologue;
+	tmp = safe_emalloc(assigns_len, sizeof(zend_op), 0);
+	memcpy(tmp, ops + first_assign, assigns_len * sizeof(zend_op));
+	memmove(ops + first_assign, ops + prologue, prologue_len * sizeof(zend_op));
+	memcpy(ops + first_assign + prologue_len, tmp, assigns_len * sizeof(zend_op));
+	efree(tmp);
+	ops[jmpz - assigns_len].op2.opline_num = first_assign + prologue_len;
+}
+
 /*
  * Called by pass_two() for every op_array compiled with ZEND_COMPILE_HANDLE_OP_ARRAY, which is the default
  * and which opcache sets for the scripts it caches; it runs before opcache's optimizer. Every named
@@ -595,7 +614,11 @@ void aop_woven_rshutdown(void)
  */
 static void aop_op_array_handler(zend_op_array *op_array)
 {
-	if (op_array->function_name
+	if (aop_interception_mode == AOP_MODE_WOVEN && op_array->function_name) {
+		aop_hoist_prologue(op_array);
+	}
+	if (AOP_G(disable_inlining)
+			&& op_array->function_name
 			&& !(op_array->fn_flags & ZEND_ACC_CLOSURE)
 			&& !aop_is_property_hook((zend_function *) op_array)) {
 		op_array->fn_flags |= AOP_ACC_NO_INLINE;
@@ -670,7 +693,7 @@ static aop_mode_t aop_resolve_mode(void)
  * JIT off for an overridden zend_execute_ex or any user opcode handler. No script is compiled or run between
  * MINIT and this callback, so nothing is missed by installing late.
  */
-static void aop_install_backend(void)
+void aop_install_backend(void)
 {
 	aop_interception_mode = aop_resolve_mode();
 	aop_hook_install(aop_interception_mode == AOP_MODE_HOOK);
