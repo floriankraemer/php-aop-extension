@@ -33,9 +33,9 @@ var_dump($fiber->start());
 $fiber->resume('value');
 var_dump($fiber->getReturn());
 ?>
---EXPECT--
-{closure} <- Svc->work <- outer
-{closure} <- Svc->work <- {closure} <- Fiber->start
+--EXPECTF--
+{closure%S} <- Svc->work <- outer
+{closure%S} <- Svc->work <- {closure%S} <- Fiber->start
 in fiber
 string(9) "suspended"
 string(18) "resumed with value"

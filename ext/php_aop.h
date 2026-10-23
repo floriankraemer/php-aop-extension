@@ -19,6 +19,8 @@ ZEND_TSRMLS_CACHE_EXTERN()
 ZEND_BEGIN_MODULE_GLOBALS(aop)
 	/* INI aop.enable (PHP_INI_SYSTEM). */
 	bool enable;
+	/* INI aop.disable_inlining (PHP_INI_SYSTEM): keep opcache from inlining user functions. */
+	bool disable_inlining;
 	/* A matcher/dispatcher pair is registered. */
 	bool registered;
 	/* > 0 while the matcher runs: every call passes through (re-entrancy guard). */
@@ -72,5 +74,8 @@ void aop_dispatch(zend_execute_data *ex, zend_function *func, zend_class_entry *
 /* aop_hook.c: the zend_execute_ex / zend_execute_internal hooks (engine-version specific code) */
 void aop_hook_install(void);
 void aop_hook_uninstall(void);
+void aop_compile_hooks_install(void);
+void aop_jit_notice_install(void);
+bool aop_jit_requested(void);
 
 #endif /* PHP_AOP_H */

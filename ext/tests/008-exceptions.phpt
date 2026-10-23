@@ -99,7 +99,7 @@ dispatcher saw: boom
 caller saw: boom
 thrown in: Svc::fail
 caller saw: from dispatcher
-trace: {closure} <- Svc->ok
+trace: {closure%S} <- Svc->ok
 
 Warning: AOP\Engine: the matcher threw LogicException (matcher bug) for Svc::broken(); the call is not intercepted in %s on line %d
 string(29) "broken matcher, original runs"
