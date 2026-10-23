@@ -99,7 +99,7 @@ Deep recursion reaches the stack limit sooner than without the extension.
 
 The package supports PHP 8.3, 8.4 and 8.5, the versions in the release matrix.
 [building.md](building.md) describes the Docker matrix that builds and tests them.
-The phpt suite passes, plain and with opcache, on PHP 8.3.6/8.3.36, 8.4.27 and 8.5.12, NTS and ZTS (glibc, x86_64), with no compiler warnings. Valgrind is clean for the full suite on 8.3 and for the method/function engine on 8.4 and 8.5.
+The phpt suite passes, plain and with opcache, on PHP 8.3.6, 8.4.27 and 8.5.12, NTS and ZTS (glibc, x86_64), with no compiler warnings. Valgrind is clean for the full suite on 8.3 and for the method/function engine on 8.4 and 8.5.
 The phpunit suites and the examples ran on 8.3; musl, arm64, macOS and Windows are built and tested by the release workflow.
 
 ## Not applicable in PHP
