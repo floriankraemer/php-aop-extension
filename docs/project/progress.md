@@ -20,7 +20,7 @@ Work happens on branch `initial-implementation`; each stream works in its own lo
 | K | Fix stream I's findings (ControlFlowPointcut, ctor matching, modifiers, regexp, `||` bindings, naming) | sonnet | done, merged |
 | L | Fix field interception on PHP 8.4/8.5 (4 phpt fail there, `const` warnings); hooked properties, lazy objects | opus | done, merged |
 | M | Docs for fields/handler/initialization/introductions, INI settings, CHANGELOG, examples 27–30 | haiku | done, merged |
-| J | Final integration and verification | coordinator | pending |
+| J | Final integration and verification | coordinator | done |
 
 ## Log
 
@@ -63,11 +63,11 @@ Work happens on branch `initial-implementation`; each stream works in its own lo
 - Merged stream L (`abbc72f`): the 4 failures were 8.4 message/closure-name changes and a test predating fields; fixed `const` (8.5 `EG(fake_scope)`) and `-Warray-bounds` warnings; 8.4+ readonly/asymmetric-visibility checks; hooked properties (one join point around the hooked access, backing-value accesses inside hooks are not join points); lazy objects (advice does not initialise; clones); 8.5 `clone with`. New tests 210–212.
 - Re-ran the Docker matrix on the merged branch: 8.4.27 NTS/ZTS 47 plain / 53 opcache, 8.5.12 NTS/ZTS 54 / 55, 0 failures, 0 warnings, packaged with SHA256SUMS. On 8.3: phpt 40 / 46, e2e 25/25, 30 examples match. Docs updated: 8.4/8.5 no longer "in progress".
 
+- Final checks: `composer validate`, actionlint, semver tests, phpstan max, cs, unit 1346, e2e 25/25, phpt 40/46 (8.3), Docker matrix 8.4/8.5 NTS/ZTS green, 30 examples match. Removed the unused `tools/coverage-check.php` copied from phauthentic/aop.
+
 ## Still to do
-- Opcache inlining with `aop.disable_inlining=0` behaved inconsistently in manual runs (stream M); phpt 200 passes. Investigate.
-- Document the INI settings (`aop.enable`, `aop.disable_inlining`, `aop.weave_autoload`) in README/docs.
-- Patch the docs: the experimental features (fields, handler, introductions, ctor-less initialization) now work; add examples.
+- First CI run on GitHub: musl, arm64, macOS, Windows and phpunit inside containers could not run in the sandbox (no container network, no macOS/Windows).
 - Before the first tag: move the CHANGELOG `Unreleased` entries into a version section (release notes come from it).
-- E2E: re-run after G (ctor-less initialization, fields, handlers, introductions end to end through the Weaver); valgrind run of the phpunit e2e suite.
-- CI green on all cells after the push (musl, arm64, macOS, Windows, phpunit in containers were not verifiable in the sandbox).
-- Docs and examples (I), final review (J).
+- Opcache inlining with `aop.disable_inlining=0` behaved inconsistently in manual runs (phpt 200 passes); only matters when the default protection is switched off.
+- Valgrind of the field code on 8.4/8.5 (the images have no valgrind).
+- Not covered by design (documented in `docs/limitations.md`): JIT while aop is active, compiler-specialised internals (`strlen`, `count`, …), frame-inspecting internals (`compact`, `extract`), by-ref returns, closures, isset/unset/static properties, objects not created with `new`.
