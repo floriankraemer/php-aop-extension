@@ -21,6 +21,8 @@ ZEND_BEGIN_MODULE_GLOBALS(aop)
 	bool enable;
 	/* INI aop.disable_inlining (PHP_INI_SYSTEM): keep opcache from inlining user functions. */
 	bool disable_inlining;
+	/* INI aop.weave_autoload (PHP_INI_ALL): intercept calls made while a class is being autoloaded. */
+	bool weave_autoload;
 	/* A matcher/dispatcher pair is registered. */
 	bool registered;
 	/* > 0 while the matcher runs: every call passes through (re-entrancy guard). */

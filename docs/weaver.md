@@ -135,7 +135,7 @@ $weaver->exclude('Demo\Weaving\Catalog');
 ```
 
 An include rule also keeps a broad pattern away from internal functions.
-A pattern such as `execution(* *(..))` without an include rule can crash the process (see [limitations.md](limitations.md#known-issues)).
+Calls made during class autoloading are never woven (see [limitations.md](limitations.md#class-loading-is-not-woven)), but a pattern such as `execution(* *(..))` still advises every function your code calls.
 Restrict such patterns to your own namespaces.
 
 ## Freezing
