@@ -45,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Under `woven`, advice sees arguments after parameter coercion, advice on a generator function runs at the first resume, and backtraces contain `AOP\Internal\intercept` and `AOP\Internal\caught` frames.
   See [docs/limitations.md](docs/limitations.md#woven-differences).
 - With `aop.interception=hook`, the startup notice for a configured JIT now reads "aop: the opcache JIT is disabled because aop.interception=hook overrides zend_execute_ex(); set aop.interception=woven to keep the JIT".
+- `Weaver::enable()` rejects `@annotation(Attr)` when `Attr` can only target properties.
+  `true`, `within()`, `this()`, `target()` and `configurable()` are accepted under `woven`; a constructor-less `#[Configurable]` class raises an `AspectDefinitionException` when the engine first asks about one of its methods.
+  Without the extension or with `aop.enable=0`, `enable()` keeps reporting that instead of the hook hint.
 - The examples 04, 27 and 29 need `aop.interception=hook`.
 
 ### Fixed

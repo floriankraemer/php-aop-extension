@@ -284,6 +284,7 @@ A `parent::__construct()` call is not outermost, so it does not match.
 For a class without a constructor, the designator matches the creation of the object (the `initialization` join point).
 
 This designator needs `aop.interception=hook`.
+`@annotation(Attr)` on a property is a field pointcut too: it is rejected the same way when `Attr` can only target properties.
 Under the default `woven` backend, `Weaver::enable()` throws `AspectDefinitionException` for every `initialization(...)` pointcut, also for a class with a constructor.
 Use `execution(* App\Connection::__construct(..))` there.
 See [limitations](limitations.md#backends).

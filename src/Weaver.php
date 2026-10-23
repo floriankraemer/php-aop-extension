@@ -147,7 +147,7 @@ final class Weaver
      */
     public function configurable(callable $configurer): void
     {
-        $this->addAdvisor((new ConfigurableAspect($configurer))->toAdvisor());
+        $this->addAdvisor((new ConfigurableAspect($configurer))->toAdvisor(fieldInterceptionAvailable: $this->engine->fieldInterceptionAvailable(...)));
     }
 
     /**
@@ -441,15 +441,14 @@ final class Weaver
      */
     private function assertFieldInterceptionAvailableWhereNeeded(): void
     {
-        if ($this->engine->fieldInterceptionAvailable()) {
+        // Without an engine or with aop.enable=0 the "no field interception" answer is not about the backend:
+        // register() then fails with the matching message.
+        if (!$this->engine->interceptionActive() || $this->engine->fieldInterceptionAvailable()) {
             return;
         }
         foreach ($this->allAdvisors() as $advisor) {
             if (FieldInterception::requiredBy($advisor->pointcut)) {
-                throw new AspectDefinitionException(sprintf(
-                    'Advisor "%s" targets field-get, field-set or initialization join points, which the active interception backend cannot intercept. Set aop.interception=hook (or aop.interception=auto without the opcache JIT) in php.ini.',
-                    $advisor->id,
-                ));
+                throw new AspectDefinitionException(sprintf('Advisor "%s" targets field-get, field-set or initialization join points, which the active interception backend (woven) cannot intercept. Set aop.interception=hook (or aop.interception=auto without the opcache JIT) in php.ini.', $advisor->id));
             }
         }
     }

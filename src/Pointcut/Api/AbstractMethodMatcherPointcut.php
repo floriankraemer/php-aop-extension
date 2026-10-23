@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace AOP\Pointcut\Api;
 
 use AOP\JoinPoint\JoinPointKind;
-use AOP\Pointcut\FieldInterception;
 use AOP\Pointcut\FieldInterceptionAwareInterface;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
