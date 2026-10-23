@@ -20,4 +20,10 @@ interface EngineBridgeInterface
 
     /** Forgets every cached matcher decision. */
     public function reset(): void;
+
+    /**
+     * False when the engine cannot intercept field reads/writes and `initialization` of classes without constructor
+     * (`aop.interception=woven`, the default), or when there is no engine.
+     */
+    public function fieldInterceptionAvailable(): bool;
 }

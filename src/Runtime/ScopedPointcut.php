@@ -7,6 +7,8 @@ namespace AOP\Runtime;
 use AOP\Aspect\AspectScope;
 use AOP\Pointcut\ControlFlowAwareInterface;
 use AOP\Pointcut\ControlFlowPointcuts;
+use AOP\Pointcut\FieldInterception;
+use AOP\Pointcut\FieldInterceptionAwareInterface;
 use AOP\Pointcut\PointcutInterface;
 use AOP\Pointcut\RuntimeMatchContext;
 use AOP\Pointcut\StaticMatchContext;
@@ -18,7 +20,7 @@ use AOP\Pointcut\StaticMatchContext;
  *
  * @internal
  */
-final class ScopedPointcut implements PointcutInterface, ControlFlowAwareInterface
+final class ScopedPointcut implements PointcutInterface, ControlFlowAwareInterface, FieldInterceptionAwareInterface
 {
     /**
      * @param class-string $aspectClass
@@ -84,5 +86,10 @@ final class ScopedPointcut implements PointcutInterface, ControlFlowAwareInterfa
     private function inFlow(): bool
     {
         return AspectScope::PER_CFLOW === $this->scope || AspectScope::PER_CFLOW_BELOW === $this->scope;
+    }
+
+    public function requiresFieldInterception(): bool
+    {
+        return FieldInterception::requiredBy($this->inner);
     }
 }

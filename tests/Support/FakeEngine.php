@@ -32,6 +32,8 @@ final class FakeEngine implements EngineBridgeInterface
 
     public int $resets = 0;
 
+    public bool $fieldInterception = true;
+
     public function register(callable $matcher, callable $dispatcher): void
     {
         $this->matcher = $matcher;
@@ -50,6 +52,11 @@ final class FakeEngine implements EngineBridgeInterface
     {
         $this->decisions = [];
         ++$this->resets;
+    }
+
+    public function fieldInterceptionAvailable(): bool
+    {
+        return $this->fieldInterception;
     }
 
     public function isRegistered(): bool

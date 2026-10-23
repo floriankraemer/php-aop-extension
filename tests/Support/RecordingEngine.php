@@ -33,6 +33,11 @@ final class RecordingEngine implements IntroducingEngineInterface
         $this->fake->reset();
     }
 
+    public function fieldInterceptionAvailable(): bool
+    {
+        return $this->fake->fieldInterceptionAvailable();
+    }
+
     public function setIntroductions(array $rules): void
     {
         $this->introductions[] = $rules;
