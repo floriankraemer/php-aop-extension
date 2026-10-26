@@ -62,7 +62,7 @@ final class PoolingTargetSource implements TargetSourceInterface
             $target = TargetFactory::create($this->factory, $this->targetClass);
             ++$this->created;
         }
-        $this->active->attach($target);
+        $this->active->offsetSet($target, null);
         ++$this->borrowed;
 
         return $target;
@@ -70,10 +70,10 @@ final class PoolingTargetSource implements TargetSourceInterface
 
     public function releaseTarget(object $target): void
     {
-        if (!$this->active->contains($target)) {
+        if (!$this->active->offsetExists($target)) {
             throw new TargetSourceException(sprintf('Cannot release %s: it is not borrowed from this pool.', $target::class));
         }
-        $this->active->detach($target);
+        $this->active->offsetUnset($target);
         $this->idle[] = $target;
         ++$this->released;
     }
