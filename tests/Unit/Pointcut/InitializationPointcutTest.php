@@ -136,4 +136,13 @@ final class InitializationPointcutTest extends TestCase
         self::assertFalse($pointcut->matchesRuntime(Shadow::runtime(StubJoinPoint::constructor($callee, outermost: true), $ctx)));
         self::assertTrue($pointcut->matchesRuntime(Shadow::runtime(StubJoinPoint::constructor($callee, outermost: false), $ctx)));
     }
+
+    #[Test]
+    public function aMethodOfAnotherKindIsNeverAnInitialization(): void
+    {
+        $pointcut = Shadow::compile('initialization(**+)');
+
+        self::assertFalse($pointcut->matchesMethod(new \ReflectionMethod(Callee::class, 'find'), Shadow::method(Callee::class, 'find')));
+        self::assertFalse($pointcut->matchesMethod(null, Shadow::method(Callee::class, 'find')));
+    }
 }

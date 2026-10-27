@@ -111,6 +111,7 @@ make ext         # build the extension
 make test        # unit tests, then end-to-end tests with the extension
 make test-ext    # the phpt suite in ext/tests
 make check       # php-cs-fixer, phpstan, phpt and phpunit
+make coverage-php  # line coverage of src/, fails below 85% (make coverage-c: ext/*.c)
 make test-all    # in Docker: PHP 8.3, 8.4 and 8.5, NTS and ZTS
 make dist        # in Docker: the release archives into dist/
 make bench       # the benchmark matrix, see docs/benchmarks.md (make bench-docker: PHP 8.3, 8.4, 8.5)

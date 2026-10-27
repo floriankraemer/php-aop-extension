@@ -113,4 +113,15 @@ final class SupportClassesTest extends TestCase
         self::assertSame([], $flow->stack());
         self::assertNull($flow->activeToken(Greeter::class, false));
     }
+
+    #[Test]
+    public function normalizerStopsFillingDefaultsAfterOneThatCannotBeEvaluated(): void
+    {
+        // The default refers to a constant that does not exist, so it cannot be filled; later defaults must not shift into its place.
+        // @phpstan-ignore constant.notFound
+        $fn = static fn (int $a, int $b = \AOP_TESTS_UNDEFINED_CONSTANT, int $c = 3): int => $a;
+
+        self::assertSame([1], self::normalize($fn, [1]));
+        self::assertSame([1, 'c' => 9], self::normalize($fn, [1, 'c' => 9]));
+    }
 }

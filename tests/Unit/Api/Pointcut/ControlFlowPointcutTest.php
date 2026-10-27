@@ -133,4 +133,22 @@ final class ControlFlowPointcutTest extends TestCase
 
         self::assertFalse($pointcut->matchesRuntime($ctx));
     }
+
+    #[Test]
+    public function theEntryPointcutIsPurelyStaticAndNeverBindsOrDependsOnTheCaller(): void
+    {
+        $entry = ControlFlowPointcuts::of(new ControlFlowPointcut(Account::class, null))[0];
+
+        self::assertFalse($entry->isRuntime());
+        self::assertFalse($entry->isCallerSensitive());
+        self::assertSame([], $entry->bindings());
+        self::assertTrue($entry->matchesRuntime(Jp::runtime(new Account(), 'getBalance')));
+    }
+
+    #[Test]
+    public function needsFieldInterceptionOnlyWhenItsKindsInclude(): void
+    {
+        self::assertFalse((new ControlFlowPointcut(Account::class))->requiresFieldInterception());
+        self::assertTrue((new ControlFlowPointcut(Account::class, null, false, [JoinPointKind::FIELD_GET]))->requiresFieldInterception());
+    }
 }

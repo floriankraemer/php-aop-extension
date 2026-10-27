@@ -347,4 +347,26 @@ final class WeaverManagementTest extends RuntimeTestCase
         $this->expectExceptionMessage('ext-aop');
         $weaver->enable();
     }
+
+    #[Test]
+    public function declareParentsRejectsAnInterfaceThatIsNotOne(): void
+    {
+        $this->expectException(AspectDefinitionException::class);
+        $this->expectExceptionMessage('"AOP\\Tests\\Fixtures\\Log" is not an interface');
+
+        (new Weaver(new RecordingEngine()))->declareParents('App\\*', Log::class, TrackedImpl::class);
+    }
+
+    #[Test]
+    public function disablingAWeaverThatWasNeverEnabledLeavesTheEngineAlone(): void
+    {
+        $engine = new RecordingEngine();
+        $engine->register(static fn (): int => 0, static fn (): null => null);
+        $weaver = new Weaver($engine);
+
+        $weaver->disable();
+
+        self::assertFalse($weaver->isEnabled());
+        self::assertTrue($engine->fake->isRegistered(), 'only an enabled weaver unregisters');
+    }
 }

@@ -192,4 +192,41 @@ final class ApiPointcutTest extends TestCase
         self::assertSame([], TruePointcut::INSTANCE->bindings());
         self::assertFalse(TruePointcut::INSTANCE->isCallerSensitive());
     }
+
+    #[Test]
+    public function exposesItsClassFilterAndMethodMatcher(): void
+    {
+        $filter = $this->filter(Account::class);
+        $matcher = $this->matcher('getBalance');
+        $pointcut = new ApiPointcut($filter, $matcher);
+
+        self::assertSame($filter, $pointcut->getClassFilter());
+        self::assertSame($matcher, $pointcut->getMethodMatcher());
+        self::assertFalse($pointcut->requiresFieldInterception());
+    }
+
+    #[Test]
+    public function theTrueMethodMatcherNeverNeedsARuntimeDecision(): void
+    {
+        $method = new \ReflectionMethod(Account::class, 'getBalance');
+
+        self::assertFalse(TrueMethodMatcher::INSTANCE->isRuntime());
+        self::assertTrue(TrueMethodMatcher::INSTANCE->matchesRuntime($method, new \ReflectionClass(Account::class), []));
+    }
+
+    #[Test]
+    public function methodMatcherPointcutsExposeTheirClassFilterAndNeverNeedFieldInterception(): void
+    {
+        $pointcut = new class extends StaticMethodMatcherPointcut {
+            public function matches(\ReflectionFunctionAbstract $function, ?\ReflectionClass $class): bool
+            {
+                return true;
+            }
+        };
+        self::assertSame(TrueClassFilter::INSTANCE, $pointcut->getClassFilter());
+        self::assertFalse($pointcut->requiresFieldInterception());
+
+        $filter = $this->filter(Account::class);
+        self::assertSame($filter, $pointcut->setClassFilter($filter)->getClassFilter());
+    }
 }

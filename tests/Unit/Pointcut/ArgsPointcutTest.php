@@ -130,6 +130,25 @@ final class ArgsPointcutTest extends TestCase
     }
 
     #[Test]
+    public function staticPartPrunesBuiltinPatternsAgainstDeclaredTypes(): void
+    {
+        // find(int), repo(UserRepository, RepositoryInterface, ?AbstractRepository), rename(?int, ...)
+        self::assertTrue($this->static($this->pc('args(mixed)'), UserRepository::class, 'find'), 'mixed fits any declared type');
+        self::assertFalse($this->static($this->pc('args(object)'), UserRepository::class, 'find'), 'an int parameter never takes an object');
+        self::assertTrue($this->static($this->pc('args(object, object, object)'), UserRepository::class, 'repo'));
+        self::assertFalse($this->static($this->pc('args(null)'), UserRepository::class, 'find'), 'a non-nullable int never takes null');
+        self::assertTrue($this->static($this->pc('args(null, ..)'), UserRepository::class, 'rename'), 'a nullable int does');
+    }
+
+    #[Test]
+    public function staticPartKeepsParametersDeclaredAsMixedOrObject(): void
+    {
+        // loose(mixed, object): nothing can be ruled out from a declared type that accepts any value or object
+        self::assertTrue($this->static($this->pc('args(int, string)'), UserRepository::class, 'loose'));
+        self::assertTrue($this->static($this->pc('args(App\Foo, App\Bar)'), UserRepository::class, 'loose'));
+    }
+
+    #[Test]
     public function staticPartPrunesUsingVariadicDeclaredType(): void
     {
         self::assertFalse($this->static($this->pc('args(int, string, int)'), UserService::class, 'findUser'));
@@ -326,5 +345,15 @@ final class ArgsPointcutTest extends TestCase
     {
         self::assertFalse($this->pc('args(int)')->isCallerSensitive());
         self::assertFalse((new PointcutExpressionCompiler())->compile('@args(Foo)')->isCallerSensitive());
+    }
+
+    #[Test]
+    public function mixedAndObjectPatternsMatchAtRuntime(): void
+    {
+        self::assertTrue($this->argsMatch('args(mixed)', [1]));
+        self::assertTrue($this->argsMatch('args(mixed)', [new \stdClass()]));
+        self::assertTrue($this->argsMatch('args(object)', [new \stdClass()]));
+        self::assertFalse($this->argsMatch('args(object)', [1]));
+        self::assertFalse($this->argsMatch('args(object)', ['stdClass']), 'a class name is not an object');
     }
 }

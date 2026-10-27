@@ -10,6 +10,7 @@ use AOP\Pointcut\Api\Pointcuts;
 use AOP\Pointcut\Expression\PointcutExpressionCompiler;
 use AOP\Tests\Fixtures\Api\Account;
 use AOP\Tests\Fixtures\Api\SavingsAccount;
+use AOP\Tests\Fixtures\Jp;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
@@ -53,5 +54,17 @@ final class ExpressionPointcutTest extends TestCase
         $this->expectException(PointcutSyntaxException::class);
 
         new ExpressionPointcut('execution(');
+    }
+
+    #[Test]
+    public function delegatesTheRuntimeHalfToTheCompiledExpression(): void
+    {
+        $pointcut = new ExpressionPointcut('execution(* AOP\Tests\Fixtures\Api\Account::*(..)) && args(int)');
+        $matching = Jp::runtime(new Account(), 'deposit', [5]);
+        $other = Jp::runtime(new Account(), 'deposit', ['five']);
+
+        self::assertTrue($pointcut->isRuntime());
+        self::assertTrue($pointcut->matchesRuntime($matching));
+        self::assertFalse($pointcut->matchesRuntime($other));
     }
 }

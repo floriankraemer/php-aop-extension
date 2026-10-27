@@ -118,4 +118,15 @@ final class ArrayAspectInstanceResolverTest extends TestCase
         $this->expectException(AspectDefinitionException::class);
         (new ArrayAspectInstanceResolver([]))->get(AttributeFixtureAspect::class, new \stdClass());
     }
+
+    #[Test]
+    public function aFactoryReturningTheWrongTypeThrows(): void
+    {
+        $resolver = new ArrayAspectInstanceResolver([AttributeFixtureAspect::class => static fn (): object => new \stdClass()]);
+
+        $this->expectException(AspectDefinitionException::class);
+        $this->expectExceptionMessage('is of type "stdClass"');
+
+        $resolver->get(AttributeFixtureAspect::class);
+    }
 }

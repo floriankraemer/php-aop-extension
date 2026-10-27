@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AOP\Tests\Unit\Runtime;
 
 use AOP\Advisor\Advisor;
+use AOP\Exception\AspectDefinitionException;
 use AOP\JoinPoint\JoinPointKind;
 use AOP\Runtime\AdvisedInstance;
 use AOP\Tests\Fixtures\Log;
@@ -113,5 +114,17 @@ final class PerInstanceAdviceTest extends RuntimeTestCase
         $this->engine->call($service, 'sealed');
 
         self::assertSame(['all>', 'all<', 'all>', 'all<'], Log::$entries);
+    }
+
+    #[Test]
+    public function anAdvisorIdCanOnlyBeAddedOncePerInstance(): void
+    {
+        $advised = Weaver::fromAspects([], $this->engine)->advised(new TargetService());
+        $advised->addAdvisor($this->advisor('dup', 'one'));
+
+        $this->expectException(AspectDefinitionException::class);
+        $this->expectExceptionMessage('already has an advisor "dup"');
+
+        $advised->addAdvisor($this->advisor('dup', 'two'));
     }
 }

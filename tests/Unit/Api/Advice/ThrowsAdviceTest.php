@@ -183,4 +183,19 @@ final class ThrowsAdviceTest extends TestCase
 
         new ThrowsAdviceBridge(new $class());
     }
+
+    #[Test]
+    public function rejectsAnExceptionParameterWithoutNamedClasses(): void
+    {
+        $advice = new class implements ThrowsAdviceInterface {
+            public function afterThrowing(\Throwable&\Countable $e): void
+            {
+            }
+        };
+
+        $this->expectException(AspectDefinitionException::class);
+        $this->expectExceptionMessage('must be typed with exception classes');
+
+        new ThrowsAdviceBridge($advice);
+    }
 }

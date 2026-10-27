@@ -6,6 +6,7 @@
 /phpunit.xml
 /var/
 /dist/
+/build/
 
 # Extension build output (phpize/configure/make inside ext/)
 /ext/*.o

@@ -92,4 +92,27 @@ final class ReturnTypeCheckTest extends TestCase
         self::assertFalse(ReturnTypeCheck::accepts($type, new \stdClass(), null, UserRepository::class, UserRepository::class));
         self::assertFalse(ReturnTypeCheck::accepts($type, new \ArrayObject(), new UserRepository(), UserRepository::class));
     }
+
+    /**
+     * @return iterable<string, array{string, mixed, bool}>
+     */
+    public static function edgeCases(): iterable
+    {
+        yield 'mixed accepts a value' => ['mixed', 1, true];
+        yield 'never accepts nothing' => ['never', 1, false];
+        yield 'null type' => ['null', null, true];
+        yield 'null type rejects a value' => ['null', 0, false];
+        yield 'false' => ['false', false, true];
+        yield 'true rejects false' => ['true', false, false];
+    }
+
+    #[Test]
+    #[DataProvider('edgeCases')]
+    public function checksMixedNeverAndLiteralTypes(string $type, mixed $value, bool $expected): void
+    {
+        $function = eval('return static function (): '.$type.' { throw new \LogicException(); };');
+        self::assertInstanceOf(\Closure::class, $function);
+
+        self::assertSame($expected, ReturnTypeCheck::accepts((new \ReflectionFunction($function))->getReturnType(), $value, null, \stdClass::class));
+    }
 }

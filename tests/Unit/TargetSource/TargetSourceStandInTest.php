@@ -6,7 +6,11 @@ namespace AOP\Tests\Unit\TargetSource;
 
 use AOP\Advisor\Advisor;
 use AOP\Advisor\Api\DefaultPointcutAdvisor;
+use AOP\JoinPoint\FunctionSignature;
+use AOP\JoinPoint\JoinPointData;
 use AOP\JoinPoint\JoinPointKind;
+use AOP\JoinPoint\MethodInvocation;
+use AOP\JoinPoint\StaticPart;
 use AOP\TargetSource\HotSwappableTargetSource;
 use AOP\TargetSource\PoolExhaustedException;
 use AOP\TargetSource\PoolingTargetSource;
@@ -260,5 +264,52 @@ final class TargetSourceStandInTest extends TestCase
         Run::call([$advisor], $standIn, 'work');
 
         self::assertSame(['get', 'release'], $source->calls);
+    }
+
+    #[Test]
+    public function reportsAClassThatCannotBeInstantiatedWithoutItsConstructor(): void
+    {
+        $source = new class implements TargetSourceInterface {
+            public function getTargetClass(): string
+            {
+                return \Generator::class;
+            }
+
+            public function isStatic(): bool
+            {
+                return true;
+            }
+
+            public function getTarget(): object
+            {
+                throw new \LogicException('not used');
+            }
+
+            public function releaseTarget(object $target): void
+            {
+            }
+        };
+
+        $this->expectException(TargetSourceException::class);
+        $this->expectExceptionMessage('Cannot create a stand-in for "Generator"');
+
+        TargetSourceStandIn::create(\Generator::class, $source);
+    }
+
+    #[Test]
+    public function theReroutingInterceptorLeavesNonMethodJoinPointsAlone(): void
+    {
+        $source = new SingletonTargetSource(new FinalPooled('real'));
+        [, $advisor] = TargetSourceStandIn::create(FinalPooled::class, $source);
+        $signature = new FunctionSignature('strlen');
+        $invocation = new MethodInvocation(
+            new JoinPointData(JoinPointKind::FUNCTION_EXECUTION, null, null, $signature, new StaticPart(JoinPointKind::FUNCTION_EXECUTION, $signature)),
+            ['abc'],
+            [],
+            static fn (array $args): int => 40 + \strlen(\is_string($args[0]) ? $args[0] : ''),
+        );
+        self::assertNotNull($advisor->interceptor);
+
+        self::assertSame(43, $advisor->interceptor->invoke($invocation), 'proceeds to the original instead of asking the target source');
     }
 }

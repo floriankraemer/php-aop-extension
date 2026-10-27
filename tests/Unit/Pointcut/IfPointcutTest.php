@@ -101,6 +101,7 @@ final class IfPointcutTest extends TestCase
         yield 'int return' => ['if('.Conditions::class.'::wrongReturn())', 'must return bool, it returns int'];
         yield 'nullable return' => ['if('.Conditions::class.'::nullableReturn())', 'must return bool, it returns ?bool'];
         yield 'two parameters' => ['if('.Conditions::class.'::twoParameters())', 'may only declare one parameter'];
+        yield 'union parameter type' => ['if('.Conditions::class.'::unionParameter())', 'may only declare one parameter'];
         yield 'wrong parameter type' => ['if('.Conditions::class.'::wrongParameter())', 'may only declare one parameter'];
     }
 
@@ -166,5 +167,11 @@ final class IfPointcutTest extends TestCase
                 self::assertStringContainsString('at position '.$position.' ', $e->getMessage(), $expression);
             }
         }
+    }
+
+    #[Test]
+    public function anUntypedParameterReceivesTheJoinPoint(): void
+    {
+        self::assertTrue($this->runtime('if('.Conditions::class.'::untypedParameter())'));
     }
 }

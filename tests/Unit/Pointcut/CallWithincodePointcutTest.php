@@ -7,6 +7,7 @@ namespace AOP\Tests\Unit\Pointcut;
 use AOP\JoinPoint\JoinPointKind;
 use AOP\Pointcut\CallPointcut;
 use AOP\Pointcut\WithincodePointcut;
+use AOP\Tests\Fixtures\Jp;
 use AOP\Tests\Fixtures\Pointcut\Callee;
 use AOP\Tests\Fixtures\Pointcut\Caller;
 use AOP\Tests\Fixtures\Pointcut\Shadow;
@@ -171,5 +172,35 @@ final class CallWithincodePointcutTest extends TestCase
         self::assertFalse($pointcut->isRuntime());
         self::assertSame([], $pointcut->bindings());
         self::assertTrue(Shadow::compile('execution(* *(..)) && !withincode(* *(..))')->isCallerSensitive());
+    }
+
+    #[Test]
+    public function callNeverMatchesAMissingFunctionOrTheWrongFunctionKind(): void
+    {
+        $call = Shadow::compile('call(* '.Callee::class.'::find(..))');
+
+        self::assertFalse($call->matchesMethod(null, Shadow::method(Callee::class, 'find', JoinPointKind::METHOD_CALL)));
+        self::assertFalse($call->matchesMethod(new \ReflectionMethod(Callee::class, 'find'), Shadow::method(Callee::class, 'find')), 'an execution kind');
+        self::assertFalse($call->matchesMethod(new \ReflectionFunction('strlen'), Shadow::function('strlen', JoinPointKind::FUNCTION_CALL)), 'a function is not a method call');
+        self::assertFalse($call->matchesMethod(new \ReflectionMethod(Callee::class, 'find'), Shadow::function('strlen', JoinPointKind::FUNCTION_CALL)), 'a method is not a function call');
+    }
+
+    #[Test]
+    public function callIsStaticNotCallerSensitiveAndBindsNothing(): void
+    {
+        $call = Shadow::compile('call(* '.Callee::class.'::find(..))');
+
+        self::assertFalse($call->isRuntime());
+        self::assertFalse($call->isCallerSensitive());
+        self::assertSame([], $call->bindings());
+        self::assertTrue($call->matchesRuntime(Jp::runtime(new Callee(), 'find', [1])));
+    }
+
+    #[Test]
+    public function aPatternWithADeclaringTypeNeverMatchesAFunction(): void
+    {
+        $execution = Shadow::compile('execution(* '.Callee::class.'::*(..))');
+
+        self::assertFalse($execution->matchesMethod(new \ReflectionFunction('strlen'), Shadow::function('strlen')));
     }
 }

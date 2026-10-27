@@ -204,6 +204,7 @@ final class ParserTest extends TestCase
         yield 'reference with args' => ['Foo::bar(x)', 9];
         yield 'reference with wildcard' => ['fo*()', 0];
         yield 'annotation list' => ['@annotation(a, b)', 13];
+        yield 'negation without a modifier' => ['execution(!)', 10];
         yield 'at prefixed type' => ['within(@Foo)', 7];
     }
 

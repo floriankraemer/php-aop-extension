@@ -10,6 +10,12 @@ JOBS       ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo
 EXT_DIR := ext
 EXT_SO  := $(EXT_DIR)/modules/aop.so
 
+# Line coverage gate (percent), applied to the PHP library and to the C extension separately.
+COVERAGE_MIN ?= 85
+# Extra compiler/linker flags for the extension build (the coverage target sets them).
+EXT_CFLAGS  ?=
+EXT_LDFLAGS ?=
+
 # Docker matrix (see scripts/docker-matrix.sh for every knob).
 VERSION      ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 PHP_VERSIONS ?= 8.3 8.4 8.5
@@ -35,7 +41,7 @@ ext: $(EXT_SO) ## Build the extension natively (phpize/configure/make in ext/)
 $(EXT_SO): $(wildcard $(EXT_DIR)/*.c $(EXT_DIR)/*.h $(EXT_DIR)/config.m4)
 	cd $(EXT_DIR) && ( [ ! -f Makefile ] || $(MAKE) distclean >/dev/null 2>&1 || true )
 	cd $(EXT_DIR) && $(PHPIZE) --clean >/dev/null 2>&1 || true
-	cd $(EXT_DIR) && $(PHPIZE) && ./configure --enable-aop --with-php-config=$(PHP_CONFIG) && $(MAKE) -j$(JOBS)
+	cd $(EXT_DIR) && $(PHPIZE) && ./configure --enable-aop --with-php-config=$(PHP_CONFIG) $(if $(EXT_CFLAGS),CFLAGS='$(EXT_CFLAGS)') $(if $(EXT_LDFLAGS),LDFLAGS='$(EXT_LDFLAGS)') && $(MAKE) -j$(JOBS)
 
 .PHONY: test-ext
 test-ext: ext ## Run the phpt suite against the built extension
@@ -57,6 +63,26 @@ test: ext vendor/autoload.php ## phpunit: unit suite, then e2e with the built ao
 	@if [ -d tests/E2E ]; then \
 		$(PHP) -d extension=$(CURDIR)/$(EXT_SO) vendor/bin/phpunit --testsuite e2e; \
 	else echo "tests/E2E not present, skipping e2e"; fi
+
+.PHONY: coverage-php
+coverage-php: ext vendor/autoload.php ## Line coverage of src/ (unit + e2e), fails below COVERAGE_MIN (needs pcov or xdebug)
+	@mkdir -p build/coverage
+	$(PHP) -d extension=$(CURDIR)/$(EXT_SO) vendor/bin/phpunit --coverage-clover build/coverage/clover.xml --coverage-text=build/coverage/summary.txt
+	$(PHP) scripts/check-coverage.php build/coverage/clover.xml $(COVERAGE_MIN)
+
+# Rebuilds the extension with gcov instrumentation (-O0 so lines map 1:1), runs the phpt suite, then leaves the
+# instrumented build in ext/. Run `make clean` afterwards for a normal build. Needs gcovr (pipx install gcovr).
+# aop.c (module glue) is not measured: the build emits no .gcno for it, gcovr cannot map its .gcda, and the
+# ignored error is exactly that one.
+.PHONY: coverage-c
+coverage-c: ## Line coverage of ext/*.c from the phpt suite, fails below COVERAGE_MIN (needs gcovr)
+	rm -f $(EXT_SO)
+	$(MAKE) ext EXT_CFLAGS='-O0 -g --coverage' EXT_LDFLAGS='--coverage'
+	cd $(EXT_DIR) && NO_INTERACTION=1 REPORT_EXIT_STATUS=1 TEST_PHP_EXECUTABLE=$$(command -v $(PHP)) \
+		TEST_PHP_ARGS="-q -d opcache.jit=disable" $(MAKE) test
+	@mkdir -p build/coverage
+	set -o pipefail; cd $(EXT_DIR) && gcovr -r . --object-directory .libs --filter 'aop.*\.c$$' --txt --print-summary \
+		--gcov-ignore-errors=no_working_dir_found --fail-under-line $(COVERAGE_MIN) | tee ../build/coverage/ext-summary.txt
 
 .PHONY: test-examples
 test-examples: ext vendor/autoload.php ## Run every examples/NN-*.php and compare with its expected output
@@ -81,7 +107,7 @@ bench-docker: ## In Docker: the benchmark matrix on PHP 8.3/8.4/8.5 NTS, results
 clean: ## Remove build output (ext/ artefacts, dist/, caches)
 	@if [ -f $(EXT_DIR)/Makefile ]; then cd $(EXT_DIR) && $(MAKE) distclean >/dev/null 2>&1 || true; fi
 	cd $(EXT_DIR) && $(PHPIZE) --clean >/dev/null 2>&1 || true
-	rm -rf dist .phpunit.cache .php-cs-fixer.cache
+	rm -rf dist build .phpunit.cache .php-cs-fixer.cache
 
 .PHONY: test-all
 test-all: ## In Docker: build + phpt + phpunit on PHP 8.3/8.4/8.5 x cli/zts (Debian)

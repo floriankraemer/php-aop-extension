@@ -59,6 +59,8 @@ The backends are described in [limitations](limitations.md#backends).
 | `make ext` | Builds the extension natively. |
 | `make test-ext` | Runs the phpt suite in `ext/tests` against the built extension. |
 | `make test` | Runs the unit suite, then the end-to-end suite with the extension. |
+| `make coverage-php` | Measures line coverage of `src/` with the unit and end-to-end suites (needs pcov or Xdebug) and fails below `COVERAGE_MIN`. |
+| `make coverage-c` | Rebuilds the extension with gcov, runs the phpt suite and fails when line coverage of `ext/*.c` is below `COVERAGE_MIN` (needs gcovr). Run `make clean` afterwards. |
 | `make check` | Runs php-cs-fixer, phpstan, the phpt suite and phpunit. |
 | `make test-all` | In Docker: builds and tests on PHP 8.3, 8.4 and 8.5, NTS and ZTS, Debian. |
 | `make dist` | In Docker: builds, tests and packages every cell into `dist/`. |
@@ -68,6 +70,10 @@ The backends are described in [limitations](limitations.md#backends).
 | `make test-scripts` | Checks the semver gate used by the release workflow. |
 | `make build`, `up`, `down`, `shell`, `docker-clean` | The development container. |
 | `make clean` | Removes build output, `dist/` and caches. |
+
+CI runs both coverage targets in the `Coverage gate` job and fails the build when either is below 85%.
+Change the minimum with `COVERAGE_MIN` in the `Makefile`.
+`aop.c` (module glue) is not measured, because the build emits no gcov notes file for it.
 
 The phpunit suites are:
 

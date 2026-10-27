@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace AOP\Tests\Unit\Pointcut;
 
 use AOP\Tests\Fixtures\Hierarchy\Marker;
+use AOP\Tests\Fixtures\Jp;
+use AOP\Tests\Fixtures\Pointcut\Callee;
 use AOP\Tests\Fixtures\Pointcut\Conditions;
 use AOP\Tests\Fixtures\Pointcut\Shadow;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -73,5 +75,31 @@ final class DesignatorPropertiesTest extends TestCase
         self::assertSame($runtime, $pointcut->isRuntime(), 'isRuntime');
         self::assertSame($callerSensitive, $pointcut->isCallerSensitive(), 'isCallerSensitive');
         self::assertSame($bindings, $names, 'bindings');
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function staticExpressions(): iterable
+    {
+        yield 'execution' => ['execution(* *(..))'];
+        yield 'call' => ['call(* *(..))'];
+        yield 'adviceexecution' => ['adviceexecution()'];
+        yield 'handler' => ['handler(Foo)'];
+        yield 'get' => ['get(* Foo::$x)'];
+        yield 'set' => ['set(* Foo::$x)'];
+        yield 'service' => ['service(foo)'];
+        yield 'within' => ['within(Foo)'];
+        yield 'withincode' => ['withincode(* *(..))'];
+    }
+
+    #[Test]
+    #[DataProvider('staticExpressions')]
+    public function staticDesignatorsLeaveTheRuntimeDecisionOpen(string $expression): void
+    {
+        $pointcut = Shadow::compile($expression);
+
+        self::assertFalse($pointcut->isRuntime());
+        self::assertTrue($pointcut->matchesRuntime(Jp::runtime(new Callee(), 'find', [1])), 'the static half already decided');
     }
 }
