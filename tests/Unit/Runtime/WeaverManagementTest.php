@@ -369,4 +369,54 @@ final class WeaverManagementTest extends RuntimeTestCase
         self::assertFalse($weaver->isEnabled());
         self::assertTrue($engine->fake->isRegistered(), 'only an enabled weaver unregisters');
     }
+
+    #[Test]
+    public function aLeadingBackslashNamesTheSameAspectAndRemovingItResetsTheEngine(): void
+    {
+        $weaver = Weaver::fromAspects([new LogAspect()], $this->engine);
+        $weaver->enable();
+        $resets = $this->engine->resets;
+
+        $weaver->removeAspect('\\'.LogAspect::class);
+
+        self::assertSame($resets + 1, $this->engine->resets);
+        $this->engine->call(new TargetService(), 'pub', ['x']);
+        self::assertSame(['pub'], Log::$entries);
+    }
+
+    #[Test]
+    public function aServiceClassMayBeWrittenWithALeadingBackslash(): void
+    {
+        $weaver = Weaver::fromAspects([new ServiceAspect()], $this->engine);
+        $weaver->registerServiceClass('\\'.TargetService::class, 'billing.all');
+        $weaver->enable();
+
+        $this->engine->call(new TargetService(), 'pub', ['x']);
+
+        self::assertSame(['service-advice', 'pub'], Log::$entries);
+    }
+
+    #[Test]
+    public function typePatternsAreTrimmed(): void
+    {
+        $weaver = Weaver::fromAspects([new LogAspect()], $this->engine);
+        $weaver->include('  AOP\Tests\Fixtures\Runtime\TargetService  ');
+        $weaver->enable();
+
+        $this->engine->call(new TargetService(), 'pub', ['x']);
+
+        self::assertSame(['around>pub', 'before', 'pub', 'after', 'around<'], Log::$entries);
+    }
+
+    #[Test]
+    public function declareParentsTrimsItsTypePattern(): void
+    {
+        $engine = new RecordingEngine();
+        $weaver = Weaver::fromAspects([], $engine);
+        $weaver->declareParents('  App\\Reports\\*  ', Trackable::class, TrackedImpl::class);
+
+        $weaver->enable();
+
+        self::assertSame('App\\Reports\\*', $engine->introductions[0][0]['typePattern']);
+    }
 }
