@@ -53,6 +53,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Without the extension or with `aop.enable=0`, `enable()` keeps reporting that instead of the hook hint.
 - The examples 04, 27 and 29 need `aop.interception=hook`.
 
+### Performance
+
+- Decision fast path: the guard of the woven prologue and of the hook backend reads a per-request, direct-mapped cache of matcher flags before it builds a join point.
+  With a matcher registered that never matches, `CallBench::Function` drops from 3.33 ms to 1.12 ms per run with `woven` and `opcache.jit=tracing` (3.5 times to 1.2 times the cost of `loaded`), and from 5.08 ms to 2.98 ms with the JIT off.
+  See [docs/benchmarks.md](docs/benchmarks.md#decision-fast-path-issue-8).
+  (#8)
+
 ### Fixed
 
 - Spring `ControlFlowPointcut` advises method and function executions only (advice no longer runs twice per call) and

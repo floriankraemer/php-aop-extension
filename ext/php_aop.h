@@ -16,6 +16,14 @@ ZEND_TSRMLS_CACHE_EXTERN()
 #define AOP_CALLER_SENSITIVE 4
 #define AOP_INTERCEPT        (AOP_ADVISE | AOP_TRACK)
 
+#define AOP_FAST_DECISIONS 256 /* power of two */
+
+typedef struct {
+	const zend_function *func;
+	const zend_class_entry *called;
+	zend_long flags;
+} aop_fast_decision;
+
 ZEND_BEGIN_MODULE_GLOBALS(aop)
 	/* INI aop.enable (PHP_INI_SYSTEM). */
 	bool enable;
@@ -37,6 +45,8 @@ ZEND_BEGIN_MODULE_GLOBALS(aop)
 	zend_fcall_info_cache dispatcher;
 	/* (runtime class, function) -> flags */
 	HashTable decisions;
+	/* direct-mapped front of decisions (same keys and flags); a slot with func NULL is empty */
+	aop_fast_decision fast_decisions[AOP_FAST_DECISIONS];
 	/* (runtime class, function, caller identity) -> flags, for CALLER_SENSITIVE answers */
 	HashTable caller_decisions;
 	/* Engine::setIntroductions() rules (stream G). */
@@ -57,6 +67,12 @@ ZEND_END_MODULE_GLOBALS(aop)
 
 ZEND_EXTERN_MODULE_GLOBALS(aop)
 #define AOP_G(v) ZEND_MODULE_GLOBALS_ACCESSOR(aop, v)
+
+static zend_always_inline aop_fast_decision *aop_fast_decision_slot(const zend_function *func,
+		const zend_class_entry *called)
+{
+	return &AOP_G(fast_decisions)[(((uintptr_t) func >> 4) ^ ((uintptr_t) called >> 6)) & (AOP_FAST_DECISIONS - 1)];
+}
 
 /* Optional internal consistency checks, independent of ZEND_DEBUG: build with CFLAGS=-DAOP_DEBUG. */
 #ifdef AOP_DEBUG
