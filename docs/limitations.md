@@ -31,6 +31,7 @@ The choice is made once at startup, before opcache decides about the JIT.
 `opcache.jit=off` counts as configured, because the JIT can be switched on at run time.
 `aop.enable=0` installs neither backend, and the JIT runs.
 `phpinfo()` shows the result in the row "Interception backend".
+The cost of each backend is measured in [benchmarks](benchmarks.md).
 
 The hook backend disables the JIT.
 PHP warns about it when the JIT is configured, and the extension adds a notice:
