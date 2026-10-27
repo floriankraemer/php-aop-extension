@@ -97,6 +97,33 @@ final class ScopedAspectResolverTest extends TestCase
     }
 
     #[Test]
+    public function aPerInstanceCloneStartsFromThePrototypeNotFromLaterChangesToTheRegisteredObject(): void
+    {
+        $registered = new \stdClass();
+        $registered->state = 'as registered';
+        $this->resolver->register(\stdClass::class, $registered, AspectScope::PER_THIS);
+        $registered->state = 'changed later';
+
+        self::assertSame('as registered', $this->resolver->get(\stdClass::class, new \stdClass())->state ?? null);
+    }
+
+    #[Test]
+    public function registeringAgainDropsTheInstancesCreatedForEarlierScopeKeys(): void
+    {
+        $key = new \stdClass();
+        $first = new \stdClass();
+        $first->state = 'first';
+        $second = new \stdClass();
+        $second->state = 'second';
+        $this->resolver->register(\stdClass::class, $first, AspectScope::PER_THIS);
+        self::assertSame('first', $this->resolver->get(\stdClass::class, $key)->state ?? null);
+
+        $this->resolver->register(\stdClass::class, $second, AspectScope::PER_THIS);
+
+        self::assertSame('second', $this->resolver->get(\stdClass::class, $key)->state ?? null);
+    }
+
+    #[Test]
     public function aWrapperAroundAdviceIsOptional(): void
     {
         $joinPoint = Jp::invocation(new TargetService(), 'hidden');

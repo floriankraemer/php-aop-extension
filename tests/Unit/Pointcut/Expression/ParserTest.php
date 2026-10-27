@@ -206,6 +206,16 @@ final class ParserTest extends TestCase
         yield 'annotation list' => ['@annotation(a, b)', 13];
         yield 'negation without a modifier' => ['execution(!)', 10];
         yield 'at prefixed type' => ['within(@Foo)', 7];
+        yield 'modifier at the end' => ['execution(public', 16];
+        yield 'modifiers at the end' => ['execution(public static', 23];
+        yield 'negated modifier at the end' => ['execution(public !', 17];
+        yield 'declaring type without a method name' => ['execution(* Foo::', 17];
+        yield 'declaring type without a parameter list' => ['execution(* Foo', 15];
+        yield 'reference without a method name' => ['Foo::', 5];
+        yield 'unterminated within' => ['within(Foo+', 11];
+        yield 'unterminated constructor pattern' => ['execution(Foo+::__construct(', 28];
+        yield 'class name starting with a digit' => ['1Foo::bar()', 0];
+        yield 'class name segment starting with a digit' => ['Foo\\1x::bar()', 0];
     }
 
     #[Test]

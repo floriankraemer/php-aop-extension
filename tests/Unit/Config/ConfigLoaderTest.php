@@ -372,6 +372,21 @@ final class ConfigLoaderTest extends TestCase
         yield 'advisor with unknown ref' => [['advisors' => [['advice' => new BeforeOnly(), 'pointcut-ref' => 'nope']]], 'aop.advisors[0]: "pointcut-ref" => "nope" is not a configured pointcut'];
         yield 'duplicate advisor id' => [['advisors' => [['id' => 'a', 'advice' => new BeforeOnly(), 'pointcut' => self::ALL], ['id' => 'a', 'advice' => new BeforeOnly(), 'pointcut' => self::ALL]]], 'advisor id "a" is used twice'];
         yield 'bad advisor order' => [['advisors' => [['advice' => new BeforeOnly(), 'pointcut' => self::ALL, 'order' => 'x']]], '"order" must be an integer'];
+        yield 'invalid aspect pointcut name' => [$aspect(['pointcuts' => ['a-b' => 'x']]), 'aop.aspects[0].pointcuts: "a-b" is not a valid pointcut name'];
+        yield 'declare-parents not a list' => [$aspect(['declare-parents' => ['k' => 1]]), 'aop.aspects[0].declare-parents: expected a list, a map given'];
+        yield 'arg-names not a list' => [$advice(['arg-names' => 'jp']), 'aop.aspects[0].advice[0].arg-names: expected a list, string given'];
+        yield 'empty ref' => [['aspects' => [['ref' => '']]], 'aop.aspects[0]: "ref" must be a non-empty string'];
+        yield 'empty advice-ref' => [['advisors' => [['advice-ref' => '', 'pointcut' => self::ALL]]], 'aop.advisors[0]: "advice-ref" must be a non-empty string'];
+        yield 'aspect id in the label' => [['aspects' => [['id' => 'audit', 'class' => 'No\\Such']]], 'aop.aspects[0] (audit): aspect class "No\\Such" does not exist'];
+        yield 'known pointcuts are listed by name' => [$advice(['pointcut' => null, 'pointcut-ref' => 'missing']) + ['pointcuts' => ['one' => 'x', 'two' => 'y']], '"pointcut-ref" => "missing" is not a configured pointcut (known: one, two)'];
+        yield 'pointcut-ref with leading garbage' => [$advice(['pointcut' => null, 'pointcut-ref' => 'a b::c']), '"pointcut-ref" must be a pointcut name or Class::name'];
+        yield 'pointcut-ref with trailing garbage' => [$advice(['pointcut' => null, 'pointcut-ref' => 'Foo::bar baz']), '"pointcut-ref" must be a pointcut name or Class::name'];
+        yield 'bad returning name with a valid prefix' => [$advice(['type' => 'after-returning', 'returning' => 'r-x']), '"returning" must be the name of an advice parameter'];
+        yield 'whitespace shared pointcut' => [['pointcuts' => ['p' => '  ']], 'aop.pointcuts.p: the expression must be a non-empty string'];
+        yield 'declare-parents without default-impl' => [$aspect(['declare-parents' => [['types-matching' => 'A', 'implement-interface' => Describable::class]]]), 'aop.aspects[0].declare-parents[0]: "default-impl" is required'];
+        yield 'declare-parents unknown key' => [$aspect(['declare-parents' => [['types-matching' => 'A', 'implement-interface' => Describable::class, 'default-impl' => DescribableImpl::class, 'extra' => 1]]]), 'aop.aspects[0].declare-parents[0]: unknown key(s) "extra"'];
+        yield 'advisor unknown key' => [['advisors' => [['advice' => new BeforeOnly(), 'pointcut' => self::ALL, 'extra' => 1]]], 'aop.advisors[0]: unknown key(s) "extra"'];
+        yield 'advisor id taken by an aspect advice' => [['aspects' => [['class' => PlainAspect::class, 'advice' => [['type' => 'before', 'pointcut' => self::ALL, 'method' => 'before']]]], 'advisors' => [['id' => PlainAspect::class.'::before', 'advice' => new BeforeOnly(), 'pointcut' => self::ALL]]], 'advisor id "'.PlainAspect::class.'::before" is used twice'];
         yield 'bad advisor id' => [['advisors' => [['id' => '', 'advice' => new BeforeOnly(), 'pointcut' => self::ALL]]], '"id" must be a non-empty string'];
     }
 
@@ -387,7 +402,36 @@ final class ConfigLoaderTest extends TestCase
             self::fail('expected a ConfigurationException');
         } catch (ConfigurationException $e) {
             self::assertStringContainsString($message, $e->getMessage());
+            self::assertSame(0, $e->getCode());
         }
+    }
+
+    #[Test]
+    public function typeNamesAreCaseInsensitiveAndAcceptUnderscores(): void
+    {
+        $result = ConfigLoader::load(self::config(
+            ['type' => 'BEFORE', 'pointcut' => self::ALL, 'method' => 'before'],
+            ['type' => 'After_Returning', 'pointcut' => self::ALL, 'method' => 'returned', 'returning' => 'result'],
+        ));
+
+        self::assertSame([AdviceType::BEFORE, AdviceType::AFTER_RETURNING], array_map(static fn (Advisor $a): AdviceType => $a->adviceType(), $result->aspectAdvisors()));
+    }
+
+    #[Test]
+    public function namesAreTrimmedAndLeadingBackslashesIgnored(): void
+    {
+        $result = ConfigLoader::load([
+            'pointcuts' => ['all' => self::ALL],
+            'aspects' => [[
+                'class' => '\\'.PlainAspect::class,
+                'advice' => [['type' => 'before', 'pointcut-ref' => ' all ', 'method' => 'before']],
+                'declare-parents' => [['types-matching' => 'A', 'implement-interface' => '\\'.Describable::class, 'default-impl' => '\\'.DescribableImpl::class]],
+            ]],
+        ]);
+
+        self::assertSame(PlainAspect::class, $result->metadata()[0]->aspectClass);
+        self::assertSame('all()', $result->metadata()[0]->advices[0]->expression);
+        self::assertSame(DescribableImpl::class, $result->metadata()[0]->introductions[0]->defaultImpl);
     }
 
     #[Test]

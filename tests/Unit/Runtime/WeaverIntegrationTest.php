@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace AOP\Tests\Unit\Runtime;
 
 use AOP\Attribute\Configurable;
+use AOP\Config\ConfigLoader;
+use AOP\Exception\WeaverFrozenException;
 use AOP\JoinPoint\JoinPointKind;
 use AOP\TargetSource\HotSwappableTargetSource;
 use AOP\Tests\Fixtures\Api\BeforeOnly;
@@ -112,5 +114,44 @@ final class WeaverIntegrationTest extends RuntimeTestCase
         $dispatch(['kind' => 'initialization', 'class' => TargetService::class, 'scope' => TargetService::class, 'name' => '__construct', 'static' => false, 'internal' => false, 'caller' => null], $object, [], static fn (array $a): null => null);
 
         self::assertSame($object, $trace->seen[0]->getThis());
+    }
+
+    #[Test]
+    public function addingAConfigurationToAFrozenWeaverIsRejected(): void
+    {
+        $weaver = Weaver::fromAspects([], $this->engine);
+        $weaver->freeze();
+
+        $this->expectException(WeaverFrozenException::class);
+        $weaver->addConfig(ConfigLoader::load([]));
+    }
+
+    #[Test]
+    public function addingAConfigurationWhileEnabledTakesEffect(): void
+    {
+        $weaver = Weaver::fromAspects([], $this->engine);
+        $weaver->enable();
+        $resets = $this->engine->resets;
+
+        $weaver->addConfig(ConfigLoader::load(['advisors' => [[
+            'advice' => new BeforeOnly('configured'),
+            'pointcut' => 'execution(* AOP\Tests\Fixtures\Runtime\TargetService::pub(..))',
+        ]]]));
+
+        self::assertGreaterThan($resets, $this->engine->resets);
+        $this->engine->call(new TargetService(), 'pub', ['x']);
+        self::assertSame(['configured', 'pub'], Log::$entries);
+    }
+
+    #[Test]
+    public function addingAnEmptyConfigurationWhileEnabledStillResetsTheEngineOnce(): void
+    {
+        $weaver = Weaver::fromAspects([], $this->engine);
+        $weaver->enable();
+        $resets = $this->engine->resets;
+
+        $weaver->addConfig(ConfigLoader::load([]));
+
+        self::assertSame($resets + 1, $this->engine->resets);
     }
 }

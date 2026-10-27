@@ -124,6 +124,60 @@ final class MethodInvocationTest extends TestCase
     }
 
     #[Test]
+    public function everyProceedRunsTheRestOfTheChainFromItsOwnPosition(): void
+    {
+        $inner = 0;
+        $targets = 0;
+
+        $invocation = $this->invocation(
+            [
+                $this->interceptor(function (MethodInvocation $invocation): mixed {
+                    $invocation->proceed();
+
+                    return $invocation->proceed();
+                }),
+                $this->interceptor(function (MethodInvocation $invocation) use (&$inner): mixed {
+                    ++$inner;
+
+                    return $invocation->proceed();
+                }),
+            ],
+            function (array $args) use (&$targets): int {
+                return ++$targets;
+            },
+            [],
+        );
+
+        self::assertSame(2, $invocation->proceed());
+        self::assertSame(2, $inner, 'the second proceed() reaches the inner interceptor again');
+        self::assertSame(2, $targets);
+    }
+
+    #[Test]
+    public function replacementArgumentsMissingAByReferenceKeyLeaveThatArgumentOut(): void
+    {
+        $first = 'a';
+        $second = 'b';
+        $received = null;
+        $invocation = new MethodInvocation(
+            Jp::data(new UserService(), 'findUser'),
+            [&$first, &$second],
+            [$this->interceptor(static fn (MethodInvocation $i): mixed => $i->proceed([0 => 'x']))],
+            static function (array $a) use (&$received): null {
+                $received = $a;
+
+                return null;
+            },
+        );
+
+        $invocation->proceed();
+
+        self::assertSame(['x'], $received);
+        self::assertSame('x', $first);
+        self::assertSame('b', $second);
+    }
+
+    #[Test]
     public function joinPointAccessorsExposeInvocationData(): void
     {
         $caller = new UserService();

@@ -301,6 +301,17 @@ final class PointcutExpressionCompilerTest extends TestCase
     }
 
     #[Test]
+    public function aCycleIsReportedAsTheWholeChainOfReferences(): void
+    {
+        $resolver = $this->resolver(['A::a' => 'b()', 'A::b' => 'a()']);
+
+        $this->expectException(PointcutSyntaxException::class);
+        $this->expectExceptionMessage('Cyclic named pointcut reference: A::a -> A::b -> A::a.');
+
+        $this->compile('a()', [], 'A', $resolver);
+    }
+
+    #[Test]
     public function indirectCycleThrows(): void
     {
         $resolver = $this->resolver(['A::a' => 'b()', 'A::b' => 'B::c() || within(X)', 'B::c' => 'A::a()']);
@@ -410,6 +421,8 @@ final class PointcutExpressionCompilerTest extends TestCase
             self::assertStringContainsString('[a]', $e->getMessage());
             self::assertStringContainsString('[]', $e->getMessage());
             self::assertStringContainsString('"||"', $e->getMessage());
+            self::assertSame(0, $e->getCode());
+            self::assertNotNull($e->getPrevious());
         }
     }
 

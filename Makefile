@@ -12,6 +12,8 @@ EXT_SO  := $(EXT_DIR)/modules/aop.so
 
 # Line coverage gate (percent), applied to the PHP library and to the C extension separately.
 COVERAGE_MIN ?= 85
+# Mutation testing (Infection) covers the files where a wrong result means wrong weaving: matching, ordering, config.
+MUTATION_FILES ?= src/Runtime/NativeRuntime.php,src/Weaver.php,src/Pointcut/Expression/Parser.php,src/Pointcut/Expression/PointcutExpressionCompiler.php,src/Config/ConfigLoader.php,src/Runtime/AdvisorOrdering.php,src/Runtime/ScopedAspectResolver.php,src/Pointcut/Pattern/MethodPattern.php,src/Pointcut/Pattern/TypePattern.php,src/JoinPoint/MethodInvocation.php
 # Extra compiler/linker flags for the extension build (the coverage target sets them).
 EXT_CFLAGS  ?=
 EXT_LDFLAGS ?=
@@ -74,6 +76,10 @@ coverage-php: ext vendor/autoload.php ## Line coverage of src/ (unit + e2e), fai
 # instrumented build in ext/. Run `make clean` afterwards for a normal build. Needs gcovr (pipx install gcovr).
 # aop.c (module glue) is not measured: the build emits no .gcno for it, gcovr cannot map its .gcda, and the
 # ignored error is exactly that one.
+.PHONY: mutation
+mutation: vendor/autoload.php ## Mutation testing of the critical src files with the unit suite (needs pcov or xdebug), report in build/infection/
+	$(PHP) -d xdebug.mode=coverage vendor/bin/infection --threads=max --filter=$(MUTATION_FILES) --show-mutations=0
+
 .PHONY: coverage-c
 coverage-c: ## Line coverage of ext/*.c from the phpt suite, fails below COVERAGE_MIN (needs gcovr)
 	rm -f $(EXT_SO)

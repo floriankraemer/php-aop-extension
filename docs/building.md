@@ -59,6 +59,7 @@ The backends are described in [limitations](limitations.md#backends).
 | `make ext` | Builds the extension natively. |
 | `make test-ext` | Runs the phpt suite in `ext/tests` against the built extension. |
 | `make test` | Runs the unit suite, then the end-to-end suite with the extension. |
+| `make mutation` | Runs Infection on the most critical files of `src/` (matcher, dispatcher, weaver, parser, config, ordering) with the unit suite. Needs pcov or Xdebug. The report is `build/infection/infection.log`. |
 | `make coverage-php` | Measures line coverage of `src/` with the unit and end-to-end suites (needs pcov or Xdebug) and fails below `COVERAGE_MIN`. |
 | `make coverage-c` | Rebuilds the extension with gcov, runs the phpt suite and fails when line coverage of `ext/*.c` is below `COVERAGE_MIN` (needs gcovr). Run `make clean` afterwards. |
 | `make check` | Runs php-cs-fixer, phpstan, the phpt suite and phpunit. |
