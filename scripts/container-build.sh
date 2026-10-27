@@ -3,10 +3,11 @@
 #
 #   container-build.sh dist   build, run phpt, package a tarball into $OUT
 #   container-build.sh test   build, run phpt, composer install, phpunit unit + e2e
+#   container-build.sh bench  build, composer install, run the benchmark matrix (bench/run.sh) into $OUT
 #
 # Environment:
 #   SRC        read-only repo mount            (default /src)
-#   OUT        writable output dir, dist only  (default /out)
+#   OUT        writable output dir, dist and bench only (default /out)
 #   VERSION    version string for the tarball  (default dev)
 #   LIBC       glibc|musl, for the tarball name (default: detected)
 #   EXPECT_TS  nts|zts, abort if the image differs (optional)
@@ -22,8 +23,8 @@ VERSION="${VERSION:-dev}"
 
 log() { printf '\n=== %s\n' "$*"; }
 
-case "$MODE" in dist | test) ;; *)
-    echo "usage: $0 dist|test" >&2
+case "$MODE" in dist | test | bench) ;; *)
+    echo "usage: $0 dist|test|bench" >&2
     exit 2
     ;; esac
 
@@ -68,7 +69,7 @@ log "PHP $(php -r 'echo PHP_VERSION;') $ZTS, $LIBC, $ARCH"
 WORK="$(mktemp -d)"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
-(cd "$SRC" && tar -cf - --exclude=./.git --exclude=./vendor --exclude=./dist --exclude=./node_modules .) |
+(cd "$SRC" && tar -cf - --exclude=./.git --exclude=./vendor --exclude=./dist --exclude=./bench/results --exclude=./node_modules .) |
     (cd "$WORK" && tar -xf -)
 # Drop any build leftovers a developer may have in their tree.
 (cd "$WORK/ext" && { [ ! -f Makefile ] || make distclean >/dev/null 2>&1 || true; } && phpize --clean >/dev/null 2>&1 || true)
@@ -88,6 +89,7 @@ make -j"$(nproc 2>/dev/null || echo 2)"
 log "phpt"
 export NO_INTERACTION=1 REPORT_EXIT_STATUS=1 TEST_PHP_ARGS="-q"
 for pass in plain opcache; do
+    [ "$MODE" = "bench" ] && break
     if [ "$pass" = "opcache" ]; then
         TEST_PHP_ARGS="-q $("$SRC/scripts/opcache-args.sh" php)"
         export TEST_PHP_ARGS
@@ -137,6 +139,18 @@ if ! command -v composer >/dev/null 2>&1; then
 fi
 log "composer install"
 COMPOSER_ALLOW_SUPERUSER=1 composer install --no-interaction --no-progress --prefer-dist
+
+if [ "$MODE" = "bench" ]; then
+    log "benchmarks"
+    command -v taskset >/dev/null 2>&1 || install_pkgs util-linux
+    run_dir="$OUT/php$(php -r 'echo PHP_VERSION;')-docker-$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$run_dir"
+    OUT="$run_dir" EXT_SO="$WORK/ext/modules/aop.so" PHP=php bench/run.sh
+    if [ -n "${HOST_UID:-}" ]; then
+        chown -R "$HOST_UID:${HOST_GID:-$HOST_UID}" "$run_dir"
+    fi
+    exit 0
+fi
 
 SO="$WORK/ext/modules/aop.so"
 log "phpunit unit"

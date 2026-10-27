@@ -4,6 +4,7 @@
 #
 #   scripts/docker-matrix.sh dist   build + phpt + package every cell into dist/
 #   scripts/docker-matrix.sh test   build + phpt + phpunit for Debian cli/zts cells
+#   scripts/docker-matrix.sh bench  build + run the benchmark matrix (bench/run.sh) on Debian NTS, results in bench/results/
 #
 # Environment (all optional):
 #   VERSION       tarball version (default: git describe --tags --always, "v" stripped)
@@ -15,14 +16,16 @@
 #   DEBIAN_SUITE  Debian image suffix, default "bookworm"
 #   DIST_DIR      output dir, default <repo>/dist
 #   DOCKER_ARGS   extra arguments for `docker run` (e.g. "--network host")
+#   BENCH_DIR     bench mode: result directory, default <repo>/bench/results
+#   CPU, CELLS, FILTER, ITERATIONS, REVS   bench mode: passed to bench/run.sh
 #   DRY_RUN=1     print the docker commands instead of running them
 #   KEEP_IMAGES=1 keep pulled images (default: remove each image after its cell
 #                 when PRUNE_IMAGES=1; useful on small disks)
 set -euo pipefail
 
 mode="${1:-}"
-case "$mode" in dist | test) ;; *)
-    echo "usage: $0 dist|test" >&2
+case "$mode" in dist | test | bench) ;; *)
+    echo "usage: $0 dist|test|bench" >&2
     exit 2
     ;; esac
 
@@ -47,7 +50,9 @@ if [[ -z "${PLATFORMS:-}" ]]; then
         *) PLATFORMS="linux/$(uname -m)" ;;
     esac
 fi
-[[ "$mode" == test ]] && LIBCS=glibc
+[[ "$mode" != dist ]] && LIBCS=glibc
+[[ "$mode" == bench ]] && TS_MODES=nts
+BENCH_DIR="${BENCH_DIR:-$root/bench/results}"
 
 run() {
     if [[ "$DRY_RUN" == 1 ]]; then
@@ -83,6 +88,11 @@ for platform in "${platforms[@]}"; do
                     -e SRC=/src -e OUT=/out)
                 if [[ "$mode" == dist ]]; then
                     args+=(-v "$DIST_DIR:/out" -e "HOST_UID=$(id -u)" -e "HOST_GID=$(id -g)")
+                elif [[ "$mode" == bench ]]; then
+                    mkdir -p "$BENCH_DIR"
+                    args+=(-v "$BENCH_DIR:/out" -e "HOST_UID=$(id -u)" -e "HOST_GID=$(id -g)"
+                        -e "COMMIT=$(git -C "$root" rev-parse --short HEAD 2>/dev/null || true)" -e "CPU=${CPU-2}" -e "CELLS=${CELLS:-}" -e "FILTER=${FILTER:-}" -e "ITERATIONS=${ITERATIONS:-}" -e "REVS=${REVS:-}"
+                        -v aop-composer-cache:/root/.composer/cache -e COMPOSER_HOME=/root/.composer)
                 else
                     args+=(-v aop-composer-cache:/root/.composer/cache -e COMPOSER_HOME=/root/.composer)
                 fi
