@@ -1,7 +1,7 @@
 # A modern AOP Extension for PHP
 
-Aspect-oriented programming for PHP, woven inside the Zend engine.
-It brings Spring's and AspectJ's model to PHP: aspects, pointcuts, advice, the Spring AOP API and AspectJ's join points.
+[Aspect-oriented programming](https://en.wikipedia.org/wiki/Aspect-oriented_programming) for PHP, woven inside the Zend engine.
+It brings [Spring's](https://docs.spring.io/spring-framework/reference/core/aop.html) and [AspectJ's](https://www.eclipse.org/aspectj/) model to PHP: aspects, pointcuts, advice, the Spring AOP API and AspectJ's join points.
 There are no proxies and no generated classes.
 The engine decides at call time whether a call is advised.
 
