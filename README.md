@@ -1,4 +1,4 @@
-# php-aop-extension
+# A modern AOP Extension for PHP
 
 Aspect-oriented programming for PHP, woven inside the Zend engine.
 It brings Spring's and AspectJ's model to PHP: aspects, pointcuts, advice, the Spring AOP API and AspectJ's join points.
@@ -30,6 +30,21 @@ The PHP package in `src/`, namespace `AOP\`, holds the model, the pointcut langu
 - Exception handlers with `handler()`.
 - Field access with `get()` and `set()`, and constructor-less `initialization()`; both need `aop.interception=hook`, which turns the JIT off.
 - Introductions with `#[DeclareParents]`: a class gets an interface and a default implementation, at compile time.
+
+## Use cases
+
+Realistic examples, each one a runnable script in `examples/`.
+
+- Audit and logging: [a service-boundary audit that masks sensitive parameters](examples/31-audit-and-logging.php).
+- Transactions: [a `#[Transactional]` attribute where nested calls join the outer transaction](examples/32-transactions.php).
+- Caching: [cache and evict by attribute, on a private method of a final class](examples/33-caching.php).
+- Authorization: [role checks from a class-level or method-level attribute](examples/34-authorization.php).
+- Retry and circuit breaker: [two ordered around advice around a flaky gateway](examples/35-resilience.php).
+- Tracing and metrics: [a span tree and call counters, including an internal function](examples/36-tracing-and-metrics.php).
+- Legacy code and architecture rules: [a feature flag on a final vendor class, a test seam, and layering rules](examples/37-legacy-and-architecture-rules.php).
+- The combined order service: [authorization, audit and a transaction on one service, nested by `#[Order]`](examples/38-order-service-stack.php).
+
+The page [Use cases](docs/use-cases.md) explains the pointcut and the advice type of each one.
 
 ## Requirements
 
@@ -241,6 +256,7 @@ The most relevant points:
 - [Concepts](docs/concepts.md)
 - [Pointcut expressions](docs/pointcuts.md)
 - [Advice](docs/advice.md)
+- [Use cases](docs/use-cases.md)
 - [Weaver](docs/weaver.md)
 - [Spring API](docs/spring-api.md)
 - [Target sources](docs/target-sources.md)

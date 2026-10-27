@@ -69,3 +69,11 @@ The target class is in `30-introductions/Report.php`, which is not an example by
 | [28-exception-handler.php](28-exception-handler.php) | `handler()`: advice on a `catch`, and an exception from advice that replaces the caught one | [pointcuts](../docs/pointcuts.md#handler) |
 | [29-initialization-without-constructor.php](29-initialization-without-constructor.php) | `initialization()` for a class without a constructor, and `#[Configurable]` on one | [pointcuts](../docs/pointcuts.md#initialization) |
 | [30-introductions.php](30-introductions.php) | `#[DeclareParents]`: an interface and its default implementation, with the target class in [30-introductions/Report.php](30-introductions/Report.php) | [configuration](../docs/configuration.md#introductions) |
+| [31-audit-and-logging.php](31-audit-and-logging.php) | Audit lines for every service method, with sensitive parameters masked | [use cases](../docs/use-cases.md#audit-and-logging) |
+| [32-transactions.php](32-transactions.php) | `#[Transactional]` with an around advice; nested calls join the outer transaction | [use cases](../docs/use-cases.md#transactions) |
+| [33-caching.php](33-caching.php) | Cache and evict by attribute, on a private method of a final class | [use cases](../docs/use-cases.md#caching) |
+| [34-authorization.php](34-authorization.php) | Role checks from a class-level or method-level attribute, with `#[Order(1)]` | [use cases](../docs/use-cases.md#authorization) |
+| [35-resilience.php](35-resilience.php) | Retry and circuit breaker as two ordered around advice | [use cases](../docs/use-cases.md#retry-and-circuit-breaker) |
+| [36-tracing-and-metrics.php](36-tracing-and-metrics.php) | A span tree and call metrics, including an internal function | [use cases](../docs/use-cases.md#tracing-and-metrics) |
+| [37-legacy-and-architecture-rules.php](37-legacy-and-architecture-rules.php) | Advice on a final vendor class and a legacy function; `#[DeclareWarning]` and `#[DeclareError]` as layering rules | [use cases](../docs/use-cases.md#legacy-code-and-architecture-rules) |
+| [38-order-service-stack.php](38-order-service-stack.php) | Authorization, audit and a transaction on one service, nested by `#[Order]` | [use cases](../docs/use-cases.md#the-combined-order-service) |
