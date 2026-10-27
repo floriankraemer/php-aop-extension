@@ -94,6 +94,37 @@ Some points follow from this flow.
 - Advice runs with the advised frame still on the stack.
   `debug_backtrace()` and exception traces show the advised method.
 
+## Why the package is PHP and the engine is C
+
+The project has two parts.
+The C extension in `ext/` hooks the Zend engine.
+The PHP package in `src/` holds the pointcut language, the advice model, the weaver and the configuration.
+The exact boundary is in the [internal contract](internals/contract.md).
+
+The split follows one rule: C does what only C can do, PHP does the rest.
+
+- **C owns the call path.**
+  Only an extension can hook function and method calls, and only C can keep the per-call cost low.
+  The decision cache and the fast path for calls without advice live there.
+- **PHP owns the semantics.**
+  Parsing and composing pointcuts (`and`, `or`, `not`, `cflow()`), resolving attributes and class hierarchies, and building advice chains are tree and string work.
+  This work runs when an aspect is registered, or once per callee on a cache miss, not on every call.
+- **PHP keeps the extension points open.**
+  Users write their own `PointcutInterface`, advice and `ConfigurableInterceptor` in PHP.
+  A C-only design would replace these with a C API.
+
+A pure C implementation is possible, but it has a cost and little gain:
+
+- A memory error in matching code crashes the whole PHP process, where a PHP error is an exception.
+- Reflection and attribute handling use Zend APIs that change between PHP 8.x versions, so each version adds work to the C code (see `ext/aop_compat.h`).
+- Registration-time code is not hot, so porting it to C does not make calls faster.
+
+The part that can pay off in C is the work done on every call: runtime pointcut evaluation (`args()`, `this()`, `target()`, `if()`, `cflow()`) and the caching of static match results.
+Move this work to C only when the [benchmarks](benchmarks.md) show the cost, not by default.
+
+The number of small files in `src/` is the one-class-per-file convention of PSR-4.
+It does not mean the code is complex.
+
 ## Where advice gets its values
 
 | Source | Available as | Notes |
