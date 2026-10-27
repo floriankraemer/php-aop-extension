@@ -86,7 +86,8 @@ Re-run it when the interception code paths change, and update this page (see the
 
 ## Results
 
-Measured on 2026-10-27 with the extension at commit `d0da88e` (the benchmark suite does not change `ext/`).
+Measured on 2026-10-27 with the extension of the decision fast path branch (issue #8, on top of commit `f4158cb`).
+The "Fix to the benchmark" history predates that change; the Docker table below was measured again with it, and the "Decision fast path" section compares the native runs before and after.
 
 | | |
 |---|---|
@@ -102,26 +103,26 @@ Every cell passed the JIT assertion: `tracing` and `function` with `woven` ran w
 
 ### What the numbers say
 
-- **Code without calls does not slow down.** `NumericBench::Inline` is a JIT-compiled loop with no calls in it: with `woven` it stays within +-2% of plain PHP in every state and JIT mode, and the JIT makes it 3.7 times faster than with the JIT off (1.53 ms with `disable`, 416 us with `tracing`, 381 us with `function`).
+- **Code without calls does not slow down.** `NumericBench::Inline` is a JIT-compiled loop with no calls in it: with `woven` it stays within +-2% of plain PHP in every state and JIT mode, and the JIT makes it 4.1 times faster than with the JIT off (1.38 ms with `disable`, 335 us with `tracing`, 306 us with `function`).
   So the woven prologue does not disturb JIT-compiled code, and the JIT stays effective.
   Differences of this size, in either direction, are noise.
-- **Every call pays a fixed price.** For `CallBench::Function` (100,000 calls of a function that adds two integers) plain PHP needs 6.7 ns per call with `tracing`.
-  `woven` adds 12 ns per call when the extension is loaded and nothing is registered (`loaded`), and 57 ns per call when a matcher is registered that never matches (`miss`).
-  A call that reaches a dispatcher (`pass`, the original code runs through `OriginalCall`) adds about 1.1 us.
-  With the JIT off: 18 ns plain, plus 12 ns (`woven`, `loaded`), 40 ns (`miss`) and 0.64 us (`pass`).
-  The `hook` backend adds 3 ns (`loaded`), 31 ns (`miss`) and 0.56 us (`pass`) on top of 18 ns.
+- **Every call pays a fixed price.** For `CallBench::Function` (100,000 calls of a function that adds two integers) plain PHP needs 4.3 ns per call with `tracing`.
+  `woven` adds 5.4 ns per call when the extension is loaded and nothing is registered (`loaded`), and 6.9 ns per call when a matcher is registered that never matches (`miss`).
+  A call that reaches a dispatcher (`pass`, the original code runs through `OriginalCall`) adds about 0.5 us.
+  With the JIT off: 16.7 ns plain, plus 12 ns (`woven`, `loaded`), 13 ns (`miss`) and 0.52 us (`pass`).
+  The `hook` backend adds 3.9 ns (`loaded`), 5.0 ns (`miss`) and 0.49 us (`pass`) on top of 16.7 ns.
   In percent these look large for a tight call loop, because the function does almost nothing.
-- **The cost shrinks with real work.** `MixedBench::Orders` (objects, arrays, strings) costs +18% to +22% with `woven`/`loaded` and about +100% with `miss`.
-  `NumericBench::CallPerPixel`, where each call does up to 100 loop iterations, costs +10% (`loaded`) and +47% (`miss`) with `tracing`.
-- **A registered matcher that never matches is much dearer than no matcher.** `miss` costs about five times as much per call as `loaded` with `woven` (57 ns against 12 ns).
-  The decision is cached per function, so the extra cost is the path from the woven prologue into the engine for every call.
-  This is the part a cheaper guard could remove (see the follow-up below).
-- **`woven` with the JIT beats `hook` without it when the code does real work.** `NumericBench::CallPerPixel` with a matcher registered that never matches: 705 us with `woven`/`tracing` and 1.62 ms with `hook`.
-  For nothing but tiny calls, `hook` is cheaper per call: `CallBench::Function`/`miss` takes 6.37 ms with `woven`/`tracing` and 4.91 ms with `hook`.
-  The JIT is not always faster either: `MixedBench::Orders` runs 1.56 ms with the JIT off and 2.04 ms with `tracing` in this setup, because the run is short.
-- **Internal functions** (`InternalCallBench::StrlenAbs`) pay the same kind of price per call (+18% to +42% for `loaded`, about +240% to +450% for `miss`) in both backends.
+- **The cost shrinks with real work.** `MixedBench::Orders` (objects, arrays, strings) costs +14% to +26% with `woven`/`loaded` and +20% to +31% with `miss`.
+  `NumericBench::CallPerPixel`, where each call does up to 100 loop iterations, costs +7% (`loaded`) and +12% (`miss`) with `tracing`.
+- **A registered matcher that never matches costs little more than no matcher.** `miss` adds 1.5 ns per call on top of `loaded` with `woven`/`tracing` (11.2 ns against 9.7 ns for `CallBench::Function`), and about 1 ns with the JIT off.
+  The decision is cached per (function, runtime class) in a small direct-mapped cache that the guard reads before it builds a join point (see [Decision fast path](#decision-fast-path-issue-8)).
+  What remains of `loaded` is the call of `AOP\Internal\intercept()` itself.
+- **`woven` with the JIT beats `hook` without it.** `NumericBench::CallPerPixel` with a matcher registered that never matches: 399 us with `woven`/`tracing` and 1.50 ms with `hook`.
+  Even for nothing but tiny calls, `woven` is cheaper: `CallBench::Function`/`miss` takes 1.12 ms with `woven`/`tracing` and 2.17 ms with `hook`.
+  With the JIT off, `hook` is a little cheaper per call than `woven` (2.17 ms against 2.98 ms for the same cell).
+- **Internal functions** (`InternalCallBench::StrlenAbs`) pay the same kind of price per call (`woven`: +16% to +32% for `loaded`, +45% to +83% for `miss`; `hook`/`miss` is +39%).
   Generators cost nothing extra for the generator call itself (`Generator` stays within +5%).
-  `try`/`catch` adds nothing of its own: `TryCatchNeverThrows` pays the same 11 ns per call as `CallBench`.
+  `try`/`catch` adds nothing of its own: `TryCatchNeverThrows` pays a per-call price of the same size as `CallBench`.
 - **The three PHP versions agree** (table below).
   The percentages are relative to plain PHP with the same JIT mode, so compare absolute times, not the percentages, when you compare the backends.
 
@@ -136,117 +137,113 @@ After that change the call-free subjects stay within +-2%.
 
 ### Full tables, PHP 8.3.15, native
 
-#### `opcache.jit=disable`
-
+#### opcache.jit=disable
 
 Time for one run of the subject (median of the rounds):
 
 | Subject | no aop | woven / loaded | woven / miss | woven / pass | hook / loaded | hook / miss | hook / pass |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| InternalCallBench::StrlenAbs | 2.48 ms | 2.82 ms | 8.09 ms | 124.31 ms | 2.68 ms | 7.43 ms | 108.73 ms |
-| InternalCallBench::ArrayMap | 2.65 ms | 2.58 ms | 2.83 ms | 5.16 ms | 3.04 ms | 3.22 ms | 4.22 ms |
-| MixedBench::Orders | 1.56 ms | 1.96 ms | 2.98 ms | 22.71 ms | 1.81 ms | 3.31 ms | 51.07 ms |
-| CallBench::Function | 1.78 ms | 2.96 ms | 5.80 ms | 65.60 ms | 2.12 ms | 4.91 ms | 57.86 ms |
-| CallBench::InstanceMethod | 1.94 ms | 3.09 ms | 6.40 ms | 71.75 ms | 2.29 ms | 5.68 ms | 57.12 ms |
-| CallBench::StaticMethod | 1.84 ms | 3.25 ms | 7.02 ms | 66.09 ms | 2.49 ms | 5.56 ms | 58.70 ms |
-| GeneratorCatchBench::Generator | 1.15 ms | 1.16 ms | 1.48 ms | 1.29 ms | 1.26 ms | 1.30 ms | 1.72 ms |
-| GeneratorCatchBench::TryCatchNeverThrows | 1.06 ms | 1.80 ms | 3.27 ms | 33.39 ms | 1.16 ms | 3.13 ms | 28.97 ms |
-| GeneratorCatchBench::TryCatchThrowsOften | 1.18 ms | 1.72 ms | 2.06 ms | 14.47 ms | 1.37 ms | 2.16 ms | 11.52 ms |
-| NumericBench::Inline | 1.53 ms | 1.76 ms | 1.46 ms | 1.49 ms | 1.56 ms | 1.55 ms | 1.48 ms |
-| NumericBench::CallPerPixel | 1.53 ms | 1.88 ms | 1.79 ms | 4.56 ms | 1.62 ms | 1.62 ms | 4.62 ms |
-| NumericBench::CallPerIteration | 6.81 ms | 10.10 ms | 18.30 ms | 169.54 ms | 7.59 ms | 13.89 ms | 152.47 ms |
+| InternalCallBench::StrlenAbs | 2.15 ms | 2.46 ms | 3.03 ms | 96.66 ms | 2.47 ms | 2.99 ms | 98.52 ms |
+| InternalCallBench::ArrayMap | 2.48 ms | 2.48 ms | 2.46 ms | 3.65 ms | 2.72 ms | 2.84 ms | 3.86 ms |
+| MixedBench::Orders | 1.42 ms | 1.75 ms | 1.81 ms | 17.86 ms | 1.66 ms | 2.09 ms | 45.48 ms |
+| CallBench::Function | 1.67 ms | 2.87 ms | 2.98 ms | 53.77 ms | 2.06 ms | 2.17 ms | 52.44 ms |
+| CallBench::InstanceMethod | 1.73 ms | 2.95 ms | 3.15 ms | 54.04 ms | 2.15 ms | 2.45 ms | 51.51 ms |
+| CallBench::StaticMethod | 1.65 ms | 2.88 ms | 3.01 ms | 53.42 ms | 2.12 ms | 2.27 ms | 51.73 ms |
+| GeneratorCatchBench::Generator | 1.10 ms | 1.12 ms | 1.12 ms | 1.21 ms | 1.18 ms | 1.21 ms | 1.28 ms |
+| GeneratorCatchBench::TryCatchNeverThrows | 942 µs | 1.39 ms | 1.46 ms | 26.59 ms | 1.10 ms | 1.23 ms | 25.62 ms |
+| GeneratorCatchBench::TryCatchThrowsOften | 1.07 ms | 1.22 ms | 1.52 ms | 10.59 ms | 1.20 ms | 1.59 ms | 10.33 ms |
+| NumericBench::Inline | 1.38 ms | 1.37 ms | 1.39 ms | 1.41 ms | 1.39 ms | 1.37 ms | 1.42 ms |
+| NumericBench::CallPerPixel | 1.48 ms | 1.58 ms | 1.59 ms | 3.66 ms | 1.52 ms | 1.50 ms | 3.65 ms |
+| NumericBench::CallPerIteration | 5.76 ms | 7.90 ms | 8.37 ms | 134.75 ms | 6.61 ms | 6.70 ms | 132.31 ms |
 
 Overhead relative to no aop with the same JIT mode (median of the per-round ratios, [lowest, highest round]):
 
 | Subject | woven / loaded | woven / miss | woven / pass | hook / loaded | hook / miss | hook / pass |
 |---|---:|---:|---:|---:|---:|---:|
-| InternalCallBench::StrlenAbs | +18% [+3%, +61%] | +239% [+189%, +303%] | +5103% [+4320%, +6488%] | +11% [-28%, +104%] | +213% [+108%, +472%] | +4451% [+2942%, +9395%] |
-| InternalCallBench::ArrayMap | -1% [-14%, +4%] | +7% [-2%, +13%] | +55% [+40%, +106%] | +7% [-42%, +106%] | +14% [-38%, +111%] | +68% [-23%, +191%] |
-| MixedBench::Orders | +22% [+14%, +30%] | +91% [+68%, +105%] | +1417% [+1196%, +1603%] | +16% [-36%, +108%] | +120% [+14%, +318%] | +3333% [+1717%, +6570%] |
-| CallBench::Function | +69% [+57%, +79%] | +221% [+192%, +250%] | +3742% [+3403%, +4157%] | +22% [-31%, +130%] | +192% [+58%, +390%] | +3169% [+1775%, +5788%] |
-| CallBench::InstanceMethod | +64% [+51%, +70%] | +233% [+217%, +269%] | +3634% [+3097%, +9687%] | +29% [-34%, +111%] | +210% [+68%, +436%] | +2955% [+1593%, +5737%] |
-| CallBench::StaticMethod | +71% [+51%, +89%] | +240% [+200%, +309%] | +3427% [+3026%, +3807%] | +26% [-30%, +134%] | +207% [+55%, +516%] | +3108% [+1542%, +6588%] |
-| GeneratorCatchBench::Generator | +1% [-7%, +8%] | +1% [-6%, +29%] | +13% [+0%, +36%] | +7% [-42%, +104%] | +8% [-39%, +86%] | +9% [+3%, +3631%] |
-| GeneratorCatchBench::TryCatchNeverThrows | +64% [+40%, +82%] | +218% [+202%, +278%] | +3289% [+2824%, +4902%] | +15% [-30%, +99%] | +202% [+90%, +451%] | +2707% [+1659%, +5610%] |
-| GeneratorCatchBench::TryCatchThrowsOften | +17% [+11%, +46%] | +80% [+69%, +98%] | +993% [+917%, +1212%] | +16% [-38%, +106%] | +86% [-3%, +255%] | +900% [+418%, +1837%] |
-| NumericBench::Inline | -2% [-8%, +26%] | -0% [-8%, +7%] | -1% [-3%, +8%] | -1% [-25%, +44%] | -1% [-28%, +44%] | -2% [-29%, +71%] |
-| NumericBench::CallPerPixel | +5% [-1%, +28%] | +16% [+10%, +23%] | +185% [+161%, +300%] | +3% [-35%, +66%] | +10% [-29%, +72%] | +182% [+73%, +354%] |
-| NumericBench::CallPerIteration | +52% [+35%, +60%] | +163% [+131%, +223%] | +2389% [+2283%, +4876%] | +15% [-18%, +76%] | +128% [+49%, +266%] | +2283% [+1539%, +4577%] |
+| InternalCallBench::StrlenAbs | +16% [+8%, +27%] | +45% [+31%, +79%] | +4497% [+4024%, +5439%] | +15% [+9%, +72%] | +40% [+30%, +77%] | +4388% [+4210%, +5205%] |
+| InternalCallBench::ArrayMap | -1% [-3%, +6%] | +0% [-3%, +12%] | +48% [+34%, +72%] | +8% [+6%, +46%] | +15% [+10%, +68%] | +55% [+44%, +66%] |
+| MixedBench::Orders | +21% [+15%, +25%] | +25% [+21%, +69%] | +1170% [+1074%, +1538%] | +16% [+11%, +64%] | +44% [+40%, +130%] | +3129% [+2902%, +3380%] |
+| CallBench::Function | +73% [+67%, +81%] | +78% [+73%, +114%] | +3179% [+3025%, +3602%] | +22% [+17%, +66%] | +31% [+29%, +99%] | +3055% [+2882%, +3360%] |
+| CallBench::InstanceMethod | +70% [+65%, +76%] | +83% [+76%, +102%] | +3023% [+2880%, +3730%] | +23% [+20%, +80%] | +42% [+37%, +68%] | +2843% [+2712%, +3022%] |
+| CallBench::StaticMethod | +75% [+68%, +79%] | +82% [+75%, +98%] | +3162% [+2918%, +3488%] | +27% [+23%, +80%] | +37% [+31%, +79%] | +3059% [+2746%, +3556%] |
+| GeneratorCatchBench::Generator | +0% [-4%, +7%] | -1% [-6%, +9%] | +10% [-1%, +16%] | +8% [+2%, +10%] | +11% [+2%, +24%] | +16% [+0%, +52%] |
+| GeneratorCatchBench::TryCatchNeverThrows | +47% [+32%, +56%] | +55% [+40%, +63%] | +2690% [+2396%, +2944%] | +16% [+3%, +67%] | +31% [+19%, +50%] | +2575% [+2332%, +3193%] |
+| GeneratorCatchBench::TryCatchThrowsOften | +16% [+11%, +19%] | +45% [+37%, +52%] | +884% [+848%, +1224%] | +12% [+4%, +67%] | +51% [+38%, +56%] | +885% [+781%, +1080%] |
+| NumericBench::Inline | -1% [-7%, +6%] | -1% [-5%, +14%] | +3% [-4%, +11%] | +0% [-5%, +35%] | +0% [-5%, +11%] | +4% [-6%, +12%] |
+| NumericBench::CallPerPixel | +7% [+3%, +9%] | +9% [+3%, +12%] | +150% [+133%, +6325%] | +3% [-0%, +36%] | +2% [-2%, +17%] | +147% [+129%, +228%] |
+| NumericBench::CallPerIteration | +38% [+30%, +43%] | +46% [+39%, +51%] | +2276% [+2118%, +5865%] | +14% [+9%, +48%] | +16% [+9%, +53%] | +2197% [+1992%, +2348%] |
 
-#### `opcache.jit=tracing`
-
-
-Time for one run of the subject (median of the rounds):
-
-| Subject | no aop | woven / loaded | woven / miss | woven / pass |
-|---|---:|---:|---:|---:|
-| InternalCallBench::StrlenAbs | 1.21 ms | 2.70 ms | 11.12 ms | 205.47 ms |
-| InternalCallBench::ArrayMap | 4.39 ms | 4.18 ms | 4.60 ms | 6.63 ms |
-| MixedBench::Orders | 2.04 ms | 2.42 ms | 4.31 ms | 37.85 ms |
-| CallBench::Function | 671 µs | 1.84 ms | 6.37 ms | 111.72 ms |
-| CallBench::InstanceMethod | 859 µs | 1.97 ms | 7.52 ms | 110.11 ms |
-| CallBench::StaticMethod | 1.24 ms | 2.25 ms | 7.48 ms | 102.36 ms |
-| GeneratorCatchBench::Generator | 1.66 ms | 1.72 ms | 1.76 ms | 2.11 ms |
-| GeneratorCatchBench::TryCatchNeverThrows | 400 µs | 964 µs | 3.63 ms | 52.84 ms |
-| GeneratorCatchBench::TryCatchThrowsOften | 1.71 ms | 2.13 ms | 3.54 ms | 21.54 ms |
-| NumericBench::Inline | 416 µs | 420 µs | 414 µs | 420 µs |
-| NumericBench::CallPerPixel | 471 µs | 520 µs | 705 µs | 4.68 ms |
-| NumericBench::CallPerIteration | 2.56 ms | 5.26 ms | 17.42 ms | 268.46 ms |
-
-Overhead relative to no aop with the same JIT mode (median of the per-round ratios, [lowest, highest round]):
-
-| Subject | woven / loaded | woven / miss | woven / pass |
-|---|---:|---:|---:|
-| InternalCallBench::StrlenAbs | +42% [+26%, +162%] | +452% [+377%, +963%] | +10986% [+9024%, +19101%] |
-| InternalCallBench::ArrayMap | -2% [-8%, +11%] | -2% [-26%, +8%] | +51% [+31%, +137%] |
-| MixedBench::Orders | +18% [+5%, +36%] | +101% [+76%, +130%] | +1668% [+1436%, +9735%] |
-| CallBench::Function | +157% [+133%, +193%] | +860% [+655%, +930%] | +15464% [+11923%, +40658%] |
-| CallBench::InstanceMethod | +118% [+87%, +170%] | +687% [+633%, +880%] | +11931% [+10306%, +19996%] |
-| CallBench::StaticMethod | +86% [+76%, +103%] | +490% [+445%, +561%] | +7972% [+7235%, +20021%] |
-| GeneratorCatchBench::Generator | +5% [-10%, +13%] | +5% [-12%, +10%] | +15% [+5%, +102%] |
-| GeneratorCatchBench::TryCatchNeverThrows | +149% [+128%, +162%] | +838% [+743%, +948%] | +12938% [+11898%, +25944%] |
-| GeneratorCatchBench::TryCatchThrowsOften | +23% [+17%, +33%] | +105% [+84%, +264%] | +1147% [+1018%, +2435%] |
-| NumericBench::Inline | +2% [-3%, +11%] | +1% [-6%, +12%] | +1% [-8%, +27%] |
-| NumericBench::CallPerPixel | +10% [+5%, +15%] | +47% [+32%, +103%] | +861% [+553%, +1233%] |
-| NumericBench::CallPerIteration | +98% [+67%, +108%] | +558% [+400%, +817%] | +10059% [+8016%, +15904%] |
-
-#### `opcache.jit=function`
-
+#### opcache.jit=tracing
 
 Time for one run of the subject (median of the rounds):
 
 | Subject | no aop | woven / loaded | woven / miss | woven / pass |
 |---|---:|---:|---:|---:|
-| InternalCallBench::StrlenAbs | 2.68 ms | 4.00 ms | 12.89 ms | 209.30 ms |
-| InternalCallBench::ArrayMap | 4.51 ms | 4.80 ms | 4.74 ms | 5.42 ms |
-| MixedBench::Orders | 2.15 ms | 2.67 ms | 4.43 ms | 27.32 ms |
-| CallBench::Function | 1.55 ms | 2.84 ms | 7.33 ms | 67.02 ms |
-| CallBench::InstanceMethod | 1.83 ms | 2.87 ms | 8.72 ms | 62.62 ms |
-| CallBench::StaticMethod | 1.78 ms | 3.51 ms | 9.19 ms | 105.38 ms |
-| GeneratorCatchBench::Generator | 1.76 ms | 1.79 ms | 1.80 ms | 1.26 ms |
-| GeneratorCatchBench::TryCatchNeverThrows | 1.06 ms | 1.59 ms | 4.54 ms | 39.25 ms |
-| GeneratorCatchBench::TryCatchThrowsOften | 2.06 ms | 2.03 ms | 3.42 ms | 13.96 ms |
-| NumericBench::Inline | 381 µs | 359 µs | 379 µs | 379 µs |
-| NumericBench::CallPerPixel | 444 µs | 514 µs | 727 µs | 3.70 ms |
-| NumericBench::CallPerIteration | 4.51 ms | 8.10 ms | 20.27 ms | 168.29 ms |
+| InternalCallBench::StrlenAbs | 1.07 ms | 1.42 ms | 1.93 ms | 93.11 ms |
+| InternalCallBench::ArrayMap | 2.21 ms | 2.26 ms | 2.31 ms | 3.23 ms |
+| MixedBench::Orders | 1.12 ms | 1.29 ms | 1.39 ms | 18.52 ms |
+| CallBench::Function | 430 µs | 966 µs | 1.12 ms | 51.29 ms |
+| CallBench::InstanceMethod | 493 µs | 1.12 ms | 1.23 ms | 52.99 ms |
+| CallBench::StaticMethod | 708 µs | 1.39 ms | 1.44 ms | 49.10 ms |
+| GeneratorCatchBench::Generator | 940 µs | 944 µs | 959 µs | 1.08 ms |
+| GeneratorCatchBench::TryCatchNeverThrows | 214 µs | 530 µs | 628 µs | 24.88 ms |
+| GeneratorCatchBench::TryCatchThrowsOften | 884 µs | 1.08 ms | 1.28 ms | 10.04 ms |
+| NumericBench::Inline | 335 µs | 336 µs | 341 µs | 335 µs |
+| NumericBench::CallPerPixel | 358 µs | 382 µs | 399 µs | 2.44 ms |
+| NumericBench::CallPerIteration | 1.59 ms | 3.08 ms | 3.26 ms | 122.20 ms |
 
 Overhead relative to no aop with the same JIT mode (median of the per-round ratios, [lowest, highest round]):
 
 | Subject | woven / loaded | woven / miss | woven / pass |
 |---|---:|---:|---:|
-| InternalCallBench::StrlenAbs | +42% [+29%, +56%] | +360% [+134%, +432%] | +7706% [+3757%, +16711%] |
-| InternalCallBench::ArrayMap | +6% [-7%, +27%] | +10% [-49%, +33%] | +44% [-26%, +70%] |
-| MixedBench::Orders | +21% [+9%, +42%] | +105% [+13%, +123%] | +1543% [+901%, +1837%] |
-| CallBench::Function | +84% [+74%, +103%] | +366% [+175%, +454%] | +6512% [+3349%, +7900%] |
-| CallBench::InstanceMethod | +64% [-3%, +78%] | +354% [+142%, +435%] | +5611% [+3255%, +5927%] |
-| CallBench::StaticMethod | +110% [+26%, +120%] | +377% [+170%, +448%] | +5512% [+2973%, +20442%] |
-| GeneratorCatchBench::Generator | +2% [-49%, +6%] | +3% [-50%, +9%] | +13% [-42%, +29%] |
-| GeneratorCatchBench::TryCatchNeverThrows | +62% [-11%, +75%] | +309% [+108%, +350%] | +4649% [+2591%, +22283%] |
-| GeneratorCatchBench::TryCatchThrowsOften | +10% [-39%, +21%] | +76% [-11%, +87%] | +914% [+467%, +1289%] |
-| NumericBench::Inline | +1% [-17%, +8%] | -1% [-13%, +2%] | +1% [-15%, +39%] |
-| NumericBench::CallPerPixel | +14% [-12%, +24%] | +50% [+2%, +64%] | +659% [+505%, +1057%] |
-| NumericBench::CallPerIteration | +79% [+14%, +93%] | +345% [+141%, +360%] | +5266% [+3120%, +6835%] |
+| InternalCallBench::StrlenAbs | +32% [+24%, +41%] | +83% [+43%, +101%] | +8537% [+8140%, +9526%] |
+| InternalCallBench::ArrayMap | +2% [-6%, +5%] | +3% [-14%, +19%] | +48% [+15%, +86%] |
+| MixedBench::Orders | +14% [+12%, +23%] | +20% [+12%, +31%] | +1557% [+1278%, +18212%] |
+| CallBench::Function | +130% [+117%, +152%] | +160% [+134%, +182%] | +11800% [+10369%, +15924%] |
+| CallBench::InstanceMethod | +126% [+110%, +150%] | +152% [+122%, +175%] | +10517% [+9462%, +44652%] |
+| CallBench::StaticMethod | +93% [+72%, +103%] | +102% [+86%, +110%] | +6868% [+6118%, +7116%] |
+| GeneratorCatchBench::Generator | +1% [-14%, +7%] | +2% [-8%, +14%] | +15% [-0%, +75%] |
+| GeneratorCatchBench::TryCatchNeverThrows | +145% [+105%, +175%] | +188% [+166%, +207%] | +11503% [+11128%, +12187%] |
+| GeneratorCatchBench::TryCatchThrowsOften | +21% [+5%, +31%] | +47% [+33%, +63%] | +1017% [+943%, +1564%] |
+| NumericBench::Inline | +2% [+0%, +5%] | +1% [-6%, +15%] | +2% [-5%, +15%] |
+| NumericBench::CallPerPixel | +7% [-3%, +12%] | +12% [-1%, +15%] | +583% [+534%, +651%] |
+| NumericBench::CallPerIteration | +92% [+79%, +97%] | +102% [+88%, +124%] | +7597% [+7192%, +11010%] |
 
+#### opcache.jit=function
+
+Time for one run of the subject (median of the rounds):
+
+| Subject | no aop | woven / loaded | woven / miss | woven / pass |
+|---|---:|---:|---:|---:|
+| InternalCallBench::StrlenAbs | 1.55 ms | 1.97 ms | 2.26 ms | 94.60 ms |
+| InternalCallBench::ArrayMap | 2.28 ms | 2.34 ms | 2.33 ms | 3.33 ms |
+| MixedBench::Orders | 1.08 ms | 1.39 ms | 1.43 ms | 17.33 ms |
+| CallBench::Function | 869 µs | 1.58 ms | 1.65 ms | 51.68 ms |
+| CallBench::InstanceMethod | 994 µs | 1.65 ms | 1.82 ms | 50.75 ms |
+| CallBench::StaticMethod | 1.08 ms | 1.78 ms | 1.83 ms | 53.18 ms |
+| GeneratorCatchBench::Generator | 931 µs | 943 µs | 925 µs | 1.03 ms |
+| GeneratorCatchBench::TryCatchNeverThrows | 574 µs | 898 µs | 965 µs | 25.82 ms |
+| GeneratorCatchBench::TryCatchThrowsOften | 1.01 ms | 1.13 ms | 1.39 ms | 10.33 ms |
+| NumericBench::Inline | 306 µs | 310 µs | 314 µs | 340 µs |
+| NumericBench::CallPerPixel | 342 µs | 371 µs | 387 µs | 2.41 ms |
+| NumericBench::CallPerIteration | 2.74 ms | 4.82 ms | 5.01 ms | 136.22 ms |
+
+Overhead relative to no aop with the same JIT mode (median of the per-round ratios, [lowest, highest round]):
+
+| Subject | woven / loaded | woven / miss | woven / pass |
+|---|---:|---:|---:|
+| InternalCallBench::StrlenAbs | +30% [+21%, +96%] | +52% [+38%, +87%] | +6252% [+5693%, +19540%] |
+| InternalCallBench::ArrayMap | +3% [-7%, +15%] | +6% [-5%, +62%] | +47% [-3%, +105%] |
+| MixedBench::Orders | +26% [+5%, +47%] | +31% [+19%, +89%] | +1517% [+1113%, +1830%] |
+| CallBench::Function | +80% [+61%, +92%] | +92% [+87%, +201%] | +5847% [+4739%, +29928%] |
+| CallBench::InstanceMethod | +65% [+58%, +76%] | +82% [+77%, +166%] | +4951% [+4838%, +7354%] |
+| CallBench::StaticMethod | +59% [+56%, +104%] | +71% [+57%, +135%] | +4748% [+4013%, +22439%] |
+| GeneratorCatchBench::Generator | +5% [-4%, +9%] | +1% [-18%, +57%] | +11% [-0%, +46%] |
+| GeneratorCatchBench::TryCatchNeverThrows | +58% [+10%, +124%] | +66% [+9%, +177%] | +4344% [+2929%, +5611%] |
+| GeneratorCatchBench::TryCatchThrowsOften | +14% [+5%, +65%] | +37% [+12%, +143%] | +917% [+522%, +1496%] |
+| NumericBench::Inline | +1% [-1%, +8%] | +1% [-9%, +19%] | +6% [-9%, +39%] |
+| NumericBench::CallPerPixel | +8% [+3%, +27%] | +14% [+4%, +44%] | +615% [+525%, +873%] |
+| NumericBench::CallPerIteration | +80% [+61%, +95%] | +86% [+69%, +177%] | +4708% [+4086%, +6603%] |
 
 ### Overhead by PHP version
 
@@ -255,20 +252,84 @@ The `hook` columns are relative to plain PHP with the JIT off, the `woven` colum
 
 | Subject | PHP | woven + JIT tracing, loaded | woven + JIT tracing, miss | hook, loaded | hook, miss |
 |---|---|---:|---:|---:|---:|
-| `CallBench::Function` | 8.3 | +132% | +651% | +19% | +162% |
-| `CallBench::Function` | 8.4 | +105% | +625% | +33% | +187% |
-| `CallBench::Function` | 8.5 | +120% | +650% | +35% | +166% |
-| `MixedBench::Orders` | 8.3 | +21% | +110% | +12% | +93% |
-| `MixedBench::Orders` | 8.4 | +23% | +126% | +15% | +107% |
-| `MixedBench::Orders` | 8.5 | +28% | +143% | +6% | +108% |
-| `NumericBench::Inline` | 8.3 | +1% | +1% | -1% | +1% |
-| `NumericBench::Inline` | 8.4 | -2% | +1% | +3% | +1% |
-| `NumericBench::Inline` | 8.5 | -2% | -2% | -6% | -9% |
-| `NumericBench::CallPerPixel` | 8.3 | +7% | +33% | -6% | +5% |
-| `NumericBench::CallPerPixel` | 8.4 | +10% | +43% | +13% | +26% |
-| `NumericBench::CallPerPixel` | 8.5 | +9% | +44% | -5% | +2% |
+| `CallBench::Function` | 8.3 | +120% | +154% | +19% | +22% |
+| `CallBench::Function` | 8.4 | +84% | +113% | +15% | +24% |
+| `CallBench::Function` | 8.5 | +83% | +105% | +19% | +28% |
+| `MixedBench::Orders` | 8.3 | +14% | +26% | +11% | +38% |
+| `MixedBench::Orders` | 8.4 | +21% | +26% | +18% | +50% |
+| `MixedBench::Orders` | 8.5 | +22% | +29% | +11% | +39% |
+| `NumericBench::Inline` | 8.3 | -0% | -3% | -2% | -2% |
+| `NumericBench::Inline` | 8.4 | -2% | -3% | +7% | -1% |
+| `NumericBench::Inline` | 8.5 | -0% | -0% | +2% | +1% |
+| `NumericBench::CallPerPixel` | 8.3 | +7% | +7% | -1% | +1% |
+| `NumericBench::CallPerPixel` | 8.4 | +3% | +6% | +6% | +5% |
+| `NumericBench::CallPerPixel` | 8.5 | +9% | +12% | -0% | +1% |
 
-## Follow-up
+## Decision fast path (issue #8)
 
-The `miss` price (about 57 ns per call with `woven`, against 12 ns without a registered matcher) is the first candidate for a cheaper guard, for example a flag that the prologue checks before it calls `AOP\Internal\intercept()`.
-Measure such a change with this suite: `make bench CELLS="none-tracing-none woven-tracing-loaded woven-tracing-miss" FILTER=CallBench`.
+The `miss` price was 27.5 ns per call against 10.1 ns for `loaded` (`CallBench::Function`, `woven`, `tracing`, 2 million calls in a micro benchmark).
+The difference of about 17 ns was the work the guard did before it looked at the cached answer: `aop_join_point()` (about 5 ns) and the lookup in the `decisions` hashtable (about 12 ns).
+Since this change the guard first reads a per-request, direct-mapped cache with 256 slots, keyed by (function, runtime class), whose value is the matcher's flags.
+A hit without `ADVISE`, `TRACK` or `CALLER_SENSITIVE` returns "pass" at once.
+Closures never use it, and only pairs that already passed `aop_join_point()` fill a slot, so the matcher is still asked once per (class, function).
+The cache is cleared with the decisions on `register()`, `unregister()` and `reset()` and at request start.
+After the change the micro benchmark shows 11.3 ns (`miss`) against 10.2 ns (`loaded`).
+
+A flag inline in the woven prologue, checked before `intercept()`, was not used.
+Opcache keeps op arrays in read-only shared memory, so per-function state cannot be written there.
+The decision also depends on the runtime class (and on the caller for `CALLER_SENSITIVE` and `cflow()`), not on the function alone.
+The prologue is unchanged, so the `loaded` price (the call of `intercept()`) is unchanged too.
+
+Both runs below use the same machine and settings as the tables above (PHP 8.3.15, 9 rounds, CPU 2, full matrix), measured back to back: before is `master` at `f4158cb`, after is this branch.
+Every cell passed the JIT assertion.
+Median time of one run, `miss` state:
+
+| Subject | JIT | Backend | Before | After |
+|---|---|---|---:|---:|
+| CallBench::Function | tracing | woven | 3.33 ms | 1.12 ms |
+| CallBench::InstanceMethod | tracing | woven | 3.88 ms | 1.23 ms |
+| CallBench::StaticMethod | tracing | woven | 3.93 ms | 1.44 ms |
+| InternalCallBench::StrlenAbs | tracing | woven | 5.50 ms | 1.93 ms |
+| MixedBench::Orders | tracing | woven | 2.24 ms | 1.39 ms |
+| NumericBench::CallPerPixel | tracing | woven | 478 µs | 399 µs |
+| NumericBench::CallPerIteration | tracing | woven | 8.55 ms | 3.26 ms |
+| CallBench::Function | disable | woven | 5.08 ms | 2.98 ms |
+| CallBench::InstanceMethod | disable | woven | 5.58 ms | 3.15 ms |
+| CallBench::StaticMethod | disable | woven | 5.84 ms | 3.01 ms |
+| InternalCallBench::StrlenAbs | disable | woven | 6.79 ms | 3.03 ms |
+| MixedBench::Orders | disable | woven | 2.72 ms | 1.81 ms |
+| NumericBench::CallPerPixel | disable | woven | 1.69 ms | 1.59 ms |
+| NumericBench::CallPerIteration | disable | woven | 14.07 ms | 8.37 ms |
+| CallBench::Function | disable | hook | 4.57 ms | 2.17 ms |
+| CallBench::InstanceMethod | disable | hook | 5.23 ms | 2.45 ms |
+| CallBench::StaticMethod | disable | hook | 5.08 ms | 2.27 ms |
+| InternalCallBench::StrlenAbs | disable | hook | 6.71 ms | 2.99 ms |
+| MixedBench::Orders | disable | hook | 3.03 ms | 2.09 ms |
+| NumericBench::CallPerPixel | disable | hook | 1.61 ms | 1.50 ms |
+| NumericBench::CallPerIteration | disable | hook | 12.71 ms | 6.70 ms |
+
+Median time of one run, `loaded` state (the guard is unchanged; the differences are noise):
+
+| Subject | JIT | Backend | Before | After |
+|---|---|---|---:|---:|
+| CallBench::Function | tracing | woven | 955 µs | 966 µs |
+| CallBench::InstanceMethod | tracing | woven | 1.09 ms | 1.12 ms |
+| CallBench::StaticMethod | tracing | woven | 1.32 ms | 1.39 ms |
+| InternalCallBench::StrlenAbs | tracing | woven | 1.40 ms | 1.42 ms |
+| MixedBench::Orders | tracing | woven | 1.30 ms | 1.29 ms |
+| NumericBench::CallPerPixel | tracing | woven | 381 µs | 382 µs |
+| NumericBench::CallPerIteration | tracing | woven | 3.02 ms | 3.08 ms |
+| CallBench::Function | disable | woven | 2.87 ms | 2.87 ms |
+| CallBench::InstanceMethod | disable | woven | 2.95 ms | 2.95 ms |
+| CallBench::StaticMethod | disable | woven | 2.97 ms | 2.88 ms |
+| InternalCallBench::StrlenAbs | disable | woven | 2.50 ms | 2.46 ms |
+| MixedBench::Orders | disable | woven | 1.73 ms | 1.75 ms |
+| NumericBench::CallPerPixel | disable | woven | 1.66 ms | 1.58 ms |
+| NumericBench::CallPerIteration | disable | woven | 8.12 ms | 7.90 ms |
+| CallBench::Function | disable | hook | 1.95 ms | 2.06 ms |
+| CallBench::InstanceMethod | disable | hook | 2.15 ms | 2.15 ms |
+| CallBench::StaticMethod | disable | hook | 2.16 ms | 2.12 ms |
+| InternalCallBench::StrlenAbs | disable | hook | 2.55 ms | 2.47 ms |
+| MixedBench::Orders | disable | hook | 1.67 ms | 1.66 ms |
+| NumericBench::CallPerPixel | disable | hook | 1.50 ms | 1.52 ms |
+| NumericBench::CallPerIteration | disable | hook | 6.62 ms | 6.61 ms |

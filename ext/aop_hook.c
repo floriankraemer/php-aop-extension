@@ -65,6 +65,18 @@ static zend_function *aop_resolve_fake_closure(zend_function *func)
 	return real;
 }
 
+/* The runtime class (or called scope) of a call of a function with the given scope; NULL for functions. */
+static zend_always_inline zend_class_entry *aop_called_class(const zend_execute_data *ex, const zend_class_entry *scope)
+{
+	if (!scope) {
+		return NULL;
+	}
+	if (Z_TYPE(ex->This) == IS_OBJECT) {
+		return Z_OBJ(ex->This)->ce;
+	}
+	return Z_CE(ex->This) ? Z_CE(ex->This) : (zend_class_entry *) scope;
+}
+
 /*
  * The function to advise for frame ex, or NULL when the frame is never intercepted (contract §1.4).
  * Fills the runtime class (or called scope; NULL for functions) and $this.
@@ -110,10 +122,8 @@ static zend_always_inline zend_function *aop_join_point(zend_execute_data *ex,
 	if (func->common.scope) {
 		if (Z_TYPE(ex->This) == IS_OBJECT) {
 			this_obj = Z_OBJ(ex->This);
-			called = this_obj->ce;
-		} else {
-			called = Z_CE(ex->This) ? Z_CE(ex->This) : func->common.scope;
 		}
+		called = aop_called_class(ex, func->common.scope);
 		if (aop_class_in_aop_ns(func->common.scope) || aop_class_in_aop_ns(called)) {
 			return NULL;
 		}
@@ -332,6 +342,22 @@ static zend_always_inline aop_outcome aop_advise_frame(zend_execute_data *ex, ui
 	}
 	if (ZEND_CALL_INFO(ex) & skip_info) {
 		return AOP_PASS;
+	}
+	/*
+	 * Fast path for the common "not intercepted" answer. A slot is only filled by aop_decide() for a
+	 * (function, class) that passed aop_join_point() before, and every check skipped here can only end in
+	 * AOP_PASS as well, so the matcher is still consulted exactly once per (class, function) (contract §1.1).
+	 * Closures resolve to another function in aop_join_point(), so they never hit.
+	 */
+	if (EXPECTED(!(ex->func->common.fn_flags & ZEND_ACC_CLOSURE))) {
+		const aop_fast_decision *slot;
+
+		called = aop_called_class(ex, ex->func->common.scope);
+		slot = aop_fast_decision_slot(ex->func, called);
+		if (EXPECTED(slot->func == ex->func && slot->called == called)
+				&& !(slot->flags & (AOP_INTERCEPT | AOP_CALLER_SENSITIVE))) {
+			return AOP_PASS;
+		}
 	}
 	target = aop_join_point(ex, &called, &this_obj);
 	if (!target) {

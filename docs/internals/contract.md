@@ -51,6 +51,11 @@ Protocol for `CALLER_SENSITIVE`:
    `caller` filled (class/scope/function/file, not line/object), and caches that answer per (callee, caller function).
    The second answer's `CALLER_SENSITIVE` bit is ignored.
 
+In front of the per-function decision table sits a per-request, direct-mapped cache of 256 slots keyed by (function, runtime class) that holds the matcher flags.
+`aop_advise_frame()` reads the slot before it builds a join point, and a hit without `ADVISE`, `TRACK` or `CALLER_SENSITIVE` returns pass.
+Only `aop_decide()` fills a slot, only for pairs that already passed `aop_join_point()`, and closures never use it, so the matcher is still asked once per (class, function).
+`aop_engine_reset()` and the request start clear it together with the decisions.
+
 Exceptions thrown by the matcher are reported as `E_WARNING` and the decision is 0 (not cached), so a broken
 aspect never kills unrelated code paths silently.
 
@@ -717,6 +722,7 @@ It prepends one statement to the body of every named function and method that ha
 The statement uses no variables, so `get_defined_vars()` stays clean.
 It is not woven into closures and arrow functions (they are join points only as fake closures, which run a woven method), functions without a body, PHP 8.4 property hooks, functions returning by reference, and anything in the `AOP` or `AOP\...` namespaces.
 The decision stays at run time (`aop_decide()`), so the woven form does not depend on the registered rules, opcache caches one form, and `register()`/`unregister()` keep working.
+The fast path of the decision cache (§1.1) does not change the prologue shape: the cheap answer comes from `aop_advise_frame()`, not from a flag in the woven code.
 The prologue's line number is the declaration's.
 
 ### `intercept()`, `result()`, `caught()`
