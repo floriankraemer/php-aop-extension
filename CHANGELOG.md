@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the opcache JIT off, `tracing` and `function`; the method and the measured results are in `docs/benchmarks.md`.
 - Build and release tooling: `make ext|test-ext|test|check|test-all|dist`, Docker matrix builds for PHP 8.3/8.4/8.5
   (NTS and ZTS, glibc and musl), CI and tag-driven release workflows with PIE-compatible Windows assets and `SHA256SUMS`.
+- Examples 31 to 38 (audit and logging, transactions, caching, authorization, retry and circuit breaker, tracing and metrics, legacy code and architecture rules, a combined order service) and the page [docs/use-cases.md](docs/use-cases.md).
 
 ### Changed
 
