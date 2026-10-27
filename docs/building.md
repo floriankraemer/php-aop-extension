@@ -62,6 +62,8 @@ The backends are described in [limitations](limitations.md#backends).
 | `make check` | Runs php-cs-fixer, phpstan, the phpt suite and phpunit. |
 | `make test-all` | In Docker: builds and tests on PHP 8.3, 8.4 and 8.5, NTS and ZTS, Debian. |
 | `make dist` | In Docker: builds, tests and packages every cell into `dist/`. |
+| `make bench` | Runs the [benchmark matrix](benchmarks.md) natively. Takes `PHP`, `CPU`, `CELLS`, `FILTER` and `ITERATIONS`. |
+| `make bench-docker` | In Docker: runs the benchmark matrix on PHP 8.3, 8.4 and 8.5 (NTS, Debian) and writes the results to `bench/results/`. |
 | `make binfmt` | Installs QEMU emulators, so `PLATFORMS=linux/arm64` works on an x86_64 host. |
 | `make test-scripts` | Checks the semver gate used by the release workflow. |
 | `make build`, `up`, `down`, `shell`, `docker-clean` | The development container. |
@@ -78,6 +80,14 @@ The tests that need opcache (`025`, `122`, `200` to `203`, `300`, `301`, `302`, 
 The phpt files `300` to `315` cover the woven backend.
 Tests whose expected output depends on the backend are pinned with `aop.interception=hook` in their `--INI--` section: the field and initialization tests (`100` to `109`, `210` to `212`), `111`, `122`, `200`, `202`, `205`, and the originals of the argument, exception and fiber tests (`007`, `008`, `022`, which have woven counterparts `310`, `311`, `312`).
 The [contract](internals/contract.md#woven-backend) has the details.
+
+## Benchmarks
+
+`make bench` runs the benchmark matrix natively and `make bench-docker` runs it in the Docker images for PHP 8.3, 8.4 and 8.5.
+Each cell is one backend (`hook`, `woven` or no extension), one opcache JIT mode (`disable`, `tracing`, `function`) and one state (nothing registered, a matcher that never matches, a pass-through dispatcher).
+The JIT state is asserted before every subject.
+With the JIT on, `woven` adds about 12 ns per call when nothing is registered and about 57 ns when a matcher is registered that never matches; code without calls is unaffected.
+[benchmarks.md](benchmarks.md) has the method, the variables and the full results.
 
 ## Variables
 
@@ -135,7 +145,8 @@ Releases are made from semver tags.
 1. Move the `Unreleased` entries of `CHANGELOG.md` into a section headed `## [X.Y.Z]`.
    The release notes come from that section, and the workflow falls back to generated notes when it is missing.
 2. Make sure the CI workflow is green on the commit you want to release.
-3. Create and push the tag: `git tag vX.Y.Z` and `git push origin vX.Y.Z`.
+3. If the interception code paths changed since the last release (`ext/`, the woven prologue, the dispatch path), re-run the benchmarks (`make bench-docker`) and update the tables in [benchmarks.md](benchmarks.md).
+4. Create and push the tag: `git tag vX.Y.Z` and `git push origin vX.Y.Z`.
 
 The release workflow (`.github/workflows/release.yml`) runs on tags that look like versions.
 Its first job checks the tag against the semver grammar.
