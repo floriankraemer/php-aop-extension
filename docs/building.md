@@ -1,7 +1,7 @@
 # Building, testing and releasing
 
 This page is for people who build the extension, change it, or publish a release.
-Users who only install it should read the install section of the [README](../README.md).
+Users who only install it should read [getting started](getting-started.md).
 
 ## Local build
 
@@ -24,7 +24,7 @@ It runs `phpize --clean` first, so the build directory stays consistent.
 ## Configuration (php.ini)
 
 The extension has four INI settings.
-The README has the same table for users.
+The [php.ini settings](php-ini.md) page has the short table for users.
 
 | Setting | Default | Changeable | Meaning |
 |---|---|---|---|
