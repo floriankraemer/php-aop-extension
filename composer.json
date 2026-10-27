@@ -13,6 +13,7 @@
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.95",
+        "phpbench/phpbench": "^1.7",
         "phpstan/phpstan": "^2.1",
         "phpunit/phpunit": "^12.0"
     },
@@ -26,7 +27,8 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "AOP\\Tests\\": "tests/"
+            "AOP\\Tests\\": "tests/",
+            "AopBench\\": "bench/"
         }
     },
     "php-ext": {
@@ -43,6 +45,7 @@
         "stan": "phpstan analyse --memory-limit=1G",
         "cs": "php-cs-fixer fix --dry-run --diff",
         "cs-fix": "php-cs-fixer fix",
+        "bench": "bench/run.sh",
         "check": [
             "@cs",
             "@stan",

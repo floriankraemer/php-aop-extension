@@ -55,3 +55,4 @@
 .vscode/
 .DS_Store
 *.swp
+bench/results/
