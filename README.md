@@ -224,6 +224,7 @@ The proxy column describes what that library documents about its proxies.
 The full list is in [docs/limitations.md](docs/limitations.md).
 The most relevant points:
 
+- The overhead of each backend is measured in [docs/benchmarks.md](docs/benchmarks.md): about 12 ns per call on top of plain PHP for `woven` with nothing registered, and no measurable cost for code without calls.
 - The default backend (`aop.interception=woven`) runs with the JIT, but it cannot intercept field access (`get()`, `set()`) or `initialization()`; those need `aop.interception=hook`, which turns the JIT off.
 - Under `woven`, advice sees arguments after parameter coercion, and advice on a generator function runs at the first resume.
 - Opcache inlining of functions that only return a constant is prevented by default (`aop.disable_inlining=1`).
@@ -258,6 +259,7 @@ make test-ext    # the phpt suite in ext/tests
 make check       # php-cs-fixer, phpstan, phpt and phpunit
 make test-all    # in Docker: PHP 8.3, 8.4 and 8.5, NTS and ZTS
 make dist        # in Docker: the release archives into dist/
+make bench       # the benchmark matrix, see docs/benchmarks.md (make bench-docker: PHP 8.3, 8.4, 8.5)
 ```
 
 [docs/building.md](docs/building.md) describes the Docker matrix, the variables and the release process.
