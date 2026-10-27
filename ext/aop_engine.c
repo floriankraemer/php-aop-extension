@@ -317,14 +317,19 @@ static zend_string *aop_caller_key_new(zend_function *func, zend_class_entry *ca
 zend_long aop_decide(zend_function *func, zend_class_entry *called, zend_execute_data *caller)
 {
 	aop_key key;
+	aop_fast_decision *slot = aop_fast_decision_slot(func, called);
 	zval *cached, v;
 	zend_long flags;
 
 	key.ce = called;
 	key.func = func;
-	cached = zend_hash_str_find(&AOP_G(decisions), (const char *) &key, sizeof(key));
-	if (EXPECTED(cached)) {
+	if (EXPECTED(slot->func == func && slot->called == called)) {
+		flags = slot->flags;
+	} else if ((cached = zend_hash_str_find(&AOP_G(decisions), (const char *) &key, sizeof(key)))) {
 		flags = Z_LVAL_P(cached);
+		slot->func = func;
+		slot->called = called;
+		slot->flags = flags;
 	} else {
 		zval d;
 		bool ok;
@@ -337,6 +342,9 @@ zend_long aop_decide(zend_function *func, zend_class_entry *called, zend_execute
 		}
 		ZVAL_LONG(&v, flags);
 		zend_hash_str_update(&AOP_G(decisions), (const char *) &key, sizeof(key), &v);
+		slot->func = func;
+		slot->called = called;
+		slot->flags = flags;
 	}
 
 	if (EXPECTED(!(flags & AOP_CALLER_SENSITIVE))) {
@@ -894,6 +902,7 @@ void aop_engine_rinit(void)
 	AOP_G(in_matcher) = 0;
 	AOP_G(bypass) = NULL;
 	zend_hash_init(&AOP_G(decisions), 64, NULL, NULL, 0);
+	memset(AOP_G(fast_decisions), 0, sizeof(AOP_G(fast_decisions)));
 	zend_hash_init(&AOP_G(caller_decisions), 16, NULL, NULL, 0);
 	aop_woven_rinit();
 	/* stream G */
@@ -905,6 +914,7 @@ void aop_engine_rinit(void)
 void aop_engine_reset(void)
 {
 	zend_hash_clean(&AOP_G(decisions));
+	memset(AOP_G(fast_decisions), 0, sizeof(AOP_G(fast_decisions)));
 	zend_hash_clean(&AOP_G(caller_decisions));
 	/* stream G */
 	zend_hash_clean(&AOP_G(jp_decisions));
