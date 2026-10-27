@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - php.ini settings `aop.enable`, `aop.disable_inlining` (keeps opcache from inlining advisable functions) and
   `aop.weave_autoload` (calls made while a class is autoloaded are not woven by default).
 - PHP 8.3, 8.4 and 8.5, NTS and ZTS.
+- Benchmark suite (`bench/`, phpbench): `make bench` and `make bench-docker` measure the overhead of the `hook` and `woven` backends
+  with the opcache JIT off, `tracing` and `function`; the method and the measured results are in `docs/benchmarks.md`.
 - Build and release tooling: `make ext|test-ext|test|check|test-all|dist`, Docker matrix builds for PHP 8.3/8.4/8.5
   (NTS and ZTS, glibc and musl), CI and tag-driven release workflows with PIE-compatible Windows assets and `SHA256SUMS`.
 - Examples 31 to 38 (audit and logging, transactions, caching, authorization, retry and circuit breaker, tracing and metrics, legacy code and architecture rules, a combined order service) and the page [docs/use-cases.md](docs/use-cases.md).

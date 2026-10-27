@@ -21,6 +21,7 @@ Jump to a page when you know what you need.
 | 9 | [Spring and AspectJ mapping](spring-mapping.md) | You port an aspect, or look for the equivalent of a Spring class. |
 | 10 | [Limitations](limitations.md) | You need to know what cannot be intercepted, the limits of fields, handlers, initialization and introductions, and the known issues. |
 | 11 | [Building, testing and releasing](building.md) | You build the extension, run the tests, or publish a release. |
+| 12 | [Benchmarks](benchmarks.md) | You want the overhead of the `hook` and `woven` backends, or you re-run the benchmark suite. |
 
 The runnable examples are in [examples/](../examples/README.md).
 Every code block in these pages is either copied from an example, or checked against one.

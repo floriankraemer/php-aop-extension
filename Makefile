@@ -69,6 +69,14 @@ check: vendor/autoload.php test-ext ## php-cs-fixer, phpstan, phpt and phpunit
 	$(MAKE) test
 	$(MAKE) test-examples
 
+.PHONY: bench
+bench: ext vendor/autoload.php ## Run the benchmark matrix natively (PHP=..., CPU=..., CELLS=..., see docs/benchmarks.md)
+	PHP=$(PHP) EXT_SO=$(CURDIR)/$(EXT_SO) bench/run.sh
+
+.PHONY: bench-docker
+bench-docker: ## In Docker: the benchmark matrix on PHP 8.3/8.4/8.5 NTS, results into bench/results/
+	scripts/docker-matrix.sh bench
+
 .PHONY: clean
 clean: ## Remove build output (ext/ artefacts, dist/, caches)
 	@if [ -f $(EXT_DIR)/Makefile ]; then cd $(EXT_DIR) && $(MAKE) distclean >/dev/null 2>&1 || true; fi

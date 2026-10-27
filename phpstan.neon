@@ -6,6 +6,7 @@ parameters:
     paths:
         - src
         - tests
+        - bench
     scanFiles:
         # Signatures of the classes the C extension registers (AOP\Engine, AOP\OriginalCall).
         - ext/aop.stub.php
