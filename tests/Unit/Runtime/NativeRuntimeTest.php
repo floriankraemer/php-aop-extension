@@ -415,18 +415,22 @@ final class NativeRuntimeTest extends TestCase
         self::assertSame(JoinPointKind::METHOD_CALL, $call->getKind());
         self::assertSame($caller, $call->getThis());
         self::assertSame($callee, $call->getTarget());
-        self::assertSame(12, $call->getSourceLocation()->line);
-        self::assertSame('caller.php', $call->getSourceLocation()->file);
-        self::assertSame(Caller::class, $call->getSourceLocation()->class);
-        self::assertSame('run', $call->getSourceLocation()->function);
+        $callLocation = $call->getSourceLocation();
+        self::assertNotNull($callLocation);
+        self::assertSame(12, $callLocation->line);
+        self::assertSame('caller.php', $callLocation->file);
+        self::assertSame(Caller::class, $callLocation->class);
+        self::assertSame('run', $callLocation->function);
         self::assertSame('method-execution(Caller::run(..))', $call->getEnclosingStaticPart()?->toShortString());
         self::assertSame(JoinPointKind::METHOD_EXECUTION, $execution->getKind());
         self::assertSame($callee, $execution->getThis());
         self::assertSame($callee, $execution->getTarget());
         self::assertTrue($execution->isOutermost(), 'an engine descriptor without the key is outermost');
-        self::assertSame(Callee::class, $execution->getSourceLocation()->class);
-        self::assertSame('find', $execution->getSourceLocation()->function);
-        self::assertGreaterThan(0, $execution->getSourceLocation()->line);
+        $executionLocation = $execution->getSourceLocation();
+        self::assertNotNull($executionLocation);
+        self::assertSame(Callee::class, $executionLocation->class);
+        self::assertSame('find', $executionLocation->function);
+        self::assertGreaterThan(0, $executionLocation->line);
     }
 
     #[Test]
@@ -462,9 +466,8 @@ final class NativeRuntimeTest extends TestCase
 
         $runtime->dispatch($descriptor + ['outermost' => true], new Callee(), [], static fn (array $a): null => null);
         $outermost = array_map(static fn (MethodInvocation $jp): JoinPointKind => $jp->getKind(), $trace->seen);
-        $trace->seen = [];
         $runtime->dispatch($descriptor + ['outermost' => false], new Callee(), [], static fn (array $a): null => null);
-        $nested = array_map(static fn (MethodInvocation $jp): JoinPointKind => $jp->getKind(), $trace->seen);
+        $nested = array_map(static fn (MethodInvocation $jp): JoinPointKind => $jp->getKind(), array_slice($trace->seen, count($outermost)));
 
         self::assertSame([JoinPointKind::CONSTRUCTOR_CALL, JoinPointKind::CONSTRUCTOR_EXECUTION], $outermost);
         self::assertSame([JoinPointKind::CONSTRUCTOR_EXECUTION], $nested);
