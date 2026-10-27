@@ -38,6 +38,9 @@
         "configure-options": []
     },
     "config": {
+        "allow-plugins": {
+            "infection/extension-installer": true
+        },
         "sort-packages": true
     },
     "minimum-stability": "stable",
