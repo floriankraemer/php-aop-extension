@@ -71,4 +71,15 @@ final class Conditions
     {
         return true;
     }
+
+    // @phpstan-ignore missingType.parameter (untyped parameter is the point of this fixture)
+    public static function untypedParameter($jp): bool
+    {
+        return true;
+    }
+
+    public static function unionParameter(JoinPointInterface|string $jp): bool
+    {
+        return true;
+    }
 }

@@ -51,4 +51,13 @@ final class SimplePatternsTest extends TestCase
         self::assertTrue((new ModifierPattern('protected'))->matches($protectedParent));
         self::assertFalse((new ModifierPattern('protected'))->matches($public));
     }
+
+    #[Test]
+    public function modifierPatternRejectsUnknownModifiers(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage(ModifierPattern::unknownMessage('readonly'));
+
+        new ModifierPattern(['public', '!readonly']);
+    }
 }

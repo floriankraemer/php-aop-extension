@@ -253,4 +253,17 @@ final class JoinPointShapesTest extends RuntimeTestCase
     {
         self::assertSame('A!', shout('a'));
     }
+
+    #[Test]
+    public function aCallFromAPlainFunctionIsEnclosedByThatFunction(): void
+    {
+        $this->weave($call = new Trace('call'), [JoinPointKind::METHOD_CALL], 'pub');
+        $callerInfo = ['class' => null, 'scope' => null, 'function' => 'AOP\Tests\Fixtures\Runtime\shout', 'file' => __FILE__, 'line' => 7, 'object' => null];
+
+        $this->engine->call(new TargetService(), 'pub', ['x'], $callerInfo);
+
+        $callJp = $call->seen[0];
+        self::assertSame('function-execution(shout(..))', $callJp->getEnclosingStaticPart()?->toShortString());
+        self::assertNull($callJp->getThis(), 'a function has no this');
+    }
 }

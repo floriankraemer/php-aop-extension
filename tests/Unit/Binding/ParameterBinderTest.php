@@ -16,6 +16,7 @@ use AOP\Tests\Fixtures\Aspect\BindingAspect;
 use AOP\Tests\Fixtures\Hierarchy\Audit;
 use AOP\Tests\Fixtures\Jp;
 use AOP\Tests\Fixtures\Service\UserService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
@@ -120,6 +121,15 @@ final class ParameterBinderTest extends TestCase
     }
 
     #[Test]
+    public function throwingNameWithoutMatchingParameterIsRejected(): void
+    {
+        $this->expectException(BindingException::class);
+        $this->expectExceptionMessage('declares throwing: "missing" but has no parameter $missing');
+
+        $this->plan('afterThrowingMissingParameter');
+    }
+
+    #[Test]
     public function aroundReceivesTheProceedingJoinPoint(): void
     {
         $jp = $this->joinPoint();
@@ -199,5 +209,44 @@ final class ParameterBinderTest extends TestCase
         $this->expectExceptionMessage('$id');
 
         $this->plan('withArgs')->resolve($this->joinPoint(), []);
+    }
+
+    /**
+     * @return iterable<string, array{string, mixed, bool}>
+     */
+    public static function returningTypeCases(): iterable
+    {
+        yield 'union hit' => ['int|string', 's', true];
+        yield 'union miss' => ['int|string', 1.5, false];
+        yield 'intersection hit' => [\Countable::class.'&'.\Traversable::class, new \ArrayObject(), true];
+        yield 'intersection miss' => [\Countable::class.'&'.\Traversable::class, new \stdClass(), false];
+        yield 'class' => [\ArrayObject::class, new \ArrayObject(), true];
+        yield 'class miss' => [\ArrayObject::class, 'x', false];
+        yield 'mixed' => ['mixed', 1, true];
+        yield 'object' => ['object', new \stdClass(), true];
+        yield 'object miss' => ['object', 1, false];
+        yield 'iterable' => ['iterable', [1], true];
+        yield 'iterable miss' => ['iterable', 1, false];
+        yield 'callable' => ['callable', 'strlen', true];
+        yield 'callable miss' => ['callable', 'no_such_function_aop', false];
+        yield 'true' => ['true', true, true];
+        yield 'true miss' => ['true', false, false];
+        yield 'false' => ['false', false, true];
+        yield 'false miss' => ['false', true, false];
+        yield 'scalar' => ['int', 1, true];
+        yield 'scalar miss' => ['int', '1', false];
+    }
+
+    #[Test]
+    #[DataProvider('returningTypeCases')]
+    public function aDeclaredBindingTypeRestrictsWhatTheAdviceAccepts(string $type, mixed $value, bool $expected): void
+    {
+        $function = eval('return static function ('.$type.' $bound): void {};');
+        self::assertInstanceOf(\Closure::class, $function);
+        $reflection = (new \ReflectionFunction($function))->getParameters()[0]->getType();
+
+        $plan = new BindingPlan('advice', [['returning']], $reflection, null);
+
+        self::assertSame($expected, $plan->acceptsReturnValue($value));
     }
 }

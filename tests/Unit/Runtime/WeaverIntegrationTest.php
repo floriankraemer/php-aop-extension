@@ -7,6 +7,7 @@ namespace AOP\Tests\Unit\Runtime;
 use AOP\Attribute\Configurable;
 use AOP\JoinPoint\JoinPointKind;
 use AOP\TargetSource\HotSwappableTargetSource;
+use AOP\Tests\Fixtures\Api\BeforeOnly;
 use AOP\Tests\Fixtures\Log;
 use AOP\Tests\Fixtures\Runtime\KindPointcut;
 use AOP\Tests\Fixtures\Runtime\PlainConfigAspect;
@@ -34,6 +35,20 @@ final class WeaverIntegrationTest extends RuntimeTestCase
         Log::reset();
         $this->engine->call($service, 'pub', ['x']);
         self::assertSame(['pub'], Log::$entries);
+    }
+
+    #[Test]
+    public function fromConfigRegistersProgrammaticAdvisors(): void
+    {
+        $weaver = Weaver::fromConfig(['advisors' => [[
+            'advice' => new BeforeOnly('configured'),
+            'pointcut' => 'execution(* AOP\Tests\Fixtures\Runtime\TargetService::pub(..))',
+        ]]], null, $this->engine);
+        $weaver->enable();
+
+        $this->engine->call(new TargetService(), 'pub', ['x']);
+
+        self::assertSame(['configured', 'pub'], Log::$entries);
     }
 
     #[Test]

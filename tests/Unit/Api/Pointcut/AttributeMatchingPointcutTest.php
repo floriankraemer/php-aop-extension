@@ -13,6 +13,7 @@ use AOP\Tests\Fixtures\Api\MarkedAccount;
 use AOP\Tests\Fixtures\Api\MarkedChild;
 use AOP\Tests\Fixtures\Api\MethodMarked;
 use AOP\Tests\Fixtures\Api\SubMark;
+use AOP\Tests\Fixtures\Api\UsesMarkedTrait;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
@@ -95,5 +96,12 @@ final class AttributeMatchingPointcutTest extends TestCase
         self::assertTrue(Pointcuts::matches(new AttributeMatchingPointcut(null, Mark::class), $marked));
         self::assertFalse(Pointcuts::matches(new AttributeMatchingPointcut(null, Mark::class), $plain));
         self::assertFalse(Pointcuts::matches(new AttributeMatchingPointcut(Mark::class), $marked), 'a function has no class');
+    }
+
+    #[Test]
+    public function classAttributesAreInheritedFromUsedTraits(): void
+    {
+        self::assertFalse($this->advised(new AttributeMatchingPointcut(Mark::class), UsesMarkedTrait::class, 'fromTrait'));
+        self::assertTrue($this->advised(new AttributeMatchingPointcut(Mark::class, null, true), UsesMarkedTrait::class, 'fromTrait'));
     }
 }

@@ -7,6 +7,9 @@ namespace AOP\Tests\Unit\Pointcut;
 use AOP\Exception\BindingException;
 use AOP\JoinPoint\JoinPointKind;
 use AOP\Pointcut\GetPointcut;
+use AOP\Pointcut\Pattern\FieldPattern;
+use AOP\Pointcut\Pattern\NamePattern;
+use AOP\Pointcut\Pattern\TypePattern;
 use AOP\Pointcut\SetPointcut;
 use AOP\Tests\Fixtures\Pointcut\Callee;
 use AOP\Tests\Fixtures\Pointcut\Caller;
@@ -202,5 +205,28 @@ final class FieldPointcutTest extends TestCase
     {
         $this->expectException(BindingException::class);
         Shadow::compile('!(set(* '.Callee::class.'::$count) && args(v))', ['v']);
+    }
+
+    #[Test]
+    public function aFieldPatternRejectsUnknownModifiers(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Unknown modifier "final"');
+
+        new FieldPattern(['public', '!final'], null, null, new NamePattern('*'));
+    }
+
+    #[Test]
+    public function aFieldPatternMatchesTheDeclaringTypeAgainstTheWholeHierarchy(): void
+    {
+        $any = new FieldPattern([], null, null, new NamePattern('*'));
+        $countable = new FieldPattern([], null, new TypePattern(\Countable::class, false, false), new NamePattern('*'));
+        $parent = new FieldPattern([], null, new TypePattern(Callee::class, false, false), new NamePattern('*'));
+
+        self::assertTrue($any->matchesClass(null), 'no declaring type restriction accepts even an unknown class');
+        self::assertFalse($countable->matchesClass(null));
+        self::assertTrue($countable->matchesClass(new \ReflectionClass(\ArrayObject::class)), 'an implemented interface');
+        self::assertFalse($countable->matchesClass(new \ReflectionClass(\stdClass::class)));
+        self::assertTrue($parent->matchesClass(new \ReflectionClass(SubCallee::class)), 'a parent class');
     }
 }

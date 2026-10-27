@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Coverage quality gate: `make coverage-php` and `make coverage-c`, and a CI job that fails when line coverage of `src/` or `ext/*.c` drops below 85%.
 - Native engine (`ext/`) that weaves advice into the Zend engine, without proxies or generated classes.
   Advice reaches private, protected, static and final methods, final classes, self-invocation, constructors, functions and internal functions.
 - Pointcut language: `execution()`, `call()`, `within()`, `withincode()`, `this()`, `target()`, `args()`, the `@`

@@ -72,6 +72,43 @@ jobs:
         if: matrix.php == '8.3' && matrix.ts == 'nts'
         run: composer cs
 
+  # Quality gate: line coverage of src/ (unit + e2e, pcov) and of ext/*.c (phpt, gcov) must stay at or above
+  # COVERAGE_MIN in the Makefile. One flavour is enough: coverage does not depend on PHP version or thread safety.
+  coverage:
+    name: Coverage gate (PHP 8.3 nts)
+    runs-on: ubuntu-24.04
+    env:
+      phpts: nts
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer, phpize, php-config
+          coverage: pcov
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Install gcovr
+        run: pipx install gcovr
+
+      - name: PHP coverage (fails below the minimum)
+        run: make coverage-php
+
+      - name: C coverage (fails below the minimum)
+        run: make coverage-c
+
+      - name: Upload coverage summaries
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-summary
+          path: build/coverage/
+          if-no-files-found: ignore
+
   valgrind:
     name: Valgrind PHP 8.3 nts
     runs-on: ubuntu-24.04

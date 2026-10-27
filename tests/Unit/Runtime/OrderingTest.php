@@ -99,4 +99,13 @@ final class OrderingTest extends RuntimeTestCase
 
         return $advisors;
     }
+
+    #[Test]
+    public function aDeclarationWithTwoStarsIsRejected(): void
+    {
+        $this->expectException(AspectDefinitionException::class);
+        $this->expectExceptionMessage('contains "*" twice');
+
+        AdvisorOrdering::sort($this->advisors(['X' => 1, 'Y' => 2]), ['X, *, *']);
+    }
 }

@@ -209,4 +209,26 @@ final class AdvisorAdapterRegistryTest extends TestCase
             self::assertInstanceOf(\TypeError::class, $e->getPrevious());
         }
     }
+
+    #[Test]
+    public function aTypeErrorFromInsideTheAdapterIsNotMistakenForAWrongReturnType(): void
+    {
+        $registry = new AdvisorAdapterRegistry();
+        $registry->registerAdvisorAdapter(new class implements AdvisorAdapterInterface {
+            public function supportsAdvice(object $advice): bool
+            {
+                return true;
+            }
+
+            public function getInterceptor(object $advice): MethodInterceptorInterface
+            {
+                throw new \TypeError('unrelated failure');
+            }
+        });
+
+        $this->expectException(\TypeError::class);
+        $this->expectExceptionMessage('unrelated failure');
+
+        $registry->getInterceptor(new AuditAdvice());
+    }
 }

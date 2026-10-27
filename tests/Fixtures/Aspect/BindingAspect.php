@@ -42,6 +42,11 @@ final class BindingAspect
     {
     }
 
+    #[AfterThrowing('execution(* *::*(..))', throwing: 'missing')]
+    public function afterThrowingMissingParameter(): void
+    {
+    }
+
     #[AfterThrowing('execution(* *::*(..))', throwing: 'e')]
     public function afterThrowing(\RuntimeException $e): void
     {

@@ -9,9 +9,11 @@ use AOP\Advisor\Advisor;
 use AOP\Advisor\Api\AdvisorAdapterRegistry;
 use AOP\Aspect\ArrayAspectInstanceResolver;
 use AOP\Aspect\AspectScope;
+use AOP\Config\ArrayNamedPointcutResolver;
 use AOP\Config\ConfigLoader;
 use AOP\Config\ConfigResult;
 use AOP\Config\ConfigurationException;
+use AOP\Exception\PointcutSyntaxException;
 use AOP\Tests\Fixtures\Api\Account;
 use AOP\Tests\Fixtures\Api\AuditAdvice;
 use AOP\Tests\Fixtures\Api\BeforeOnly;
@@ -354,10 +356,12 @@ final class ConfigLoaderTest extends TestCase
         yield 'unbindable parameter' => [$advice(['method' => 'withArgument', 'type' => 'around']), 'Cannot bind parameter $amount'];
         yield 'around needs a proceeding join point' => [$advice(['type' => 'around']), 'Around advice '.PlainAspect::class.'::before must declare'];
         yield 'returning without parameter' => [$advice(['type' => 'after-returning', 'returning' => 'missing']), 'declares returning: "missing" but has no parameter $missing'];
+        yield 'throwing without parameter' => [$advice(['type' => 'after-throwing', 'throwing' => 'missing']), 'declares throwing: "missing" but has no parameter $missing'];
         yield 'bad shared pointcut name' => [['pointcuts' => ['a-b' => 'x']], 'aop.pointcuts: "a-b" is not a valid pointcut name'];
         yield 'bad shared pointcut expression' => [['pointcuts' => ['p' => 'bogus(']], 'aop.pointcuts.p: invalid pointcut "bogus("'];
         yield 'empty shared pointcut' => [['pointcuts' => ['p' => '']], 'aop.pointcuts.p: the expression must be a non-empty string'];
         yield 'bad declare-parents' => [$aspect(['declare-parents' => [['types-matching' => 'A', 'implement-interface' => PlainAspect::class, 'default-impl' => DescribableImpl::class]]]), '"'.PlainAspect::class.'" is not an interface'];
+        yield 'declare-parents impl missing' => [$aspect(['declare-parents' => [['types-matching' => 'A', 'implement-interface' => Describable::class, 'default-impl' => 'No\\Such\\Impl']]]), 'default implementation "No\\Such\\Impl" does not exist'];
         yield 'declare-parents missing key' => [$aspect(['declare-parents' => [['types-matching' => 'A']]]), '"implement-interface" is required'];
         yield 'declare-parents impl mismatch' => [$aspect(['declare-parents' => [['types-matching' => 'A', 'implement-interface' => Describable::class, 'default-impl' => PlainAspect::class]]]), 'does not implement'];
         yield 'advisor without advice' => [['advisors' => [['pointcut' => 'x']]], 'aop.advisors[0]: give exactly one of "advice" and "advice-ref"'];
@@ -406,5 +410,22 @@ final class ConfigLoaderTest extends TestCase
             self::assertStringContainsString('Unknown named pointcut "'.PlainAspect::class.'::unknownRef()"', $e->getMessage());
             self::assertNotNull($e->getPrevious());
         }
+    }
+
+    #[Test]
+    public function configurationAdvisorsResolveOnlyTopLevelNamedPointcuts(): void
+    {
+        $resolver = new ArrayNamedPointcutResolver(['balance' => 'execution(* AOP\Tests\Fixtures\Api\Account::getBalance(..))']);
+
+        self::assertSame('execution(* AOP\Tests\Fixtures\Api\Account::getBalance(..))', $resolver->resolve(null, 'balance', PlainAspect::class));
+        try {
+            $resolver->resolve(Account::class, 'balance', PlainAspect::class);
+            self::fail('A class-qualified reference must be rejected.');
+        } catch (PointcutSyntaxException $e) {
+            self::assertStringContainsString('can only reference the top-level named pointcuts', $e->getMessage());
+        }
+        $this->expectException(PointcutSyntaxException::class);
+        $this->expectExceptionMessage('Unknown named pointcut "nope()"');
+        $resolver->resolve(null, 'nope', PlainAspect::class);
     }
 }

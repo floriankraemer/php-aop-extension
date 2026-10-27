@@ -73,6 +73,10 @@ class UserRepository extends AbstractRepository
         return $this;
     }
 
+    public function loose(mixed $anything, object $thing): void
+    {
+    }
+
     public function selfReturn(): static
     {
         return $this;
