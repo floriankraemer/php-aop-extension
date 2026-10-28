@@ -1,6 +1,6 @@
 # Progress log
 
-Plan: [plan.md](plan.md). Contract between engine and runtime: [../internals/contract.md](../internals/contract.md).
+Contract between engine and runtime: [../internals/contract.md](../internals/contract.md).
 Work happens on branch `initial-implementation`; each stream works in its own local worktree branch and is merged here.
 
 ## Status
@@ -66,8 +66,7 @@ Work happens on branch `initial-implementation`; each stream works in its own lo
 - Final checks: `composer validate`, actionlint, semver tests, phpstan max, cs, unit 1346, e2e 25/25, phpt 40/46 (8.3), Docker matrix 8.4/8.5 NTS/ZTS green, 30 examples match. Removed the unused `tools/coverage-check.php` copied from phauthentic/aop.
 
 ## Still to do
-- First CI run on GitHub: musl, arm64, macOS, Windows and phpunit inside containers could not run in the sandbox (no container network, no macOS/Windows).
-- Before the first tag: move the CHANGELOG `Unreleased` entries into a version section (release notes come from it).
-- Opcache inlining with `aop.disable_inlining=0` behaved inconsistently in manual runs (phpt 200 passes); only matters when the default protection is switched off.
-- Valgrind of the field code on 8.4/8.5 (the images have no valgrind).
-- Not covered by design (documented in `docs/limitations.md`): JIT while aop is active, compiler-specialised internals (`strlen`, `count`, …), frame-inspecting internals (`compact`, `extract`), by-ref returns, closures, isset/unset/static properties, objects not created with `new`.
+- Opcache inlining with `aop.disable_inlining=0` behaves inconsistently: [#15](https://github.com/floriankraemer/php-aop-extension/issues/15).
+
+## Known limitations
+See [../limitations.md](../limitations.md).
