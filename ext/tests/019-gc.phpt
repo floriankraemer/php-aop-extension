@@ -2,6 +2,8 @@
 OriginalCall keeps $this alive, cycles through it are collectable, no growth over many calls
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 class Node

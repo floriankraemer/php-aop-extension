@@ -3,6 +3,7 @@ Woven: advice sees the arguments after coercion (a difference to the hook backen
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=woven
 --FILE--
 <?php

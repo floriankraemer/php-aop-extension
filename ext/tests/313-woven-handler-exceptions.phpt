@@ -6,6 +6,8 @@ aop
 <?php
 if (ini_get('aop.interception') !== 'woven') die('skip needs the default aop.interception=woven');
 ?>
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 namespace AOP\Runtime {

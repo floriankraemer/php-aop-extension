@@ -2,6 +2,8 @@
 AOP\Engine and AOP\OriginalCall API surface
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 var_dump(\AOP\Engine::ADVISE, \AOP\Engine::TRACK, \AOP\Engine::CALLER_SENSITIVE);

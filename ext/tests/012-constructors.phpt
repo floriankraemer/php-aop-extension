@@ -2,6 +2,8 @@
 Constructors: kind, $this, outermost with parent::__construct(), proceed zero times
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 class ParentC

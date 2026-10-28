@@ -3,6 +3,7 @@ Exceptions from the original, from the dispatcher and from the matcher
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=hook
 --FILE--
 <?php

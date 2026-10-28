@@ -3,6 +3,7 @@ aop.enable=0 registers the classes but no hooks; register() throws
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.enable=0
 --FILE--
 <?php

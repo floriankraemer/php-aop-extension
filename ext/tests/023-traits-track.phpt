@@ -2,6 +2,8 @@
 Trait methods report the using class as scope; TRACK dispatches like ADVISE; anonymous classes
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 trait Greets { public function greet() { return 'hi from '.self::class; } }

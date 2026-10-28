@@ -3,6 +3,7 @@ Fields: matcher guard, AOP\ code, reset()/unregister(), matcher and dispatcher e
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=hook
 --FILE--
 <?php

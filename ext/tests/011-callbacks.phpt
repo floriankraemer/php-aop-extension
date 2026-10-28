@@ -2,6 +2,8 @@
 Calls through call_user_func, array_map, Reflection, static:: and first-class callables
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 require __DIR__.'/000-helper.inc';

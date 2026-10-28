@@ -2,6 +2,8 @@
 Introductions: rule validation, type patterns, only classes compiled afterwards, eval, namespaces, conditional classes, interception of introduced methods
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 interface Tagged { public function tag(): string; }

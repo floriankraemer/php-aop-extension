@@ -2,6 +2,8 @@
 Woven catch blocks: multi-catch picks the catching class, non-capturing catch leaves no variable, nested try/finally with throwing advice
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 namespace App {

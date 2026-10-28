@@ -4,6 +4,8 @@ PHP 8.4+: property hook bodies are no method join points; advised methods using 
 aop
 --SKIPIF--
 <?php if (PHP_VERSION_ID < 80400) die('skip PHP 8.4+ (property hooks)'); ?>
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 require __DIR__.'/000-helper.inc';

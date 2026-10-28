@@ -3,6 +3,7 @@ Woven: the advised frame stays on the stack, behind the intercept() frame, while
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=woven
 --FILE--
 <?php

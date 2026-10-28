@@ -3,6 +3,7 @@ The advised frame stays on the stack while the dispatcher runs; dispatch inside 
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=hook
 --FILE--
 <?php

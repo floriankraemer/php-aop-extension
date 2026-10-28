@@ -2,6 +2,8 @@
 Public, protected, private, static and final methods, final classes and self-invocation
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 require __DIR__.'/000-helper.inc';

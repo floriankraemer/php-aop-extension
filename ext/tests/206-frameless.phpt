@@ -4,6 +4,8 @@ PHP 8.4+: internal functions with frameless variants are not compiled frameless 
 aop
 --SKIPIF--
 <?php if (PHP_VERSION_ID < 80400) die('skip PHP 8.4+ (frameless calls)'); ?>
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 namespace App {

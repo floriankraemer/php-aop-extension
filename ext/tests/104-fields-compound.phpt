@@ -3,6 +3,7 @@ Fields: compound assignments and increments are a get and a set; write fetches (
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=hook
 --FILE--
 <?php

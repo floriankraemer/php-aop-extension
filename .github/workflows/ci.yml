@@ -140,9 +140,7 @@ jobs:
           NO_INTERACTION: "1"
           REPORT_EXIT_STATUS: "1"
           USE_ZEND_ALLOC: "0"
-          # setup-php enables the JIT on 8.5; the JIT compiler is not valgrind-clean (see the skips in ext/tests),
-          # and the startup output of the hook backend disabling it breaks the opcache tests.
-          TEST_PHP_ARGS: "-m -q -d opcache.jit=disable"
+          TEST_PHP_ARGS: "-m -q"
         run: make test
 
   # Same matrix as the macOS jobs in release.yml, so a release cannot fail on a combination CI never ran.

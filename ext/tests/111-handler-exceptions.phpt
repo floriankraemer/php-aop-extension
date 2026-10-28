@@ -3,6 +3,7 @@ exception-handler: an exception from the dispatcher replaces the caught one (sib
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=hook
 --FILE--
 <?php

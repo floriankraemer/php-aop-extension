@@ -2,6 +2,8 @@
 CALLER_SENSITIVE: asked again per caller function, both answers cached
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 class Target { public function hit() { return 'hit'; } }

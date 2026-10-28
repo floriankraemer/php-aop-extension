@@ -3,6 +3,7 @@ aop.interception: an invalid value is reported and the default (woven) stays
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=sideways
 display_startup_errors=1
 --FILE--

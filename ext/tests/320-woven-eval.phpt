@@ -2,6 +2,8 @@
 Woven code in eval(): functions, classes and catch blocks compiled by eval are intercepted
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 $seen = [];

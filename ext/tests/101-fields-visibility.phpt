@@ -3,6 +3,7 @@ Fields: visibility is checked before the join point; private shadowing; Original
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=hook
 --FILE--
 <?php

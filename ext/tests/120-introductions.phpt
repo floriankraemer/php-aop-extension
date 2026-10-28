@@ -2,6 +2,8 @@
 Introductions: implements, delegating methods with the interface's signature, per-object default implementation, declared and inherited methods win
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 require __DIR__.'/120-intro-lib.inc';

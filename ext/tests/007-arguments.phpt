@@ -3,6 +3,7 @@ Raw arguments: variadics, named arguments, omitted defaults, extra arguments
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=hook
 --FILE--
 <?php

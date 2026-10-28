@@ -48,6 +48,8 @@ Do not change the version yourself in a pull request; maintainers tag releases.
 - Run `make check` (php-cs-fixer, phpstan, the phpt suite and phpunit).
   `docs/building.md` explains the build and every test target.
 - Add or update tests for the change.
+- Every phpt in `ext/tests` sets `opcache.jit` in its `--INI--` section (`opcache.jit=disable` unless the test covers the JIT).
+  Without it the result depends on the `php.ini` of the machine that runs the suite.
   Line coverage of `src/` and `ext/*.c` must stay at or above 85%.
 - Update the documentation in `docs/` when behavior changes.
 - Add a line to `CHANGELOG.md` under `[Unreleased]`.

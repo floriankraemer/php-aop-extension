@@ -11,6 +11,8 @@ if (trim((string) shell_exec($cmd)) !== 'loaded') {
     die('skip dl() cannot load aop here (not CLI, or dl is disabled)');
 }
 ?>
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 $script = <<<'PHP'
