@@ -3,6 +3,7 @@ Fields: what is not covered (objects not created by new after register, isset/un
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=hook
 --FILE--
 <?php

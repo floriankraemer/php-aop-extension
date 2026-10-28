@@ -2,6 +2,8 @@
 Woven catch blocks: nested non-capturing catches and catches inside closures and static closures
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 class Svc

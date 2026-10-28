@@ -2,6 +2,8 @@
 Proceed zero, one and two times, with changed arguments, and after the dispatcher returned
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 require __DIR__.'/000-helper.inc';

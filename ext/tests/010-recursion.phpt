@@ -2,6 +2,8 @@
 Recursion and nested advised calls inside the dispatcher
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 require __DIR__.'/000-helper.inc';

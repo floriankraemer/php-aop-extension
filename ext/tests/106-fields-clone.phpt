@@ -3,6 +3,7 @@ Fields: clones keep the wrapped handlers, accesses in __clone are covered, defer
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=hook
 --FILE--
 <?php

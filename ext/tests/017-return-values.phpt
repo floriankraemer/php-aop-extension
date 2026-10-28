@@ -3,6 +3,7 @@ Return values: used and unused, replaced, void and typed functions
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 ; opcache would inline these trivial functions (optimizer pass 16), see 025-opcache-inlining.phpt
 opcache.optimization_level=0x7FFE3FFF
 --FILE--

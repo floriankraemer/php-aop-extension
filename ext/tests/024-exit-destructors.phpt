@@ -2,6 +2,8 @@
 Destructors are join points; exit() inside the dispatcher or the original unwinds cleanly
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 class Res

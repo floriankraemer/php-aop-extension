@@ -4,6 +4,8 @@ PHP 8.4+: #[\Deprecated] user functions: the call site reports the deprecation, 
 aop
 --SKIPIF--
 <?php if (PHP_VERSION_ID < 80400) die('skip PHP 8.4+ (#[\Deprecated])'); ?>
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 #[\Deprecated('use new_one()')]

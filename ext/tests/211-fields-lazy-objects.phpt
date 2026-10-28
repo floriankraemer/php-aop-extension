@@ -5,6 +5,7 @@ aop
 --SKIPIF--
 <?php if (PHP_VERSION_ID < 80400) die('skip PHP 8.4+ (lazy objects)'); ?>
 --INI--
+opcache.jit=disable
 aop.interception=hook
 --FILE--
 <?php

@@ -3,6 +3,7 @@ aop.interception=hook: phpinfo() rows and field interception
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=hook
 --FILE--
 <?php

@@ -3,6 +3,7 @@ Woven: value, void, never and constructor functions, static and variadic methods
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=woven
 --FILE--
 <?php

@@ -7,6 +7,7 @@ aop
 if (!extension_loaded('Zend OPcache')) die('skip opcache not loaded');
 ?>
 --INI--
+opcache.jit=disable
 aop.interception=hook
 opcache.enable=1
 opcache.enable_cli=1

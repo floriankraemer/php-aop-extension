@@ -2,6 +2,8 @@
 Constructors with promoted properties: advice that skips or repeats the constructor sees the same object state in both backends
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 class P

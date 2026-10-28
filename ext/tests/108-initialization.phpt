@@ -3,6 +3,7 @@ initialization: ctor-less classes from new ($this = the new object, no-op Origin
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=hook
 --FILE--
 <?php

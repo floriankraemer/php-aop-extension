@@ -6,6 +6,8 @@ aop
 <?php
 if (PHP_VERSION_ID < 80500) die('skip closures in constant expressions need PHP 8.5');
 ?>
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 const GUARD = static function (callable $f): string {

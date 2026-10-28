@@ -3,6 +3,7 @@ Fields: field-get/field-set descriptors, OriginalCall semantics, substituted and
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=hook
 --FILE--
 <?php

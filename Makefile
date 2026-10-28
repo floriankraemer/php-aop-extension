@@ -48,12 +48,13 @@ $(EXT_SO): $(wildcard $(EXT_DIR)/*.c $(EXT_DIR)/*.h $(EXT_DIR)/config.m4)
 .PHONY: test-ext
 test-ext: ext ## Run the phpt suite against the built extension
 	@# phpize's `make test` copies the system php.ini into tmp-php.ini; a JIT enabled there (setup-php does) makes aop
-	@# print its JIT notice in every test with opcache on. Tests that cover the JIT enable it in their --INI-- section.
+	@# print its JIT notice in every test with opcache on. Every phpt therefore sets opcache.jit in its own --INI--
+	@# (disable, or the JIT mode the test covers), so the result does not depend on the ini of the machine.
 	cd $(EXT_DIR) && NO_INTERACTION=1 REPORT_EXIT_STATUS=1 TEST_PHP_EXECUTABLE=$$(command -v $(PHP)) \
-		TEST_PHP_ARGS="-q -d opcache.jit=disable" $(MAKE) test
+		TEST_PHP_ARGS="-q" $(MAKE) test
 	@# Second pass with opcache enabled: its optimizer (function inlining, constant folding) changes what reaches the engine.
 	cd $(EXT_DIR) && NO_INTERACTION=1 REPORT_EXIT_STATUS=1 TEST_PHP_EXECUTABLE=$$(command -v $(PHP)) \
-		TEST_PHP_ARGS="-q -d opcache.jit=disable $$(../scripts/opcache-args.sh $(PHP))" $(MAKE) test
+		TEST_PHP_ARGS="-q $$(../scripts/opcache-args.sh $(PHP))" $(MAKE) test
 
 vendor/autoload.php: composer.json
 	$(COMPOSER) install --no-interaction --no-progress
@@ -85,7 +86,7 @@ coverage-c: ## Line coverage of ext/*.c from the phpt suite, fails below COVERAG
 	rm -f $(EXT_SO)
 	$(MAKE) ext EXT_CFLAGS='-O0 -g --coverage' EXT_LDFLAGS='--coverage'
 	cd $(EXT_DIR) && NO_INTERACTION=1 REPORT_EXIT_STATUS=1 TEST_PHP_EXECUTABLE=$$(command -v $(PHP)) \
-		TEST_PHP_ARGS="-q -d opcache.jit=disable" $(MAKE) test
+		TEST_PHP_ARGS="-q" $(MAKE) test
 	@mkdir -p build/coverage
 	set -o pipefail; cd $(EXT_DIR) && gcovr -r . --object-directory .libs --filter 'aop.*\.c$$' --txt --print-summary \
 		--gcov-ignore-errors=no_working_dir_found --fail-under-line $(COVERAGE_MIN) | tee ../build/coverage/ext-summary.txt

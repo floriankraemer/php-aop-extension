@@ -25,7 +25,7 @@ See the PIE documentation for the details.
 
 ### Prebuilt archives
 
-Each release made from a version tag has archives for Linux (glibc and musl, x86_64 and arm64), macOS (arm64 and x86_64) and Windows (x64 and x86), for PHP 8.3, 8.4 and 8.5, NTS and ZTS.
+Each release made from a version tag has archives for Linux (glibc and musl, x86_64 and arm64), macOS (arm64; Intel Macs build from source) and Windows (x64 and x86), for PHP 8.3, 8.4 and 8.5, NTS and ZTS.
 Unpack the archive for your platform, and enable the extension with the `aop.ini` it contains, or with `extension=aop` in `php.ini`.
 The archive names and the checksums are described in [building.md](building.md#release-process).
 

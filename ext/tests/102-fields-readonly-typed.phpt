@@ -3,6 +3,7 @@ Fields: readonly and typed properties (initialization, modification errors, coer
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=hook
 --FILE--
 <?php

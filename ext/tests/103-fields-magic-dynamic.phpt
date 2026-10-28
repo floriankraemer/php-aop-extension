@@ -3,6 +3,7 @@ Fields: __get/__set, dynamic properties, accesses from inside the class and from
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=hook
 --FILE--
 <?php

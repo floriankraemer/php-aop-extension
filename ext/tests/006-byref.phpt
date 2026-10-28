@@ -2,6 +2,8 @@
 By-reference parameters write through to the caller
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 require __DIR__.'/000-helper.inc';

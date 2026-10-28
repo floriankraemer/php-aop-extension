@@ -2,6 +2,8 @@
 Join point descriptors given to the matcher and to the dispatcher
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 class Svc

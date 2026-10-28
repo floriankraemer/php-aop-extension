@@ -171,11 +171,20 @@ The build jobs produce:
 | Platform | Cells | Archive names |
 |---|---|---|
 | Linux glibc and musl, x86_64 and arm64 | PHP 8.3, 8.4, 8.5 × NTS, ZTS | `aop-<version>-php<X.Y>-<nts\|zts>-linux-<glibc\|musl>-<arch>.tar.gz` |
-| macOS arm64 (`macos-14`) and x86_64 (`macos-15-intel`) | PHP 8.3, 8.4, 8.5 × NTS, TS | `aop-<version>-php<X.Y>-<nts\|ts>-macos-<arch>.tar.gz` |
+| macOS arm64 (`macos-14`) | PHP 8.3, 8.4, 8.5 × NTS, TS | `aop-<version>-php<X.Y>-<nts\|ts>-macos-arm64.tar.gz` |
 | Windows x64 and x86 | PHP 8.3, 8.4, 8.5 × NTS, TS | `php_aop-<version>-<X.Y>-<nts\|ts>-<vs16\|vs17>-<arch>.zip` |
 
 Windows archives use the PIE naming convention.
 PHP 8.3 builds use `vs16`, and PHP 8.4 and 8.5 use `vs17`.
+
+Before any archive is built, a `ci` job runs the whole CI workflow on the tagged commit, and the build jobs wait for it.
+A tag on a red commit therefore produces no release.
+macOS x86_64 is not built or tested.
+Intel Macs are end of life (macOS 26 is the last release for them), and Homebrew, which `setup-php` uses, supports them only at tier 3.
+Intel Mac users build from source (`make ext`).
+
+The macOS jobs in `ci.yml` use the same matrix as the release ones, so no release combination goes untested.
+When a macOS phpt run fails, the job prints the `.diff` files.
 
 A last job collects every archive, writes `SHA256SUMS`, and creates the GitHub Release.
 A tag with a prerelease suffix is marked as a prerelease.

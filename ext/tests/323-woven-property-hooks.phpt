@@ -6,6 +6,8 @@ aop
 <?php
 if (PHP_VERSION_ID < 80400) die('skip property hooks need PHP 8.4');
 ?>
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 class Temp

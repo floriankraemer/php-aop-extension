@@ -3,6 +3,7 @@ Unbounded recursion through an advised function raises the engine's stack error 
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 zend.max_allowed_stack_size=512K
 --FILE--
 <?php

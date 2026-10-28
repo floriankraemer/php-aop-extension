@@ -2,6 +2,8 @@
 Never intercepted: return by reference, __call trampolines (but __call itself is), include and eval code
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 class Magic

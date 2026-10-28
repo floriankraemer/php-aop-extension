@@ -5,6 +5,8 @@ on:
     branches: ["**"]
     tags-ignore: ["**"]
   pull_request:
+  # The release workflow runs the whole suite on the tagged commit before it builds anything.
+  workflow_call:
 
 permissions:
   contents: read
@@ -110,8 +112,12 @@ jobs:
           if-no-files-found: ignore
 
   valgrind:
-    name: Valgrind PHP 8.3 nts
+    name: Valgrind PHP ${{ matrix.php }} nts
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.3", "8.4", "8.5"]
     steps:
       - uses: actions/checkout@v7
 
@@ -121,7 +127,7 @@ jobs:
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: "8.3"
+          php-version: ${{ matrix.php }}
           tools: phpize, php-config
           coverage: none
 
@@ -137,13 +143,18 @@ jobs:
           TEST_PHP_ARGS: "-m -q"
         run: make test
 
+  # Same matrix as the macOS jobs in release.yml, so a release cannot fail on a combination CI never ran.
+  # arm64 only: Intel Macs are end of life (macOS 26 is the last release) and Homebrew has dropped them to tier 3.
   macos:
-    name: macOS arm64 PHP ${{ matrix.php }}
+    name: macOS arm64 PHP ${{ matrix.php }} ${{ matrix.ts }}
     runs-on: macos-14
     strategy:
       fail-fast: false
       matrix:
-        php: ["8.3", "8.5"]
+        php: ["8.3", "8.4", "8.5"]
+        ts: [nts, ts]
+    env:
+      phpts: ${{ matrix.ts }}
     steps:
       - uses: actions/checkout@v7
 
@@ -160,13 +171,23 @@ jobs:
       - name: Run phpt suite
         run: make test-ext
 
+      - name: Show phpt failure details
+        if: failure()
+        run: |
+          for f in ext/tests/*.diff; do
+            [ -e "$f" ] || continue
+            echo "::group::$f"; cat "$f"; echo "::endgroup::"
+          done
+
   windows:
-    name: Windows x64 PHP ${{ matrix.php }} nts
+    name: Windows ${{ matrix.arch }} PHP ${{ matrix.php }} ${{ matrix.ts }}
     runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
-        php: ["8.3", "8.5"]
+        php: ["8.3", "8.4", "8.5"]
+        ts: [nts, ts]
+        arch: [x64, x86]
     steps:
       - uses: actions/checkout@v7
 
@@ -184,8 +205,8 @@ jobs:
         uses: php/php-windows-builder/extension@v1
         with:
           php-version: ${{ matrix.php }}
-          arch: x64
-          ts: nts
+          arch: ${{ matrix.arch }}
+          ts: ${{ matrix.ts }}
           # The builder only derives configure options from PIE metadata in composer.json, which ext/ has none of.
           args: --enable-aop=shared
           # The builder names files after the ref, and a branch name with "/" makes that an invalid path.

@@ -24,9 +24,15 @@ jobs:
         id: semver
         run: scripts/semver-check.sh "$GITHUB_REF_NAME" | tee -a "$GITHUB_OUTPUT"
 
+  # Release only what CI accepted: the full CI suite must pass on the tagged commit before anything is built.
+  ci:
+    name: CI on the tagged commit
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
   linux:
     name: Linux ${{ matrix.libc }} ${{ matrix.arch }} PHP ${{ matrix.php }} ${{ matrix.ts }}
-    needs: validate
+    needs: [validate, ci]
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -60,21 +66,15 @@ jobs:
           if-no-files-found: error
 
   macos:
-    name: macOS ${{ matrix.arch }} PHP ${{ matrix.php }} ${{ matrix.ts }}
-    needs: validate
-    runs-on: ${{ matrix.runner }}
+    # arm64 only: Intel Macs are end of life (macOS 26 is the last release) and Homebrew has dropped them to tier 3.
+    name: macOS arm64 PHP ${{ matrix.php }} ${{ matrix.ts }}
+    needs: [validate, ci]
+    runs-on: macos-14
     strategy:
       fail-fast: false
       matrix:
         php: ["8.3", "8.4", "8.5"]
         ts: [nts, ts]
-        arch: [arm64, x86_64]
-        include:
-          - arch: arm64
-            runner: macos-14
-          # macos-13 was retired by GitHub in December 2025; macos-15-intel is its x86_64 successor.
-          - arch: x86_64
-            runner: macos-15-intel
     env:
       phpts: ${{ matrix.ts }}
       VERSION: ${{ needs.validate.outputs.version }}
@@ -94,9 +94,17 @@ jobs:
       - name: Run phpt suite
         run: make test-ext
 
+      - name: Show phpt failure details
+        if: failure()
+        run: |
+          for f in ext/tests/*.diff; do
+            [ -e "$f" ] || continue
+            echo "::group::$f"; cat "$f"; echo "::endgroup::"
+          done
+
       - name: Package
         run: |
-          name="aop-${VERSION}-php${{ matrix.php }}-${{ matrix.ts }}-macos-${{ matrix.arch }}"
+          name="aop-${VERSION}-php${{ matrix.php }}-${{ matrix.ts }}-macos-arm64"
           mkdir -p "dist/$name"
           cp ext/modules/aop.so LICENSE "dist/$name/"
           [ ! -f README.md ] || cp README.md "dist/$name/"
@@ -107,13 +115,13 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: release-macos-${{ matrix.arch }}-php${{ matrix.php }}-${{ matrix.ts }}
+          name: release-macos-arm64-php${{ matrix.php }}-${{ matrix.ts }}
           path: dist/*.tar.gz
           if-no-files-found: error
 
   windows:
     name: Windows ${{ matrix.arch }} PHP ${{ matrix.php }} ${{ matrix.ts }}
-    needs: validate
+    needs: [validate, ci]
     runs-on: windows-2022
     strategy:
       fail-fast: false

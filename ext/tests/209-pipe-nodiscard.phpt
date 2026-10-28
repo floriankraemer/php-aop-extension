@@ -4,6 +4,8 @@ PHP 8.5+: calls made by the pipe operator are join points; #[\NoDiscard] is chec
 aop
 --SKIPIF--
 <?php if (PHP_VERSION_ID < 80500) die('skip PHP 8.5+ (pipe operator, #[\NoDiscard])'); ?>
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 require __DIR__.'/000-helper.inc';

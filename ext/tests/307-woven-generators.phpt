@@ -3,6 +3,7 @@ Woven: generator advice runs at the first resume, proceeding does not recurse, g
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=woven
 --FILE--
 <?php

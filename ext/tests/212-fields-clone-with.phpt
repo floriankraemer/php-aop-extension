@@ -5,6 +5,7 @@ aop
 --SKIPIF--
 <?php if (PHP_VERSION_ID < 80500) die('skip PHP 8.5+ (clone with)'); ?>
 --INI--
+opcache.jit=disable
 aop.interception=hook
 --FILE--
 <?php

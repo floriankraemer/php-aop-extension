@@ -2,6 +2,8 @@
 Calls made while a class is being autoloaded are not intercepted unless aop.weave_autoload=1
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 require __DIR__ . '/000-helper.inc';

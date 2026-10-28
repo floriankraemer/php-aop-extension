@@ -2,6 +2,8 @@
 Functions in the AOP and AOP\ namespaces are not woven, AOPX and similar namespaces are; braced and unbraced namespaces
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 namespace AOP\Foo {

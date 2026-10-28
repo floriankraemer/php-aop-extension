@@ -2,6 +2,8 @@
 Plain, namespaced and internal functions and methods
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 namespace App\Util {

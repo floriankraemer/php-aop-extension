@@ -2,6 +2,8 @@
 Generators: the call that creates the generator is intercepted, resumption is not
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 require __DIR__.'/000-helper.inc';

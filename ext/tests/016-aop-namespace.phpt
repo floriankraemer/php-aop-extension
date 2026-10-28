@@ -2,6 +2,8 @@
 Classes in AOP\ and calls made by AOP\ code are never intercepted
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 namespace AOP\Runtime {

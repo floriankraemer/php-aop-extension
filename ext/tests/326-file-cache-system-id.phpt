@@ -7,6 +7,8 @@ $opcache = is_file(PHP_EXTENSION_DIR.'/opcache.so') ? '-d zend_extension='.escap
 $cmd = escapeshellarg(PHP_BINARY)." -n $opcache -r ".escapeshellarg('echo extension_loaded("Zend OPcache") ? "yes" : "no";').' 2>&1';
 if (trim((string) shell_exec($cmd)) !== 'yes') die('skip opcache is not available');
 ?>
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 $root = sys_get_temp_dir().'/aop-fc-'.getmypid();

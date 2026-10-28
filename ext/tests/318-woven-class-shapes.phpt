@@ -2,6 +2,8 @@
 Functions in interfaces, traits, enums and abstract classes: bodies are woven, bodiless declarations are not
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 namespace App;

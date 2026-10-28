@@ -2,6 +2,8 @@
 Woven __call and __callStatic are intercepted for the magic call, with the method name and arguments
 --EXTENSIONS--
 aop
+--INI--
+opcache.jit=disable
 --FILE--
 <?php
 class Magic

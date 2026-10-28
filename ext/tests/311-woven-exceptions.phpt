@@ -3,6 +3,7 @@ Woven: exceptions from the original, from the dispatcher and from the matcher; t
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=woven
 --FILE--
 <?php

@@ -3,6 +3,7 @@ Fields: an advised set keeps the typing mode of the accessing file; internal cal
 --EXTENSIONS--
 aop
 --INI--
+opcache.jit=disable
 aop.interception=hook
 --FILE--
 <?php

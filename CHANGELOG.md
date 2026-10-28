@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-28
+
 ### Added
 
 - Coverage quality gate: `make coverage-php` and `make coverage-c`, and a CI job that fails when line coverage of `src/` or `ext/*.c` drops below 85%.
@@ -42,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Release archives for macOS x86_64 are no longer built: Intel Macs are end of life and Homebrew supports them only at tier 3. Intel Mac users build from source.
+- The release workflow runs the full CI workflow on the tagged commit first, and the macOS jobs print phpt `.diff` files on failure.
 - **Breaking:** the default interception backend is `woven` instead of the JIT-disabling hook.
   The opcache JIT now runs with the extension.
   The woven backend has no field join points and no `initialization()`: `get()`, `set()` and every `initialization()` pointcut are rejected by `Weaver::enable()` with an `AspectDefinitionException` that names the advisor and `aop.interception`.

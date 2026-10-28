@@ -662,7 +662,7 @@ The default backend is `woven`, so a test that depends on hook behaviour (field 
 Their woven counterparts are `310` (arguments), `311` (exceptions), `312` (fibers, backtrace), `307` (generators) and `313`–`315` (catch blocks).
 `002-api.phpt` compares `fieldInterceptionAvailable()` with the INI value and so runs under both.
 A test that must only run in one mode skips itself on `ini_get('aop.interception')`.
-`opcache.jit=off` still configures the JIT (the default `jit_buffer_size` is 64M), so under `hook` aop's JIT notice and PHP's warning appear: tests that need opcache without JIT use `opcache.jit=disable` (`122-opcache.phpt`, `303`).
+`opcache.jit=off` still configures the JIT (the default `jit_buffer_size` is 64M), so under `hook` aop's JIT notice and PHP's warning appear: every phpt sets `opcache.jit` in its own `--INI--` (`opcache.jit=disable` unless the test covers the JIT), so the suite does not depend on the ini of the machine that runs it.
 Tests that assert a startup notice or warning need `display_startup_errors=1`.
 
 **Fields on 8.4/8.5** (`ext/aop_fields.c`; semantics in "Engine notes (stream G)", "Fields on PHP 8.4 / 8.5"). The
