@@ -140,7 +140,9 @@ jobs:
           NO_INTERACTION: "1"
           REPORT_EXIT_STATUS: "1"
           USE_ZEND_ALLOC: "0"
-          TEST_PHP_ARGS: "-m -q"
+          # setup-php enables the JIT on 8.5; the JIT compiler is not valgrind-clean (see the skips in ext/tests),
+          # and the startup output of the hook backend disabling it breaks the opcache tests.
+          TEST_PHP_ARGS: "-m -q -d opcache.jit=disable"
         run: make test
 
   # Same matrix as the macOS jobs in release.yml, so a release cannot fail on a combination CI never ran.
@@ -180,12 +182,14 @@ jobs:
           done
 
   windows:
-    name: Windows x64 PHP ${{ matrix.php }} nts
+    name: Windows ${{ matrix.arch }} PHP ${{ matrix.php }} ${{ matrix.ts }}
     runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
-        php: ["8.3", "8.5"]
+        php: ["8.3", "8.4", "8.5"]
+        ts: [nts, ts]
+        arch: [x64, x86]
     steps:
       - uses: actions/checkout@v7
 
@@ -203,8 +207,8 @@ jobs:
         uses: php/php-windows-builder/extension@v1
         with:
           php-version: ${{ matrix.php }}
-          arch: x64
-          ts: nts
+          arch: ${{ matrix.arch }}
+          ts: ${{ matrix.ts }}
           # The builder only derives configure options from PIE metadata in composer.json, which ext/ has none of.
           args: --enable-aop=shared
           # The builder names files after the ref, and a branch name with "/" makes that an invalid path.
