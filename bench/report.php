@@ -82,7 +82,7 @@ $cellsOf = static fn (string $jit): array => array_values(array_filter(
     array_keys($time),
     static fn (string $cell): bool => str_contains($cell, "-$jit-"),
 ));
-$order = ['none' => 0, 'loaded' => 1, 'miss' => 2, 'pass' => 3];
+$order = ['none' => 0, 'loaded' => 1, 'miss' => 2, 'pass' => 3, 'advised' => 4];
 $label = static fn (string $cell): string => match (true) {
     str_starts_with($cell, 'none-') => 'no aop',
     default => preg_replace('/^(\w+)-\w+-(\w+)$/', '$1 / $2', $cell) ?? $cell,

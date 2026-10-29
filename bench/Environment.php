@@ -31,11 +31,11 @@ trait Environment
             throw new \RuntimeException(sprintf('aop is %s but state "%s" expects the opposite.', extension_loaded('aop') ? 'loaded' : 'not loaded', $expectedState));
         }
 
-        if ('pass' === $expectedState) {
+        if ('pass' === $expectedState || 'advised' === $expectedState) {
             $before = Dispatch::$advised;
             $sum = add(1, 2);
             if (Dispatch::$advised === $before || 3 !== $sum) {
-                throw new \RuntimeException('State "pass" expects advice to run, but the dispatcher was not called.');
+                throw new \RuntimeException(sprintf('State "%s" expects advice to run, but the dispatcher was not called.', $expectedState));
             }
         }
     }
