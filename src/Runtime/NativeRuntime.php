@@ -57,10 +57,13 @@ final class NativeRuntime
 
     private bool $anyCallerSensitive = false;
 
+    private bool $anyInstanceService = false;
+    private bool $anyAdvised = false;
+
     /** @var array<string, JoinPointPlan> */
     private array $plans = [];
 
-    /** @var array<string, list<MethodInterceptorInterface>|null> */
+    /** @var array<string, array<string, list<MethodInterceptorInterface>|null>> by aspect class, then method */
     private array $advicePlans = [];
 
     /** @var array<string, true> */
@@ -143,6 +146,7 @@ final class NativeRuntime
 
     public function registerInstanceService(object $instance, string $service): void
     {
+        $this->anyInstanceService = true;
         $this->instanceServices[$instance] = $service;
         $this->instanceServiceNames[$instance::class][$service] = true;
         $this->clearCaches();
@@ -150,6 +154,8 @@ final class NativeRuntime
 
     public function advised(object $instance, \Closure $changed, \Closure $weaverFrozen): AdvisedInstance
     {
+        $this->anyAdvised = true;
+
         return $this->advised[$instance] ??= new AdvisedInstance($instance, function (object $object) use ($changed): void {
             $this->advisedClasses[$object::class] = true;
             $changed();
@@ -474,27 +480,36 @@ final class NativeRuntime
         $kind = JoinPointKind::from(self::str($d['kind'] ?? null) ?? '');
         $callerArray = self::callerOf($d);
         $plan = $this->planFor($d, $kind, $thisObject, $callerArray);
-        $invoke = static fn (array $a): mixed => $original($a);
         if (null === $plan || $plan->isEmpty()) {
-            return $invoke($args);
+            return $original($args);
         }
+        $invoke = static fn (array $a): mixed => $original($a);
 
         if (JoinPointKind::EXCEPTION_HANDLER === $kind) {
             $args = [$d['exception'] ?? null];
         } elseif (JoinPointKind::FIELD_SET === $kind) {
             $args = [$d['value'] ?? ($args[0] ?? null)];
-        } elseif ($plan->normalizes) {
+        } elseif ($plan->normalizes && !(\count($args) >= \count($plan->parameters) && array_is_list($args))) {
+            // a complete positional list is already normal
             $args = ArgumentNormalizer::normalize($plan->parameters, $args);
         }
 
-        $callerObject = \is_object($callerArray['object'] ?? null) ? $callerArray['object'] : null;
-        $isCode = $kind->isExecution() || JoinPointKind::INITIALIZATION === $kind;
-        $executing = $isCode || JoinPointKind::EXCEPTION_HANDLER === $kind ? $thisObject : $callerObject;
-        $static = (bool) ($d['static'] ?? false);
+        $callerObject = null !== $callerArray && \is_object($callerArray['object'] ?? null) ? $callerArray['object'] : null;
+        $executing = $kind->isExecution() || JoinPointKind::INITIALIZATION === $kind || JoinPointKind::EXCEPTION_HANDLER === $kind ? $thisObject : $callerObject;
         $outermost = (bool) ($d['outermost'] ?? true);
-        $target = JoinPointKind::EXCEPTION_HANDLER === $kind || $static ? null : $thisObject;
+        $target = JoinPointKind::EXCEPTION_HANDLER === $kind || ($d['static'] ?? false) ? null : $thisObject;
         /** @var class-string|null $calledClass */
-        $calledClass = self::str($d['class'] ?? null);
+        $calledClass = \is_string($d['class'] ?? null) ? $d['class'] : null;
+
+        if (null === $plan->callKind || [] === $plan->callChain || null === $callerArray) {
+            if ([] === $plan->executionChain) {
+                return $invoke($args);
+            }
+            $data = new JoinPointData($plan->executionKind, $executing, $target, $plan->signature, $plan->executionPart, $plan->enclosing, $plan->executionLocation, $outermost);
+            $result = (new MethodInvocation($data, $args, $plan->executionChain, $invoke))->proceed();
+
+            return [] === $plan->executionArounds ? $result : $this->checked($plan, $plan->executionArounds, $result, $thisObject, $calledClass);
+        }
 
         $runExecution = function (array $a) use ($plan, $executing, $target, $thisObject, $invoke, $calledClass, $outermost): mixed {
             if ([] === $plan->executionChain) {
@@ -506,15 +521,11 @@ final class NativeRuntime
             return $this->checked($plan, $plan->executionArounds, $result, $thisObject, $calledClass);
         };
 
-        if (null === $plan->callKind || [] === $plan->callChain || null === $callerArray) {
-            return $runExecution($args);
-        }
-
         $location = new SourceLocation(self::str($callerArray['file'] ?? null), \is_int($callerArray['line'] ?? null) ? $callerArray['line'] : null, self::str($callerArray['scope'] ?? null), self::str($callerArray['function'] ?? null));
         $data = new JoinPointData($plan->callKind, $callerObject, $target, $plan->signature, $plan->callPart ?? $plan->executionPart, $plan->enclosing, $location);
         $result = (new MethodInvocation($data, $args, $plan->callChain, $runExecution))->proceed();
 
-        return $this->checked($plan, $plan->callArounds, $result, $thisObject, $calledClass);
+        return [] === $plan->callArounds ? $result : $this->checked($plan, $plan->callArounds, $result, $thisObject, $calledClass);
     }
 
     /**
@@ -541,13 +552,11 @@ final class NativeRuntime
      */
     private function planFor(array $d, JoinPointKind $kind, ?object $thisObject, ?array $callerArray): ?JoinPointPlan
     {
-        $key = implode('|', [
-            self::str($d['kind'] ?? null), self::str($d['class'] ?? null), self::str($d['scope'] ?? null), self::str($d['name'] ?? null),
-            null !== $thisObject ? ($this->instanceServices[$thisObject] ?? '') : '',
-            null === $callerArray ? '-' : self::str($callerArray['class'] ?? null).'/'.self::str($callerArray['scope'] ?? null).'/'.self::str($callerArray['function'] ?? null),
-            (bool) ($d['outermost'] ?? true) ? 'o' : 'i',
-        ]);
-        $state = null !== $thisObject ? ($this->advised[$thisObject] ?? null) : null;
+        $svc = $this->anyInstanceService && null !== $thisObject ? ($this->instanceServices[$thisObject] ?? '') : '';
+        $caller = null === $callerArray ? '-' : (\is_string($callerArray['class'] ?? null) ? $callerArray['class'] : '').'/'.(\is_string($callerArray['scope'] ?? null) ? $callerArray['scope'] : '').'/'.(\is_string($callerArray['function'] ?? null) ? $callerArray['function'] : '');
+        $key = (\is_string($d['kind'] ?? null) ? $d['kind'] : '')."\0".(\is_string($d['class'] ?? null) ? $d['class'] : '')."\0".(\is_string($d['scope'] ?? null) ? $d['scope'] : '')."\0".(\is_string($d['name'] ?? null) ? $d['name'] : '')
+            ."\0".$svc."\0".$caller."\0".(($d['outermost'] ?? true) ? 'o' : 'i');
+        $state = $this->anyAdvised && null !== $thisObject ? ($this->advised[$thisObject] ?? null) : null;
         $extras = null === $state ? [] : $state->advisors();
         $cached = null === $state || [] === $extras ? ($this->plans[$key] ?? null) : $state->plan($key);
         if (null !== $cached) {
@@ -746,16 +755,16 @@ final class NativeRuntime
      */
     public function wrapAdvice(JoinPointInterface $joinPoint, string $aspectClass, object $aspect, string $method, array $values, \Closure $call): mixed
     {
+        if (!\array_key_exists($method, $this->advicePlans[$aspectClass] ?? [])) {
+            $this->advicePlans[$aspectClass][$method] = $this->adviceChain($aspectClass, $method, $aspectClass.'::'.$method);
+        }
+        $chain = $this->advicePlans[$aspectClass][$method];
+        if (null === $chain) {
+            return $call($values);
+        }
         $id = $aspectClass.'::'.$method;
         $state = $this->flow->state();
         if (isset($state->wrapping[$id])) {
-            return $call($values);
-        }
-        if (!\array_key_exists($id, $this->advicePlans)) {
-            $this->advicePlans[$id] = $this->adviceChain($aspectClass, $method, $id);
-        }
-        $chain = $this->advicePlans[$id];
-        if (null === $chain) {
             return $call($values);
         }
 
@@ -818,10 +827,8 @@ final class NativeRuntime
         if (!\is_array($d['caller'] ?? null)) {
             return null;
         }
-        $caller = [];
-        foreach ($d['caller'] as $key => $value) {
-            $caller[(string) $key] = $value;
-        }
+        /** @var array<string, mixed> $caller */
+        $caller = $d['caller'];
 
         return $caller;
     }

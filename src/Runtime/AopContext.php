@@ -45,9 +45,16 @@ final class AopContext
      */
     public static function push(JoinPointInterface $joinPoint): void
     {
-        $stack = self::stack();
+        $fiber = \Fiber::getCurrent();
+        if (null === $fiber) {
+            self::$main[] = $joinPoint;
+
+            return;
+        }
+        self::$fibers ??= new \WeakMap();
+        $stack = self::$fibers[$fiber] ?? [];
         $stack[] = $joinPoint;
-        self::store($stack);
+        self::$fibers[$fiber] = $stack;
     }
 
     /**
@@ -55,9 +62,16 @@ final class AopContext
      */
     public static function pop(): void
     {
-        $stack = self::stack();
+        $fiber = \Fiber::getCurrent();
+        if (null === $fiber) {
+            array_pop(self::$main);
+
+            return;
+        }
+        self::$fibers ??= new \WeakMap();
+        $stack = self::$fibers[$fiber] ?? [];
         array_pop($stack);
-        self::store($stack);
+        self::$fibers[$fiber] = $stack;
     }
 
     /**
@@ -68,20 +82,5 @@ final class AopContext
         $fiber = \Fiber::getCurrent();
 
         return null === $fiber ? self::$main : (self::$fibers[$fiber] ?? []);
-    }
-
-    /**
-     * @param list<JoinPointInterface> $stack
-     */
-    private static function store(array $stack): void
-    {
-        $fiber = \Fiber::getCurrent();
-        if (null === $fiber) {
-            self::$main = $stack;
-
-            return;
-        }
-        self::$fibers ??= new \WeakMap();
-        self::$fibers[$fiber] = $stack;
     }
 }
