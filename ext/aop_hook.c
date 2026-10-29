@@ -418,13 +418,15 @@ static void aop_execute_internal(zend_execute_data *ex, zval *return_value)
 	 * The woven backend's own calls: one pointer comparison instead of the join point checks.
 	 * With nothing registered intercept() can only answer false (the frame is not advised). The stale-bypass
 	 * and bypassed-generator checks keep this identical to the slow path, where aop_advise_frame() clears them.
+	 * Another extension's zend_execute_internal hook still sees the call, so the shortcut only applies without one.
 	 */
 	if (handler == ZEND_FN(AOP_Internal_intercept)) {
-		if (EXPECTED(!AOP_G(registered)) && AOP_G(bypass) == NULL && AOP_G(bypassed_generators) == NULL) {
+		if (EXPECTED(!AOP_G(registered)) && AOP_G(bypass) == NULL && AOP_G(bypassed_generators) == NULL
+				&& EXPECTED(aop_prev_execute_internal == NULL)) {
 			ZVAL_FALSE(return_value);
 			return;
 		}
-		ZEND_FN(AOP_Internal_intercept)(ex, return_value);
+		aop_call_internal(ex, return_value);
 		return;
 	}
 	/* aop_advise_frame() returns AOP_PASS right after the bypass check when nothing is registered. */
