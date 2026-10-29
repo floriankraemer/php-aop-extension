@@ -9,7 +9,9 @@
 #   PHP          the PHP binary to measure (default: php)
 #   EXT_SO       built extension (default: <repo>/ext/modules/aop.so)
 #   CPU          CPU core to pin to with taskset (default: 2; empty disables pinning)
-#   CELLS        space separated cell names to run instead of the full matrix
+#   CELLS        space separated cell names to run instead of the full matrix. The state "advised" (a before advice on
+#                every function through the Weaver) is not in the default matrix because it is slow; run it as
+#                CELLS="none-tracing-none woven-tracing-advised" FILTER="CallBench|MixedBench"
 #   FILTER       phpbench --filter, to run a subset of the benchmarks
 #   ROUNDS       interleaved rounds (default 9): every round runs all cells once, so drift of the machine (load,
 #                clocks) hits every cell alike. The iterations of all rounds are pooled in the report.
@@ -110,7 +112,7 @@ run_cell() {
 
 for ((round = 1; round <= ROUNDS; round++)); do
     for cell in "${cells[@]}"; do
-        if [[ "$cell" == *-pass ]]; then iterations="$PASS_ITERATIONS"; else iterations="$ITERATIONS"; fi
+        if [[ "$cell" == *-pass || "$cell" == *-advised ]]; then iterations="$PASS_ITERATIONS"; else iterations="$ITERATIONS"; fi
         run_cell "$cell" "$iterations" "$round"
     done
 done

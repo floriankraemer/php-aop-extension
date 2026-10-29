@@ -36,8 +36,10 @@ final class FrameInterceptor implements MethodInterceptorInterface
         try {
             return $invocation->proceed();
         } finally {
-            foreach (array_reverse($this->flowAspects) as $aspect) {
-                $this->flow->popToken($aspect);
+            if ([] !== $this->flowAspects) {
+                foreach (array_reverse($this->flowAspects) as $aspect) {
+                    $this->flow->popToken($aspect);
+                }
             }
             AopContext::pop();
             $this->flow->leave($this->counts);

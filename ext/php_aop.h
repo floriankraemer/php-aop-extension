@@ -113,8 +113,22 @@ void aop_engine_rinit(void);
 void aop_engine_rshutdown(void);
 void aop_engine_unregister(void);
 void aop_engine_reset(void);
-bool aop_name_in_aop_ns(const zend_string *name);
-bool aop_class_in_aop_ns(const zend_class_entry *ce);
+/* Case-insensitive "AOP\\" prefix test (the namespace of the PHP runtime, which is never advised). */
+static zend_always_inline bool aop_name_in_aop_ns(const zend_string *name)
+{
+	const char *v;
+
+	if (name == NULL || ZSTR_LEN(name) <= sizeof("AOP\\") - 1) {
+		return false;
+	}
+	v = ZSTR_VAL(name);
+	return (v[0] | 0x20) == 'a' && (v[1] | 0x20) == 'o' && (v[2] | 0x20) == 'p' && v[3] == '\\';
+}
+
+static zend_always_inline bool aop_class_in_aop_ns(const zend_class_entry *ce)
+{
+	return ce != NULL && aop_name_in_aop_ns(ce->name);
+}
 zend_class_entry *aop_frame_class(const zend_execute_data *ex);
 zend_execute_data *aop_caller_frame(zend_execute_data *ex);
 bool aop_caller_in_aop_ns(zend_execute_data *ex);
