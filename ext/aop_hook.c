@@ -405,7 +405,7 @@ static zend_always_inline void aop_call_internal(zend_execute_data *ex, zval *re
 	if (aop_prev_execute_internal) {
 		aop_prev_execute_internal(ex, return_value);
 	} else {
-		execute_internal(ex, return_value);
+		ex->func->internal_function.handler(ex, return_value);
 	}
 }
 
@@ -414,9 +414,22 @@ static void aop_execute_internal(zend_execute_data *ex, zval *return_value)
 	zval retval;
 	zif_handler handler = ex->func->internal_function.handler;
 
-	/* The woven backend's own calls: one pointer comparison instead of the join point checks. */
-	if (handler == ZEND_FN(AOP_Internal_intercept) || handler == ZEND_FN(AOP_Internal_result)
-			|| handler == ZEND_FN(AOP_Internal_caught)) {
+	/*
+	 * The woven backend's own calls: one pointer comparison instead of the join point checks.
+	 * With nothing registered intercept() can only answer false (the frame is not advised). The stale-bypass
+	 * and bypassed-generator checks keep this identical to the slow path, where aop_advise_frame() clears them.
+	 */
+	if (handler == ZEND_FN(AOP_Internal_intercept)) {
+		if (EXPECTED(!AOP_G(registered)) && AOP_G(bypass) == NULL && AOP_G(bypassed_generators) == NULL) {
+			ZVAL_FALSE(return_value);
+			return;
+		}
+		ZEND_FN(AOP_Internal_intercept)(ex, return_value);
+		return;
+	}
+	/* aop_advise_frame() returns AOP_PASS right after the bypass check when nothing is registered. */
+	if ((EXPECTED(!AOP_G(registered)) && AOP_G(bypass) == NULL)
+			|| handler == ZEND_FN(AOP_Internal_result) || handler == ZEND_FN(AOP_Internal_caught)) {
 		aop_call_internal(ex, return_value);
 		return;
 	}

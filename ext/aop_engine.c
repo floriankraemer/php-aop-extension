@@ -16,18 +16,6 @@
 #include "php_aop.h"
 
 /* {{{ namespace and frame helpers */
-bool aop_name_in_aop_ns(const zend_string *name)
-{
-	return name != NULL
-		&& ZSTR_LEN(name) > sizeof("AOP\\") - 1
-		&& strncasecmp(ZSTR_VAL(name), "AOP\\", sizeof("AOP\\") - 1) == 0;
-}
-
-bool aop_class_in_aop_ns(const zend_class_entry *ce)
-{
-	return ce != NULL && aop_name_in_aop_ns(ce->name);
-}
-
 /* Runtime class of the frame's $this, else its called scope (NULL for plain functions and top-level code). */
 zend_class_entry *aop_frame_class(const zend_execute_data *ex)
 {
@@ -104,12 +92,59 @@ typedef enum {
 	AOP_DESC_FULL          /* dispatcher */
 } aop_desc_mode;
 
-static void aop_add_class_name(zval *arr, const char *key, size_t key_len, const zend_class_entry *ce)
+static zend_string *aop_k_kind;
+static zend_string *aop_k_class;
+static zend_string *aop_k_scope;
+static zend_string *aop_k_name;
+static zend_string *aop_k_static;
+static zend_string *aop_k_internal;
+static zend_string *aop_k_caller;
+static zend_string *aop_k_outermost;
+static zend_string *aop_k_function;
+static zend_string *aop_k_file;
+static zend_string *aop_k_line;
+static zend_string *aop_k_object;
+static zend_string *aop_v_ctor, *aop_v_method, *aop_v_function;
+
+static zend_always_inline void aop_put(zval *arr, zend_string *key, zval *zv)
+{
+	zend_hash_add_new(Z_ARRVAL_P(arr), key, zv);
+}
+
+static zend_always_inline void aop_put_str(zval *arr, zend_string *key, zend_string *v)
+{
+	zval zv;
+	ZVAL_STR(&zv, v);
+	aop_put(arr, key, &zv);
+}
+
+static zend_always_inline void aop_put_null(zval *arr, zend_string *key)
+{
+	zval zv;
+	ZVAL_NULL(&zv);
+	aop_put(arr, key, &zv);
+}
+
+static zend_always_inline void aop_put_bool(zval *arr, zend_string *key, bool v)
+{
+	zval zv;
+	ZVAL_BOOL(&zv, v);
+	aop_put(arr, key, &zv);
+}
+
+static zend_always_inline void aop_put_long(zval *arr, zend_string *key, zend_long v)
+{
+	zval zv;
+	ZVAL_LONG(&zv, v);
+	aop_put(arr, key, &zv);
+}
+
+static void aop_add_class_name(zval *arr, zend_string *key, const zend_class_entry *ce)
 {
 	if (ce) {
-		add_assoc_str_ex(arr, key, key_len, zend_string_copy(ce->name));
+		aop_put_str(arr, key, zend_string_copy(ce->name));
 	} else {
-		add_assoc_null_ex(arr, key, key_len);
+		aop_put_null(arr, key);
 	}
 }
 
@@ -118,30 +153,30 @@ static void aop_caller_array(zval *out, zend_execute_data *caller, bool full)
 	zend_function *fn = caller->func;
 
 	array_init_size(out, full ? 6 : 4);
-	aop_add_class_name(out, ZEND_STRL("class"), aop_frame_class(caller));
-	aop_add_class_name(out, ZEND_STRL("scope"), fn->common.scope);
+	aop_add_class_name(out, aop_k_class, aop_frame_class(caller));
+	aop_add_class_name(out, aop_k_scope, fn->common.scope);
 	if (fn->common.function_name) {
-		add_assoc_str_ex(out, ZEND_STRL("function"), zend_string_copy(fn->common.function_name));
+		aop_put_str(out, aop_k_function, zend_string_copy(fn->common.function_name));
 	} else {
-		add_assoc_null_ex(out, ZEND_STRL("function"));
+		aop_put_null(out, aop_k_function);
 	}
 	if (ZEND_USER_CODE(fn->type) && fn->op_array.filename) {
-		add_assoc_str_ex(out, ZEND_STRL("file"), zend_string_copy(fn->op_array.filename));
+		aop_put_str(out, aop_k_file, zend_string_copy(fn->op_array.filename));
 	} else {
-		add_assoc_null_ex(out, ZEND_STRL("file"));
+		aop_put_null(out, aop_k_file);
 	}
 	if (full) {
 		if (ZEND_USER_CODE(fn->type) && caller->opline) {
-			add_assoc_long_ex(out, ZEND_STRL("line"), caller->opline->lineno);
+			aop_put_long(out, aop_k_line, caller->opline->lineno);
 		} else {
-			add_assoc_null_ex(out, ZEND_STRL("line"));
+			aop_put_null(out, aop_k_line);
 		}
 		if (Z_TYPE(caller->This) == IS_OBJECT) {
 			zval obj;
 			ZVAL_OBJ_COPY(&obj, Z_OBJ(caller->This));
-			add_assoc_zval_ex(out, ZEND_STRL("object"), &obj);
+			aop_put(out, aop_k_object, &obj);
 		} else {
-			add_assoc_null_ex(out, ZEND_STRL("object"));
+			aop_put_null(out, aop_k_object);
 		}
 	}
 }
@@ -155,23 +190,22 @@ static void aop_descriptor(zval *d, zend_function *func, zend_class_entry *calle
 		zend_execute_data *caller, aop_desc_mode mode, zend_object *this_obj)
 {
 	bool is_ctor = aop_is_constructor(func);
-	const char *kind = is_ctor ? "constructor-execution"
-		: (func->common.scope ? "method-execution" : "function-execution");
+	zend_string *kind = is_ctor ? aop_v_ctor : (func->common.scope ? aop_v_method : aop_v_function);
 
 	array_init_size(d, 8);
-	add_assoc_string_ex(d, ZEND_STRL("kind"), kind);
-	aop_add_class_name(d, ZEND_STRL("class"), func->common.scope ? called : NULL);
-	aop_add_class_name(d, ZEND_STRL("scope"), func->common.scope);
-	add_assoc_str_ex(d, ZEND_STRL("name"), zend_string_copy(func->common.function_name));
-	add_assoc_bool_ex(d, ZEND_STRL("static"), (func->common.fn_flags & ZEND_ACC_STATIC) != 0);
-	add_assoc_bool_ex(d, ZEND_STRL("internal"), func->type == ZEND_INTERNAL_FUNCTION);
+	{ zval kv; ZVAL_INTERNED_STR(&kv, kind); aop_put(d, aop_k_kind, &kv); }
+	aop_add_class_name(d, aop_k_class, func->common.scope ? called : NULL);
+	aop_add_class_name(d, aop_k_scope, func->common.scope);
+	aop_put_str(d, aop_k_name, zend_string_copy(func->common.function_name));
+	aop_put_bool(d, aop_k_static, (func->common.fn_flags & ZEND_ACC_STATIC) != 0);
+	aop_put_bool(d, aop_k_internal, func->type == ZEND_INTERNAL_FUNCTION);
 
 	if (mode != AOP_DESC_MATCH && caller && ZEND_USER_CODE(caller->func->type)) {
 		zval c;
 		aop_caller_array(&c, caller, mode == AOP_DESC_FULL);
-		add_assoc_zval_ex(d, ZEND_STRL("caller"), &c);
+		aop_put(d, aop_k_caller, &c);
 	} else {
-		add_assoc_null_ex(d, ZEND_STRL("caller"));
+		aop_put_null(d, aop_k_caller);
 	}
 
 	if (mode == AOP_DESC_FULL && is_ctor) {
@@ -183,7 +217,7 @@ static void aop_descriptor(zval *d, zend_function *func, zend_class_entry *calle
 				&& Z_OBJ(caller->This) == this_obj) {
 			outermost = false;
 		}
-		add_assoc_bool_ex(d, ZEND_STRL("outermost"), outermost);
+		aop_put_bool(d, aop_k_outermost, outermost);
 	}
 }
 /* }}} */
@@ -729,18 +763,18 @@ static size_t aop_jp_key_build(const aop_jp *jp, zend_execute_data *caller, char
 static void aop_jp_descriptor(zval *d, const aop_jp *jp, zend_execute_data *caller, aop_desc_mode mode)
 {
 	array_init_size(d, 9);
-	add_assoc_string_ex(d, ZEND_STRL("kind"), jp->kind);
-	aop_add_class_name(d, ZEND_STRL("class"), jp->class_);
-	aop_add_class_name(d, ZEND_STRL("scope"), jp->scope);
-	add_assoc_str_ex(d, ZEND_STRL("name"), zend_string_copy(jp->name));
-	add_assoc_bool_ex(d, ZEND_STRL("static"), jp->is_static);
-	add_assoc_bool_ex(d, ZEND_STRL("internal"), jp->internal);
+	{ zval kv; ZVAL_STRING(&kv, jp->kind); aop_put(d, aop_k_kind, &kv); }
+	aop_add_class_name(d, aop_k_class, jp->class_);
+	aop_add_class_name(d, aop_k_scope, jp->scope);
+	aop_put_str(d, aop_k_name, zend_string_copy(jp->name));
+	aop_put_bool(d, aop_k_static, jp->is_static);
+	aop_put_bool(d, aop_k_internal, jp->internal);
 	if (mode != AOP_DESC_MATCH && caller && caller->func && ZEND_USER_CODE(caller->func->type)) {
 		zval c;
 		aop_caller_array(&c, caller, mode == AOP_DESC_FULL);
-		add_assoc_zval_ex(d, ZEND_STRL("caller"), &c);
+		aop_put(d, aop_k_caller, &c);
 	} else {
-		add_assoc_null_ex(d, ZEND_STRL("caller"));
+		aop_put_null(d, aop_k_caller);
 	}
 }
 
@@ -883,6 +917,21 @@ bool aop_current_code_in_aop_ns(void)
 /* {{{ lifecycle */
 void aop_engine_minit(void)
 {
+	aop_k_kind = zend_string_init_interned(ZEND_STRL("kind"), 1);
+	aop_k_class = zend_string_init_interned(ZEND_STRL("class"), 1);
+	aop_k_scope = zend_string_init_interned(ZEND_STRL("scope"), 1);
+	aop_k_name = zend_string_init_interned(ZEND_STRL("name"), 1);
+	aop_k_static = zend_string_init_interned(ZEND_STRL("static"), 1);
+	aop_k_internal = zend_string_init_interned(ZEND_STRL("internal"), 1);
+	aop_k_caller = zend_string_init_interned(ZEND_STRL("caller"), 1);
+	aop_k_outermost = zend_string_init_interned(ZEND_STRL("outermost"), 1);
+	aop_k_function = zend_string_init_interned(ZEND_STRL("function"), 1);
+	aop_k_file = zend_string_init_interned(ZEND_STRL("file"), 1);
+	aop_k_line = zend_string_init_interned(ZEND_STRL("line"), 1);
+	aop_k_object = zend_string_init_interned(ZEND_STRL("object"), 1);
+	aop_v_ctor = zend_string_init_interned(ZEND_STRL("constructor-execution"), 1);
+	aop_v_method = zend_string_init_interned(ZEND_STRL("method-execution"), 1);
+	aop_v_function = zend_string_init_interned(ZEND_STRL("function-execution"), 1);
 	aop_engine_ce->ce_flags |= ZEND_ACC_NO_DYNAMIC_PROPERTIES | ZEND_ACC_NOT_SERIALIZABLE;
 
 	aop_original_call_ce->ce_flags |= ZEND_ACC_NO_DYNAMIC_PROPERTIES | ZEND_ACC_NOT_SERIALIZABLE;
