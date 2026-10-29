@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Faster dispatch of advised calls.
+  The engine builds the join point descriptor with interned keys (no per-call hashing or key allocation), answers the woven prologue and internal calls without the join point checks while nothing is registered, and tests the `AOP\` namespace inline.
+  The PHP runtime skips the argument normalizer for complete positional argument lists, builds its plan cache key without `implode()`, avoids the `WeakMap` lookups until an instance service or per-object advice exists, creates the call-chain closure only when a call join point applies, and keeps `AopContext` on the main stack without copying it.
+  The raw dispatch (`pass` in the benchmarks) drops from 465 ns to 293 ns per call, a before advice through the Weaver from 5.7 µs to 3.6 µs per call (PHP 8.3, `woven`, `opcache.jit=tracing`).
+  See [docs/benchmarks.md](docs/benchmarks.md#dispatch-fast-path).
+- Benchmark suite: new state `advised` (a before advice on every function and method through the Weaver), opt-in via `CELLS`.
+
 ## [0.1.0] - 2026-10-28
 
 ### Added
